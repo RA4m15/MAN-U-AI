@@ -52,6 +52,16 @@ export async function connectDatabase(overrideUri?: string): Promise<boolean> {
     ? (process.env.TEST_MONGODB_URI || "mongodb://localhost:27017/manuai_test")
     : env.MONGODB_URI);
 
+  // Safety guard: Fail fast if test environment ever points to live production Atlas cluster
+  if (process.env.NODE_ENV === "test") {
+    const isLiveAtlas = uri.includes(".mongodb.net") || uri.includes("mongodb+srv:");
+    if (isLiveAtlas) {
+      throw new Error(
+        `[Database Safety Violation] Test suite attempted to connect to live production Atlas database (${sanitizeMongoMessage(uri)}). Tests must use a dedicated local test database (e.g. 'manuai_test').`
+      );
+    }
+  }
+
   try {
     mongoose.set("strictQuery", true);
     await mongoose.connect(uri, {

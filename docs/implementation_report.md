@@ -847,3 +847,70 @@ git diff --check
   - **Google Gemini API:** Configured via `GEMINI_API_KEY`. Free tier limit is 20 requests/day for generation; integration test uses `countTokens` probe to avoid consuming generation quota.
   - **Cloudinary:** Configured via server-side credentials; live connection probe tests authenticated API ping.
   - **Unconfigured Industrial Connectors:** OPC-UA, Modbus TCP, SAP ERP, and IBM Maximo are unconfigured in this environment. They truthfully report `not_configured` or `not_implemented` and are blocked from claiming fake connection success.
+
+---
+
+## 15. STAGE 3.1: AUTHORITATIVE RUNTIME SETTINGS, MODEL ALLOWLIST, INTEGRATION ACCESS & GENAI SDK MIGRATION
+
+**Verification Date:** October 19, 2026
+**Baseline Commit:** `b1a1b4f9fde1ff3c5cf790abc3aa04b20fa3bfd7`
+**Goal:** Make MongoDB settings authoritative for RAG immediately upon application startup without requiring a prior GET /settings call; eliminate retired Gemini model IDs from the server allowlist; secure integration probes with administrative role gating, rate limiting, timer cleanup, and error sanitization; migrate backend AI services from the deprecated `@google/generative-ai` package to the unified `@google/genai` SDK; and enforce fail-fast test guards against live Atlas databases.
+
+### Verified Architectural Implementations
+
+1. **Authoritative Settings Service & Cold-Boot Persistence (`apps/api/src/services/settings.service.ts`, `apps/api/src/routes/settings.routes.ts`, `apps/api/src/services/rag.service.ts`):**
+   - **Centralized Service:** Created `SettingsService` as the single authoritative source of truth managing application preferences.
+   - **Database-First Persistence:** Cache updates occur exclusively after MongoDB confirms persistence.
+   - **Cold-Boot RAG Adherence:** `ragService.answerQuestion` asynchronously retrieves authoritative settings via `settingsService.getEffectiveSettings()`. Settings persisted in MongoDB apply to RAG immediately after application startup or restart without requiring a prior `GET /settings` request.
+   - **Fail-Closed Retrieval:** `GET /settings` checks database connectivity and returns HTTP 503 `SERVICE_UNAVAILABLE` when MongoDB is disconnected or HTTP 500 when queries fail, never silently returning in-memory defaults with a false 200 OK.
+   - **Default Initialization:** Defaults are initialized and persisted only when MongoDB is healthy and no saved settings record exists.
+
+2. **Model Allowlist Sanitization & Deprecated Model Removal (`apps/api/src/services/settings.service.ts`, `apps/api/src/routes/settings.routes.ts`, `apps/web/src/pages/SettingsPage.tsx`):**
+   - **Retired Model Removal:** Completely removed shut-down model IDs (`gemini-1.5-flash`, `gemini-1.5-pro`, `gemini-2.0-flash`) from `SUPPORTED_MODELS` and the frontend selection menu.
+   - **Retained & Active Models:** Allowlist strictly restricted to currently supported models: `gemini-3.8-flash` (default workhorse), `gemini-3.6-flash`, and `gemini-4-argon`.
+   - **Validation & Fallback Guard:** `PUT /settings` rejects retired models with HTTP 400 `VALIDATION_ERROR`. `geminiService.generateAnswer` checks requested models against `SUPPORTED_MODELS` and logs a warning while falling back safely to the active production model (`gemini-3.8-flash`).
+   - **Preserved Embeddings:** Embedding model (`gemini-embedding-001`, 768 dimensions) preserved without altering existing chunk embeddings.
+
+3. **Secure Integration Probes & Timer Cleanup (`apps/api/src/routes/integrations.routes.ts`):**
+   - **Admin-Only Access:** `POST /api/v1/integrations/:id/test` restricted strictly to administrators (`requireRole(["admin"])`). Viewers and engineers are rejected with HTTP 403 `FORBIDDEN`.
+   - **Rate Limiting:** Added `integrationTestLimiter` (30 probes per 15 minutes per IP) to prevent external API quota exhaustion.
+   - **Timer Lifecycle Hygiene:** Fixed `withTimeout()` to explicitly cancel its timer via `clearTimeout` when underlying promises settle, preventing leaked timer handles.
+   - **Error Sanitization:** Sanitized provider error outputs; API keys, passwords, database connection strings, and signed URLs are redacted.
+   - **Local Storage Writeability:** Probed and verified via actual write-and-unlink canary files rather than checking directory presence alone.
+   - **IANA Timezone Validation:** Added strict validation ensuring timezone settings represent valid IANA identifiers (e.g. `UTC`, `Asia/Kolkata`, `America/New_York`). Added clear UI labels explaining that facility name and timezone are stored administrative configuration.
+
+4. **SDK Migration to `@google/genai` (`apps/api/src/services/gemini.service.ts`, `apps/api/package.json`):**
+   - Replaced legacy `@google/generative-ai` SDK with the official unified `@google/genai` (v2.30.0).
+   - Migrated `embedContent` for 768-dimensional vector generation.
+   - Migrated `generateContent` with system instructions, temperature, and model selection.
+   - Migrated multimodal PDF vision OCR (`transcribePdfWithOcr`) using base64 inline buffers.
+   - Migrated lightweight connection testing (`ai.models.countTokens`) in `integrations.routes.ts`.
+   - Handled SDK deadlines with conforming timeouts.
+
+5. **Test Safety Guard (`apps/api/src/config/database.ts`):**
+   - Added a fail-fast assertion in `connectDatabase()` when `NODE_ENV === "test"` preventing any test from connecting to live production Atlas clusters (`.mongodb.net` or `mongodb+srv:`).
+
+### Verification Test & Build Results
+
+- **Backend Test Suite:** `pnpm --filter @man-u-ai/api test --run`
+  - **Status:** PASSED (12/12 test files, 109/109 tests passed, 0 failures)
+  - Proves: Cold-boot RAG parameter loading without `GET /settings`, 503 fail-closed on disconnected DB, rejection of retired models (`gemini-1.5-flash`, `gemini-1.5-pro`, `gemini-2.0-flash`), rejection of invalid timezones, admin-only access on `/integrations/:id/test` (403 for viewer/engineer), rate limiting, `withTimeout` timer clearing, `@google/genai` embedding generation (768-dim), generation fallback, and multimodal OCR parsing.
+- **Frontend Test Suite:** `pnpm --filter @man-u-ai/web test`
+  - **Status:** PASSED (2/2 test files, 21/21 tests passed, 0 failures)
+  - Proves: Active model allowlist select options rendering, form validation, equipment blank field submission sanitization, and WebSocket resolution.
+- **Shared Package Build:** `pnpm --filter @man-u-ai/shared build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **API Service Build:** `pnpm --filter @man-u-ai/api build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **Web Frontend Build:** `pnpm --filter @man-u-ai/web build`
+  - **Status:** PASSED (`tsc -b && vite build` exit code 0)
+- **Git Whitespace & Diff Check:** `git diff --check`
+  - **Status:** PASSED (0 whitespace errors)
+
+### Separation of Automated Unit/Mocked Tests vs. Live Operational Checks
+- **Automated Tests:** Execute against isolated local test database `manuai_test` and mocked external SDK calls (Google GenAI, Cloudinary ping).
+- **Live Integrations & Unconfigured Connectors:**
+  - **MongoDB Atlas:** Verified read-only connection check against live cluster in development environment; live cluster blocked from unit tests by safety assertion.
+  - **Google Gemini API:** Configured via `GEMINI_API_KEY`. Free tier limit is 20 requests/day for generation; tests mock SDK calls to prevent quota depletion.
+  - **Cloudinary:** Configured via server-side credentials; live connection probe tests authenticated API ping.
+  - **Unconfigured Industrial Connectors:** OPC-UA, Modbus TCP, SAP ERP, and IBM Maximo are unconfigured in this environment. They truthfully report `not_configured` or `not_implemented` and are blocked from claiming fake connection success.

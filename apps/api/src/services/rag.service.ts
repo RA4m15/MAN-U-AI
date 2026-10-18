@@ -80,9 +80,9 @@ export class RagService {
     // 2. Generate query embedding
     const queryEmbedding = await geminiService.generateEmbedding(query);
 
-    // Load active persistent / runtime settings
-    const { getActiveRuntimeSettings } = await import("../routes/settings.routes");
-    const activeSettings = getActiveRuntimeSettings();
+    // Load authoritative persistent settings (retrieved from MongoDB on startup/restart)
+    const { settingsService } = await import("./settings.service");
+    const activeSettings = await settingsService.getEffectiveSettings();
 
     // 3. Retrieve relevant chunks via hybrid search (filtered to authorized documents)
     const retrieved = await vectorService.searchSimilar(

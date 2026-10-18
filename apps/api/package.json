@@ -13,7 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
+    "@google/genai": "^2.30.0",
     "@man-u-ai/shared": "workspace:*",
     "bcryptjs": "^2.4.3",
     "bull": "^4.16.3",

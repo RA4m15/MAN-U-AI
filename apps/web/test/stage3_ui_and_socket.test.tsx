@@ -123,12 +123,12 @@ describe("Stage 3 Web UI & Data-Integrity Tests", () => {
           success: true,
           data: {
             facilityName: "Refinery Plant Alpha",
-            timezone: "UTC+00:00 (GMT)",
-            selectedModel: "gemini-1.5-pro",
+            timezone: "UTC",
+            selectedModel: "gemini-3.6-flash",
             temperature: 0.15,
             topK: 4,
             similarityThreshold: 0.65,
-            supportedModels: ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-3.8-flash"],
+            supportedModels: ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-4-argon"],
           },
         },
       } as any);
@@ -138,7 +138,7 @@ describe("Stage 3 Web UI & Data-Integrity Tests", () => {
       await waitFor(() => {
         const facilityInput = screen.getByDisplayValue("Refinery Plant Alpha");
         expect(facilityInput).toBeDefined();
-        const timezoneInput = screen.getByDisplayValue("UTC+00:00 (GMT)");
+        const timezoneInput = screen.getByDisplayValue("UTC");
         expect(timezoneInput).toBeDefined();
       });
 
@@ -147,7 +147,7 @@ describe("Stage 3 Web UI & Data-Integrity Tests", () => {
       fireEvent.click(aiTabBtn);
 
       await waitFor(() => {
-        const modelSelect = screen.getByDisplayValue(/Google Gemini 1.5 Pro/i);
+        const modelSelect = screen.getByDisplayValue(/Google Gemini 3.6 Flash/i);
         expect(modelSelect).toBeDefined();
       });
     });

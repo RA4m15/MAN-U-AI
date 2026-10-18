@@ -356,6 +356,9 @@ export function SettingsPage() {
                 onChange={(e) => setFacilityName(e.target.value)}
                 className="input"
               />
+              <p className="text-2xs text-ink-tertiary mt-1">
+                Stored plant configuration preference (currently has no runtime scheduling consumer).
+              </p>
             </div>
 
             <div>
@@ -368,6 +371,9 @@ export function SettingsPage() {
                 onChange={(e) => setTimezone(e.target.value)}
                 className="input text-xs"
               />
+              <p className="text-2xs text-ink-tertiary mt-1">
+                Must be a valid IANA time zone identifier (e.g. 'UTC', 'Asia/Kolkata', 'America/New_York'). Stored as facility configuration.
+              </p>
             </div>
           </div>
         </div>
@@ -393,13 +399,11 @@ export function SettingsPage() {
                 {supportedModels.map((m) => (
                   <option key={m} value={m}>
                     {m === "gemini-3.8-flash"
-                      ? "Google Gemini Live Engine (gemini-3.8-flash)"
-                      : m === "gemini-1.5-pro"
-                      ? "Google Gemini 1.5 Pro (Deep Schematic Analysis)"
-                      : m === "gemini-1.5-flash"
-                      ? "Google Gemini 1.5 Flash (Fast Multimodal Engine)"
-                      : m === "gemini-2.0-flash"
-                      ? "Google Gemini 2.0 Flash (Next-Gen Industrial Reasoner)"
+                      ? "Google Gemini 3.8 Flash (High-Throughput Industrial Workhorse)"
+                      : m === "gemini-3.6-flash"
+                      ? "Google Gemini 3.6 Flash (Low-Latency Technical Reasoner)"
+                      : m === "gemini-4-argon"
+                      ? "Google Gemini 4 Argon (Advanced Agentic & Schematic Reasoning)"
                       : m}
                   </option>
                 ))}

@@ -1,5 +1,6 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import { env } from "../config/env";
+import { SUPPORTED_MODELS } from "./settings.service";
 
 export interface GenerationOptions {
   model?: string;
@@ -26,12 +27,17 @@ function safeErrorMsg(err: unknown): string {
 }
 
 export class GeminiService {
-  private client: GoogleGenerativeAI | null = null;
+  private ai: GoogleGenAI | null = null;
+  public client: any = null;
   private lastProvider: "live-gemini" | "deterministic-fallback" = "deterministic-fallback";
 
   constructor() {
     if (env.GEMINI_API_KEY && env.GEMINI_API_KEY.length > 5) {
-      this.client = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+      this.ai = new GoogleGenAI({
+        apiKey: env.GEMINI_API_KEY,
+        httpOptions: { timeout: 10000 },
+      });
+      this.client = this.ai;
     }
   }
 
@@ -40,7 +46,7 @@ export class GeminiService {
   }
 
   isLiveClientConfigured(): boolean {
-    return this.client !== null;
+    return this.ai !== null && this.client !== null;
   }
 
   /**
@@ -49,16 +55,19 @@ export class GeminiService {
    * deterministic fallback embeddings with real vector space embeddings.
    */
   async generateEmbedding(text: string): Promise<number[]> {
-    if (this.client) {
+    if (this.isLiveClientConfigured() && this.ai) {
       try {
-        const model = this.client.getGenerativeModel({ model: env.GEMINI_EMBEDDING_MODEL });
-        const result = await model.embedContent({
-          content: { role: "user", parts: [{ text }] },
-          outputDimensionality: 768,
-        } as any);
-        if (result.embedding?.values && result.embedding.values.length === 768) {
+        const response = await this.ai.models.embedContent({
+          model: env.GEMINI_EMBEDDING_MODEL,
+          contents: text,
+          config: {
+            outputDimensionality: 768,
+          },
+        });
+        const values = (response as any).embedding?.values || (response as any).embeddings?.[0]?.values;
+        if (Array.isArray(values) && values.length === 768) {
           this.lastProvider = "live-gemini";
-          return result.embedding.values;
+          return values;
         }
       } catch (err) {
         const msg = safeErrorMsg(err);
@@ -82,21 +91,31 @@ export class GeminiService {
 
   /**
    * Generates response text from multimodal context or prompt.
+   * Model selection is validated against the active allowlist. Retired/deprecated models
+   * are rejected or replaced with the configured production model.
    */
   async generateAnswer(prompt: string, options?: GenerationOptions): Promise<string> {
-    if (this.client) {
+    let targetModel = options?.model || env.GEMINI_MODEL;
+    // Reject retired/deprecated models or models not on the server allowlist
+    if (!(SUPPORTED_MODELS as readonly string[]).includes(targetModel)) {
+      console.warn(
+        `[GeminiService] Requested model '${targetModel}' is retired or unsupported; using '${env.GEMINI_MODEL}'`
+      );
+      targetModel = env.GEMINI_MODEL;
+    }
+
+    if (this.isLiveClientConfigured()) {
       try {
-        const model = this.client.getGenerativeModel({
-          model: options?.model || env.GEMINI_MODEL,
-          generationConfig: {
+        const response = await this.ai!.models.generateContent({
+          model: targetModel,
+          contents: prompt,
+          config: {
             temperature: options?.temperature ?? 0.2,
+            systemInstruction: options?.systemInstruction,
           },
-          systemInstruction: options?.systemInstruction,
         });
 
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
+        const text = response.text;
         if (text && text.trim().length > 0) {
           this.lastProvider = "live-gemini";
           return text;
@@ -119,31 +138,31 @@ export class GeminiService {
    * Transcribes scanned PDF documents using Gemini multimodal vision OCR.
    */
   async transcribePdfWithOcr(pdfBuffer: Buffer): Promise<string> {
-    if (!this.client) {
+    if (!this.isLiveClientConfigured() || !this.ai) {
       throw new Error("Optical character recognition (OCR) unavailable: Gemini multimodal client is not configured.");
     }
 
     try {
-      const model = this.client.getGenerativeModel({
+      const base64Data = pdfBuffer.toString("base64");
+      const response = await this.ai.models.generateContent({
         model: env.GEMINI_MODEL,
-        generationConfig: { temperature: 0.1 },
+        contents: [
+          {
+            inlineData: {
+              data: base64Data,
+              mimeType: "application/pdf",
+            },
+          },
+          {
+            text: "Perform optical character recognition (OCR) on this scanned industrial document. Transcribe the text verbatim, preserving page numbers in the format '--- PAGE X ---' and technical headings. Do not summarize or invent text.",
+          },
+        ],
+        config: {
+          temperature: 0.1,
+        },
       });
 
-      const base64Data = pdfBuffer.toString("base64");
-      const result = await model.generateContent([
-        {
-          inlineData: {
-            data: base64Data,
-            mimeType: "application/pdf",
-          },
-        },
-        {
-          text: "Perform optical character recognition (OCR) on this scanned industrial document. Transcribe the text verbatim, preserving page numbers in the format '--- PAGE X ---' and technical headings. Do not summarize or invent text.",
-        },
-      ]);
-
-      const response = await result.response;
-      const text = response.text();
+      const text = response.text;
       if (!text || text.trim().length === 0) {
         throw new Error("OCR returned empty text.");
       }
