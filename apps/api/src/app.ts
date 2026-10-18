@@ -13,6 +13,8 @@ import { analyticsRouter } from "./routes/analytics.routes";
 import { usersRouter } from "./routes/users.routes";
 import { feedbackRouter } from "./routes/feedback.routes";
 import { healthRouter } from "./routes/health.routes";
+import { settingsRouter } from "./routes/settings.routes";
+import { integrationsRouter } from "./routes/integrations.routes";
 
 export const app = express();
 
@@ -84,6 +86,8 @@ apiV1.use("/conversations", conversationsRouter);
 apiV1.use("/equipment", equipmentRouter);
 apiV1.use("/", analyticsRouter);
 apiV1.use("/feedback", feedbackRouter);
+apiV1.use("/settings", settingsRouter);
+apiV1.use("/integrations", integrationsRouter);
 
 app.use("/api/v1", apiV1);
 

@@ -80,8 +80,18 @@ export class RagService {
     // 2. Generate query embedding
     const queryEmbedding = await geminiService.generateEmbedding(query);
 
+    // Load active persistent / runtime settings
+    const { getActiveRuntimeSettings } = await import("../routes/settings.routes");
+    const activeSettings = getActiveRuntimeSettings();
+
     // 3. Retrieve relevant chunks via hybrid search (filtered to authorized documents)
-    const retrieved = await vectorService.searchSimilar(queryEmbedding, query, 5, 0.40, permittedDocIds);
+    const retrieved = await vectorService.searchSimilar(
+      queryEmbedding,
+      query,
+      activeSettings.topK,
+      activeSettings.similarityThreshold,
+      permittedDocIds
+    );
 
     // 4. Check for insufficient evidence
     if (retrieved.length === 0) {
@@ -137,7 +147,8 @@ Respond in clean GitHub Markdown:`;
     let answer: string;
     try {
       answer = await geminiService.generateAnswer(prompt, {
-        temperature: 0.2,
+        model: activeSettings.selectedModel,
+        temperature: activeSettings.temperature,
         systemInstruction: "You are an industrial maintenance AI assistant. Ground all claims in the provided documentation.",
       });
     } catch (err: unknown) {

@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { env } from "../config/env";
 
 export interface GenerationOptions {
+  model?: string;
   temperature?: number;
   systemInstruction?: string;
 }
@@ -86,7 +87,7 @@ export class GeminiService {
     if (this.client) {
       try {
         const model = this.client.getGenerativeModel({
-          model: env.GEMINI_MODEL,
+          model: options?.model || env.GEMINI_MODEL,
           generationConfig: {
             temperature: options?.temperature ?? 0.2,
           },

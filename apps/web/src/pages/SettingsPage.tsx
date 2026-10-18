@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -19,7 +19,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@man-u-ai/shared";
-import { usersApi } from "@/lib/api";
+import { usersApi, settingsApi } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface UserRecord {
   id: string;
@@ -36,16 +37,72 @@ export function SettingsPage() {
   const [savedNotice, setSavedNotice] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
-  // Model parameters state (client-side preference preview for Stage 3)
+  // Persistent settings state
   const [selectedModel, setSelectedModel] = useState("gemini-3.8-flash");
   const [temperature, setTemperature] = useState(0.2);
   const [topK, setTopK] = useState(5);
-  const [similarityThreshold, setSimilarityThreshold] = useState(0.75);
-
-  // Facility state
+  const [similarityThreshold, setSimilarityThreshold] = useState(0.5);
   const [facilityName, setFacilityName] = useState("MAN-U-AI Heavy Operations Facility Alpha");
   const [timezone, setTimezone] = useState("UTC+05:30 (IST)");
+  const [supportedModels, setSupportedModels] = useState<string[]>([
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-2.0-flash",
+    "gemini-3.8-flash",
+  ]);
+
+  // Load persistent settings from backend
+  const {
+    data: settingsResp,
+    isLoading: settingsLoading,
+    isError: settingsError,
+    error: settingsErrorObj,
+    refetch: refetchSettings,
+  } = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => settingsApi.get(),
+  });
+
+  useEffect(() => {
+    if (settingsResp?.data?.data) {
+      const s = settingsResp.data.data;
+      if (s.facilityName) setFacilityName(s.facilityName);
+      if (s.timezone) setTimezone(s.timezone);
+      if (s.selectedModel) setSelectedModel(s.selectedModel);
+      if (typeof s.temperature === "number") setTemperature(s.temperature);
+      if (typeof s.topK === "number") setTopK(s.topK);
+      if (typeof s.similarityThreshold === "number") setSimilarityThreshold(s.similarityThreshold);
+      if (Array.isArray(s.supportedModels) && s.supportedModels.length > 0) {
+        setSupportedModels(s.supportedModels);
+      }
+    }
+  }, [settingsResp]);
+
+  const saveSettingsMutation = useMutation({
+    mutationFn: (data: {
+      facilityName: string;
+      timezone: string;
+      selectedModel: string;
+      temperature: number;
+      topK: number;
+      similarityThreshold: number;
+    }) => settingsApi.update(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+      setSavedNotice(true);
+      setErrorMessage(null);
+      setTimeout(() => setSavedNotice(false), 3000);
+    },
+    onError: (err: any) => {
+      setErrorMessage(
+        err.response?.data?.error?.message || "Failed to persist settings to database. Administrator permissions required."
+      );
+      setSavedNotice(false);
+    },
+  });
 
   // Form for adding new user (NEVER prefill password)
   const [newUserName, setNewUserName] = useState("");
@@ -129,8 +186,19 @@ export function SettingsPage() {
   });
 
   const handleSave = () => {
-    setSavedNotice(true);
-    setTimeout(() => setSavedNotice(false), 2500);
+    if (!isAdmin) {
+      setErrorMessage("Unauthorized: Site Administrator privileges required to change facility settings.");
+      return;
+    }
+    setErrorMessage(null);
+    saveSettingsMutation.mutate({
+      facilityName,
+      timezone,
+      selectedModel,
+      temperature,
+      topK,
+      similarityThreshold,
+    });
   };
 
   const handleAddUser = (e: React.FormEvent) => {
@@ -179,14 +247,58 @@ export function SettingsPage() {
           </p>
         </div>
 
-        <button
-          onClick={handleSave}
-          className="btn-primary self-start sm:self-auto flex items-center gap-2 text-xs"
-        >
-          {savedNotice ? <CheckCircle2 size={14} className="text-success" /> : <Save size={14} />}
-          <span>{savedNotice ? "Preferences Saved" : "Save Preferences"}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {!isAdmin && (
+            <span className="text-2xs text-ink-tertiary hidden sm:inline flex items-center gap-1">
+              <Lock size={12} /> Read-only (Admin required to edit)
+            </span>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saveSettingsMutation.isPending || settingsLoading}
+            className={cn(
+              "btn-primary self-start sm:self-auto flex items-center gap-2 text-xs",
+              !isAdmin && "opacity-60 cursor-not-allowed"
+            )}
+            title={!isAdmin ? "Administrator role required to modify preferences" : "Persist settings to database"}
+          >
+            {saveSettingsMutation.isPending ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : savedNotice ? (
+              <CheckCircle2 size={14} className="text-success" />
+            ) : (
+              <Save size={14} />
+            )}
+            <span>
+              {saveSettingsMutation.isPending
+                ? "Saving..."
+                : savedNotice
+                ? "Preferences Persisted"
+                : "Save Preferences"}
+            </span>
+          </button>
+        </div>
       </div>
+
+      {/* Settings Loading / Error Notices */}
+      {settingsLoading && (
+        <div className="p-3 rounded-lg bg-surface-2 border border-hairline text-xs text-ink-subtle flex items-center gap-2">
+          <Loader2 size={14} className="animate-spin text-primary" />
+          <span>Loading persistent application settings from database...</span>
+        </div>
+      )}
+
+      {settingsError && (
+        <div className="p-3 rounded-lg bg-danger/10 border border-danger/30 text-xs text-danger flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={15} />
+            <span>Failed to load persistent settings from database.</span>
+          </div>
+          <button onClick={() => refetchSettings()} className="btn-secondary text-2xs py-1 px-2 flex items-center gap-1">
+            <RefreshCw size={11} /> Retry
+          </button>
+        </div>
+      )}
 
       {/* Global Error Notice */}
       {errorMessage && (
@@ -278,8 +390,19 @@ export function SettingsPage() {
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className="input text-xs"
               >
-                <option value="gemini-3.8-flash">Google Gemini Live Engine (gemini-3.8-flash)</option>
-                <option value="gemini-1.5-pro">Google Gemini 1.5 Pro (Deep Schematic Analysis)</option>
+                {supportedModels.map((m) => (
+                  <option key={m} value={m}>
+                    {m === "gemini-3.8-flash"
+                      ? "Google Gemini Live Engine (gemini-3.8-flash)"
+                      : m === "gemini-1.5-pro"
+                      ? "Google Gemini 1.5 Pro (Deep Schematic Analysis)"
+                      : m === "gemini-1.5-flash"
+                      ? "Google Gemini 1.5 Flash (Fast Multimodal Engine)"
+                      : m === "gemini-2.0-flash"
+                      ? "Google Gemini 2.0 Flash (Next-Gen Industrial Reasoner)"
+                      : m}
+                  </option>
+                ))}
               </select>
             </div>
 

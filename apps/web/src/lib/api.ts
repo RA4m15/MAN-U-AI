@@ -2,7 +2,31 @@ import axios from "axios";
 import { io, Socket } from "socket.io-client";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "/api/v1";
-const WS_URL = import.meta.env.VITE_WS_URL ?? "http://localhost:4000";
+
+export function resolveWebSocketUrl(): string {
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL;
+  }
+  // In development mode, default to localhost:4000
+  if (!import.meta.env.PROD) {
+    return "http://localhost:4000";
+  }
+  // In production: derive WebSocket URL from API URL or window.location.origin
+  const apiUrl = import.meta.env.VITE_API_URL;
+  if (apiUrl && (apiUrl.startsWith("http://") || apiUrl.startsWith("https://"))) {
+    try {
+      return new URL(apiUrl).origin;
+    } catch {
+      // ignore
+    }
+  }
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+  throw new Error(
+    "Missing production WebSocket configuration: VITE_WS_URL is required when origin cannot be derived."
+  );
+}
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -24,6 +48,7 @@ apiClient.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
+      disconnectSocket();
       localStorage.removeItem("manuai_token");
       localStorage.removeItem("manuai_user");
       if (window.location.pathname !== "/login") {
@@ -36,11 +61,26 @@ apiClient.interceptors.response.use(
 
 // ── Authenticated Socket.IO Client ─────────────────────────────────────────
 let socketInstance: Socket | null = null;
+let activeSocketToken: string | null = null;
+
+export function disconnectSocket(): void {
+  if (socketInstance) {
+    socketInstance.disconnect();
+    socketInstance = null;
+    activeSocketToken = null;
+  }
+}
 
 export function getSocket(): Socket {
+  const token = typeof localStorage !== "undefined" ? localStorage.getItem("manuai_token") || "" : "";
+  if (socketInstance && activeSocketToken !== token) {
+    disconnectSocket();
+  }
+
   if (!socketInstance) {
-    const token = localStorage.getItem("manuai_token") || "";
-    socketInstance = io(WS_URL, {
+    const wsUrl = resolveWebSocketUrl();
+    activeSocketToken = token;
+    socketInstance = io(wsUrl, {
       auth: { token },
       reconnection: true,
       reconnectionAttempts: 10,
@@ -134,8 +174,20 @@ export const analyticsApi = {
   summaries: () => apiClient.get("/summaries"),
   generateSummary: (summaryType: string, focusArea: string) =>
     apiClient.post("/summaries/generate", { summaryType, focusArea }),
-  insights: () => apiClient.get("/analytics/insights"),
+  insights: (range = "all") => apiClient.get("/analytics/insights", { params: { range } }),
   activity: (action?: string) => apiClient.get("/audit", { params: { action } }),
+};
+
+// ── Settings ──────────────────────────────────────────────────────────────
+export const settingsApi = {
+  get: () => apiClient.get("/settings"),
+  update: (data: unknown) => apiClient.put("/settings", data),
+};
+
+// ── Integrations ──────────────────────────────────────────────────────────
+export const integrationsApi = {
+  status: () => apiClient.get("/integrations/status"),
+  test: (id: string) => apiClient.post(`/integrations/${id}/test`),
 };
 
 // ── Health / System Status ────────────────────────────────────────────────

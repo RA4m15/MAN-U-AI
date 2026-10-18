@@ -35,8 +35,8 @@ export const User = mongoose.model<IUser>("User", UserSchema);
 export interface IEquipment {
   name: string;
   type: string;
-  model: string;
-  manufacturer: string;
+  model?: string;
+  manufacturer?: string;
   serialNumber?: string;
   location?: string;
   documentIds: string[];
@@ -49,8 +49,8 @@ const EquipmentSchema = new Schema<IEquipment>(
   {
     name: { type: String, required: true, trim: true },
     type: { type: String, required: true },
-    model: { type: String, required: true },
-    manufacturer: { type: String, required: true },
+    model: { type: String },
+    manufacturer: { type: String },
     serialNumber: { type: String },
     location: { type: String },
     documentIds: [{ type: Schema.Types.ObjectId, ref: "Document" }],
@@ -352,3 +352,31 @@ const SummarySchema = new Schema<ISummary>(
 );
 
 export const SummaryModel = mongoose.model<ISummary>("Summary", SummarySchema);
+
+// ── 13. Facility / Application Settings Model ──────────────────────────────
+export interface IFacilitySettings extends MongooseDocument {
+  facilityName: string;
+  timezone: string;
+  selectedModel: string;
+  temperature: number;
+  topK: number;
+  similarityThreshold: number;
+  updatedBy?: mongoose.Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const FacilitySettingsSchema = new Schema<IFacilitySettings>(
+  {
+    facilityName: { type: String, default: "MAN-U-AI Heavy Operations Facility Alpha" },
+    timezone: { type: String, default: "UTC+05:30 (IST)" },
+    selectedModel: { type: String, default: "gemini-3.8-flash" },
+    temperature: { type: Number, default: 0.2 },
+    topK: { type: Number, default: 5 },
+    similarityThreshold: { type: Number, default: 0.5 },
+    updatedBy: { type: Schema.Types.ObjectId, ref: "User" },
+  },
+  { timestamps: true }
+);
+
+export const FacilitySettings = mongoose.model<IFacilitySettings>("FacilitySettings", FacilitySettingsSchema);

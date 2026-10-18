@@ -98,8 +98,8 @@ export function EquipmentPage() {
     mutationFn: (data: {
       name: string;
       type: string;
-      model: string;
-      manufacturer: string;
+      model?: string;
+      manufacturer?: string;
       serialNumber?: string;
       location?: string;
     }) => equipmentApi.create(data),
@@ -159,8 +159,8 @@ export function EquipmentPage() {
     createMutation.mutate({
       name: formName.trim(),
       type: formType,
-      model: formModel.trim() || "Not provided",
-      manufacturer: formManufacturer.trim() || "Not provided",
+      model: formModel.trim() || undefined,
+      manufacturer: formManufacturer.trim() || undefined,
       serialNumber: formSerial.trim() || undefined,
       location: formLocation.trim() || undefined,
     });

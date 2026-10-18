@@ -115,8 +115,8 @@ export interface EquipmentDTO {
   id: string;
   name: string;
   type: string;
-  model: string;
-  manufacturer: string;
+  model?: string;
+  manufacturer?: string;
   serialNumber?: string;
   location?: string;
   documentIds: string[];
@@ -126,8 +126,8 @@ export interface EquipmentDTO {
 export const CreateEquipmentSchema = z.object({
   name: z.string().min(1).max(255),
   type: z.string().min(1),
-  model: z.string().min(1),
-  manufacturer: z.string().min(1),
+  model: z.string().optional(),
+  manufacturer: z.string().optional(),
   serialNumber: z.string().optional(),
   location: z.string().optional(),
 });
@@ -141,6 +141,37 @@ export const FeedbackSchema = z.object({
   comment: z.string().max(1000).optional(),
 });
 export type FeedbackInput = z.infer<typeof FeedbackSchema>;
+
+// ─── Settings ────────────────────────────────────────────────────────────────
+
+export const SUPPORTED_AI_MODELS = [
+  "gemini-1.5-flash",
+  "gemini-1.5-pro",
+  "gemini-2.0-flash",
+  "gemini-3.8-flash",
+] as const;
+
+export interface FacilitySettingsDTO {
+  facilityName: string;
+  timezone: string;
+  selectedModel: string;
+  temperature: number;
+  topK: number;
+  similarityThreshold: number;
+  updatedAt?: string;
+  updatedBy?: string;
+  supportedModels: string[];
+}
+
+export const UpdateSettingsSchema = z.object({
+  facilityName: z.string().min(1).max(120).optional(),
+  timezone: z.string().min(1).max(80).optional(),
+  selectedModel: z.string().min(1).optional(),
+  temperature: z.number().min(0.0).max(1.0).optional(),
+  topK: z.number().int().min(1).max(20).optional(),
+  similarityThreshold: z.number().min(0.1).max(0.99).optional(),
+});
+export type UpdateSettingsInput = z.infer<typeof UpdateSettingsSchema>;
 
 // ─── API Response wrapper ────────────────────────────────────────────────────
 

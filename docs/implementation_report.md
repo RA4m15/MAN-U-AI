@@ -765,3 +765,85 @@ git diff --check
   - **Status:** PASSED (`tsc -b && vite build` exit code 0)
 - **Git Whitespace & Diff Check:** `git diff --check`
   - **Status:** PASSED (0 whitespace errors)
+
+---
+
+## 14. STAGE 3: PERSISTENT SETTINGS, FUNCTIONAL FILTERS, TRUTHFUL INTEGRATIONS & SOCKET HARDENING
+
+**Verification Date:** October 19, 2026
+**Baseline Commit:** `723123075787fc3dc117a6f09d251a9405a963e2`
+**Goal:** Remove remaining nonfunctional controls. Ensure every editable setting persists and directly impacts the runtime behavior it controls; every integration status and test probe is truthful; every time filter affects its target data query without perturbing lifetime totals; real-time Socket.IO connections are authenticated and lifecycle-hardened; and generated build artifacts are removed from version control.
+
+### Verified Architectural Implementations
+
+1. **Equipment Data Integrity & Payload Sanitization (`apps/web/src/pages/EquipmentPage.tsx`, `packages/shared`, `apps/api`):**
+   - Updated `CreateEquipmentSchema` in `@man-u-ai/shared` and `IEquipment` / `EquipmentSchema` in `@man-u-ai/api` to make `model` and `manufacturer` optional string fields.
+   - Updated `apps/web/src/pages/EquipmentPage.tsx` so blank input fields submit `undefined` rather than the literal `"Not provided"` display label.
+   - Preserved `"Not provided"` as a purely visual label for missing fields.
+   - Verified via regression tests in `apps/web/test/stage3_ui_and_socket.test.tsx`.
+
+2. **Genuine Facility & RAG Settings Persistence (`apps/api/src/routes/settings.routes.ts`, `apps/api/src/models/index.ts`, `apps/web/src/pages/SettingsPage.tsx`):**
+   - **Persistent Settings Model:** Implemented `FacilitySettings` Mongoose model storing facility name, timezone, and active RAG runtime parameters (`selectedModel`, `temperature`, `topK`, `similarityThreshold`).
+   - **Access Control & RBAC:** Created `GET /api/v1/settings` (authenticated) and `PUT /api/v1/settings` (restricted strictly to users with `role: "admin"` via `requireRole(["admin"])`). Unauthorized non-admin callers receive HTTP 403 `FORBIDDEN`.
+   - **Server-Controlled Model Allowlist:** Exposes only models supported by backend provider: `gemini-1.5-flash`, `gemini-1.5-pro`, `gemini-2.0-flash`, `gemini-3.8-flash`. Arbitrary model identifiers are rejected with HTTP 400.
+   - **Parameter Validation:** Temperature is strictly bounded to `[0.0, 1.0]`, topK to `[1, 20]`, similarityThreshold to `[0.0, 1.0]`.
+   - **Direct Pipeline Wiring (`apps/api/src/services/rag.service.ts`, `apps/api/src/services/gemini.service.ts`):** `RagService` dynamically fetches persisted `FacilitySettings` on each query, passing `topK` and `similarityThreshold` to vector retrieval, and `selectedModel` and `temperature` to `GeminiService.generateAnswer` and `getGenerativeModel`.
+   - **Frontend UI State Fidelity:** `SettingsPage.tsx` queries settings from the server, displays loading/empty/saved/error states, disables editing and hides save buttons for non-admins, sends verified mutation requests, and presents a distinct saved confirmation banner only after persistence is confirmed. Secrets and read-only environment variables are never exposed as editable preferences.
+
+3. **Functional Insights Time-Range Filters (`apps/api/src/routes/analytics.routes.ts`, `apps/web/src/pages/InsightsPage.tsx`):**
+   - **Backend Query Validation:** `GET /api/v1/analytics/insights?range=7d|30d|all` validates range parameter with Zod before database execution; invalid values return HTTP 400 `VALIDATION_ERROR`.
+   - **Date-Scoped Metric Calculation:** Dynamically applies date filters (`createdAt: { $gte: cutoff }`) to time-based inquiry counts (`Message.countDocuments`) for `7d` and `30d` windows.
+   - **Preserved Lifetime Registry Totals:** Document registry totals (`Document.countDocuments({ status: "indexed" })`) and equipment registry totals (`Equipment.countDocuments()`) are strictly preserved as lifetime counts regardless of time range.
+   - **Labeling & Visual Truthfulness:** Removed misleading "Real-time" badge; clearly separated Lifetime Document Registry, Monitored Assets, and Period Inquiries; removed fabricated trend lines and sample chart points.
+   - **React Query Integration:** Frontend invalidates and caches uniquely on `queryKey: ["insights", timeRange]`.
+
+4. **Truthful Integration Status & Live Connection Probes (`apps/api/src/routes/integrations.routes.ts`, `apps/web/src/pages/IntegrationsPage.tsx`):**
+   - **Status Contract (`GET /api/v1/integrations/status`):** Authenticated endpoint returning real configuration state and operational status for all catalogue integrations.
+     - **MongoDB:** Probed via live Mongoose connection state (`connected` vs `disconnected`).
+     - **Gemini:** Probed via presence of `GEMINI_API_KEY`. Distinguishes `configured` from `verified`. Presence alone is never marked `verified`.
+     - **Storage Provider:** Accurately reflects `STORAGE_PROVIDER` (`cloudinary` or `local`). Never mislabels local storage as Cloudinary or claims encryption without configuration.
+     - **Industrial & ERP Connectors (OPC-UA, Modbus TCP, SAP ERP, IBM Maximo):** Truthfully returned as `not_configured` or `not_implemented`. Never calls general health or reports false success.
+   - **Individual Connection Probes (`POST /api/v1/integrations/:id/test`):**
+     - Allowlisted IDs: `mongodb`, `gemini`, `storage`, `opc_ua`, `modbus`, `sap`, `maximo`.
+     - **MongoDB Probe:** Executes authenticated `db.admin().ping()` with 5-second timeout.
+     - **Gemini Probe:** Executes genuine `countTokens` lightweight probe against configured model with 5-second timeout; verifies connectivity without consuming generation quota.
+     - **Storage Probe:** For Cloudinary, executes server-side `cloudinary.v2.api.ping()` with 5-second timeout. For local, verifies upload directory accessibility.
+     - **Unimplemented Connectors:** Accurately reports `success: false`, `status: "not_configured"` / `"not_implemented"`, and an honest explanatory message.
+     - **Credentials Protection:** API keys, secrets, connection URIs, and signed URLs are never exposed in status responses or logs.
+   - **Frontend Action Feedback:** Each "Test Connection" button independently tracks testing state, disables during execution, reports real probe duration and message, and displays distinctive success/error badges.
+
+5. **Hardened Real-Time Socket.IO Client Lifecycle (`apps/web/src/lib/api.ts`, `apps/web/src/contexts/AuthContext.tsx`):**
+   - **Production Origin Resolution:** `resolveWebSocketUrl()` checks `VITE_WS_URL`, falls back to localhost only in development (`import.meta.env.DEV`), and safely derives WebSocket origin from `VITE_API_URL` or `window.location.origin` in production. Never silently connects production to localhost.
+   - **Fresh JWT Authentication:** Passes current token in `socket.auth = { token }`. Socket auto-resets when the active token changes.
+   - **Clean Session Lifecycle:** Exported `disconnectSocket()` is called on `login()`, `logout()`, and 401 API token expiration to prevent cross-session leakage or stale authentication.
+   - **Listener Hygiene & Room Security:** React Query keys are invalidated on real incoming socket events (`audit:new`, `document:progress`, `document:status`); listeners are cleaned up on component unmount; backend strictly preserves room authorization (`role:admin` and `user:${id}`).
+
+6. **Removal of Tracked Generated Artifacts (`apps/web/.gitignore`):**
+   - Identified `apps/web/vite.config.js` and `apps/web/vite.config.d.ts` as build artifacts compiled from `vite.config.ts`.
+   - Untracked both files from Git (`git rm`).
+   - Added ignore patterns to `apps/web/.gitignore` to prevent future accidental check-ins while preserving clean Vite builds.
+
+### Verification Test & Build Results
+
+- **Frontend Test Suite:** `pnpm --filter @man-u-ai/web test`
+  - **Status:** PASSED (2/2 test files, 21/21 tests passed)
+  - Covers: Blank equipment metadata submission sanitization, Settings persistence UI states & admin-only controls, Insights time-filter query updates, Integrations status rendering & connection test buttons, WebSocket URL resolution & session disconnection lifecycle.
+- **Backend Test Suite:** `pnpm --filter @man-u-ai/api test --run`
+  - **Status:** PASSED (12/12 test files, 102/102 tests passed)
+  - Covers: Settings model persistence, admin-only access vs 403 rejection, model allowlist and parameter bounds validation, runtime application to RAG retrieval and generation, analytics date-range validation (400 on invalid) and date-scoped message counting while preserving lifetime registry counts, integration status endpoint and individual test probes, and truthful rejection of unconfigured external connectors.
+- **Shared Package Build:** `pnpm --filter @man-u-ai/shared build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **API Service Build:** `pnpm --filter @man-u-ai/api build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **Web Frontend Build:** `pnpm --filter @man-u-ai/web build`
+  - **Status:** PASSED (`tsc -b && vite build` exit code 0)
+- **Git Whitespace & Diff Check:** `git diff --check`
+  - **Status:** PASSED (0 whitespace errors)
+
+### Separation of Automated Unit/Mocked Tests vs. Live Operational Checks
+- **Automated Tests:** Run against isolated local test database `manuai_test` and mocked external SDK calls (Cloudinary ping, Gemini generative API).
+- **Live Integrations & Unconfigured Connectors:**
+  - **MongoDB Atlas:** Verified read-only connection check against live cluster in development environment.
+  - **Google Gemini API:** Configured via `GEMINI_API_KEY`. Free tier limit is 20 requests/day for generation; integration test uses `countTokens` probe to avoid consuming generation quota.
+  - **Cloudinary:** Configured via server-side credentials; live connection probe tests authenticated API ping.
+  - **Unconfigured Industrial Connectors:** OPC-UA, Modbus TCP, SAP ERP, and IBM Maximo are unconfigured in this environment. They truthfully report `not_configured` or `not_implemented` and are blocked from claiming fake connection success.

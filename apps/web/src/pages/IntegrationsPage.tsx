@@ -18,7 +18,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { healthApi } from "@/lib/api";
+import { integrationsApi } from "@/lib/api";
 
 interface IntegrationItem {
   id: string;
@@ -34,85 +34,88 @@ interface IntegrationItem {
 export function IntegrationsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [configModalItem, setConfigModalItem] = useState<IntegrationItem | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ testing: boolean; message?: string; success?: boolean } | null>(null);
 
-  const { data: healthResp, isLoading, refetch } = useQuery({
-    queryKey: ["health"],
-    queryFn: () => healthApi.check(),
+  const { data: statusResp, isLoading, refetch } = useQuery({
+    queryKey: ["integrations-status"],
+    queryFn: () => integrationsApi.status(),
   });
 
-  const health = healthResp?.data || {};
+  const statusMap = statusResp?.data?.data || {};
 
   const integrations: IntegrationItem[] = [
     {
-      id: "int-01",
-      name: "MongoDB Database & Vector Search",
+      id: "mongodb",
+      name: statusMap.mongodb?.name || "MongoDB Database & Vector Search",
       category: "vector",
       description: "Primary database storing technical manuals, extracted vector chunk embeddings, audit trails, and machinery records.",
-      status: health.database?.mongodb === "connected" ? "connected" : "simulation",
-      protocol: "MongoDB Wire Protocol v7.0",
+      status: statusMap.mongodb?.status === "connected" ? "connected" : "disconnected",
+      protocol: statusMap.mongodb?.protocol || "MongoDB Wire Protocol v7.0",
       icon: "mongodb",
-      details: `Status: ${health.database?.mongodb || "connected"} · Store: ${health.database?.vectorStore || "mongodb"}`,
+      details: statusMap.mongodb?.details || "Status: checking database connection...",
     },
     {
-      id: "int-02",
-      name: "Google Gemini Multimodal AI Engine",
+      id: "gemini",
+      name: statusMap.gemini?.name || "Google Gemini Multimodal AI Engine",
       category: "ai",
-      description: "Gemini 2.0 Flash engine providing multimodal RAG reasoning, schematic vision analysis and grounding.",
-      status: health.multimodalEngine?.status === "active" ? "connected" : "simulation",
-      protocol: "Google Gemini REST / gRPC",
+      description: "Google Gemini generative reasoning engine providing multimodal RAG synthesis and technical manual grounding.",
+      status: statusMap.gemini?.status === "configured" ? "connected" : "not_configured",
+      protocol: statusMap.gemini?.protocol || "Google Gemini REST / gRPC",
       icon: "gemini",
-      details: `Provider: Google Gemini (${health.multimodalEngine?.model || "gemini-2.0-flash"}) · Mode: ${health.multimodalEngine?.status || "active"}`,
+      details: statusMap.gemini?.details || "API Key: not configured",
     },
     {
-      id: "int-03",
-      name: "Private Encrypted Document Storage",
+      id: "storage",
+      name: statusMap.storage?.name || "Document Storage Provider",
       category: "storage",
-      description: "Private encrypted object storage for original equipment manufacturer (OEM) manuals and engineering drawings.",
-      status: "connected",
-      protocol: "Local Encrypted Directory / S3 Interface",
+      description: statusMap.storage?.provider === "cloudinary"
+        ? "Cloudinary secure authenticated object storage for uploaded PDF technical manuals."
+        : "Local disk filesystem storage adapter (unencrypted local directory).",
+      status: statusMap.storage?.status === "connected" || statusMap.storage?.status === "configured" ? "connected" : "not_configured",
+      protocol: statusMap.storage?.protocol || "Filesystem Storage",
       icon: "storage",
-      details: "Encrypted server storage active. Public access blocked.",
+      details: statusMap.storage?.details || "Storage adapter status unavailable",
     },
     {
-      id: "int-04",
+      id: "opc_ua",
       name: "OPC-UA Plant SCADA Gateway",
       category: "scada",
       description: "Real-time telemetry ingestion from programmable logic controllers (PLCs), pressure sensors, and vibration transmitters.",
-      status: "disconnected",
+      status: "not_configured",
       protocol: "opc.tcp:// (Unconfigured)",
       icon: "opcua",
-      details: "Hardware stream not connected. No live industrial gateway attached.",
+      details: statusMap.opc_ua?.details || "Hardware stream not connected. No live industrial gateway attached.",
     },
     {
-      id: "int-05",
+      id: "sap",
       name: "SAP Plant Maintenance (PM)",
       category: "cmms",
       description: "Bidirectional synchronization for equipment work orders, spare part inventory and maintenance schedules.",
       status: "not_configured",
       protocol: "SAP OData REST",
       icon: "sap",
-      details: "Enterprise connector unconfigured in environment.",
+      details: statusMap.sap?.details || "Enterprise connector unconfigured in environment.",
     },
     {
-      id: "int-06",
+      id: "maximo",
       name: "IBM Maximo Asset Management",
       category: "cmms",
       description: "Enterprise asset tracking, work order lifecycle management and preventive maintenance ticketing.",
       status: "not_configured",
       protocol: "Maximo Integration Framework (MIF)",
       icon: "ibm",
-      details: "Enterprise connector unconfigured in environment.",
+      details: statusMap.maximo?.details || "Enterprise connector unconfigured in environment.",
     },
     {
-      id: "int-07",
+      id: "modbus",
       name: "Modbus TCP Gateway",
       category: "scada",
       description: "Direct register polling for legacy industrial temperature and energy sub-meters across Facility Building B.",
       status: "not_configured",
       protocol: "Port 502 TCP",
       icon: "modbus",
-      details: "Modbus gateway unconfigured in environment.",
+      details: statusMap.modbus?.details || "Modbus gateway unconfigured in environment.",
     },
   ];
 
@@ -121,21 +124,30 @@ export function IntegrationsPage() {
     return item.category === selectedCategory;
   });
 
-  const handleTestConnection = async () => {
+  const handleTestConnection = async (integrationId: string) => {
+    setTestingId(integrationId);
     setTestResult({ testing: true });
     try {
-      const res = await healthApi.check();
-      if (res.data?.status === "healthy") {
+      const res = await integrationsApi.test(integrationId);
+      if (res.data?.success) {
         setTestResult({
           testing: false,
           success: true,
-          message: `Health Check Passed! Latency: nominal · MongoDB: ${res.data.database?.mongodb} · AI Engine: ${res.data.multimodalEngine?.status}`,
+          message: res.data.message || `Connection to ${integrationId} verified successfully.`,
         });
+        refetch();
       } else {
-        setTestResult({ testing: false, success: false, message: "Backend returned non-healthy state." });
+        setTestResult({
+          testing: false,
+          success: false,
+          message: res.data?.message || `Connection probe for ${integrationId} failed or unconfigured.`,
+        });
       }
-    } catch (err) {
-      setTestResult({ testing: false, success: false, message: "Backend unreachable or health check failed." });
+    } catch (err: any) {
+      const msg = err.response?.data?.error?.message || err.message || "Failed to execute connection test probe.";
+      setTestResult({ testing: false, success: false, message: msg });
+    } finally {
+      setTestingId(null);
     }
   };
 
@@ -256,15 +268,28 @@ export function IntegrationsPage() {
                 Scope: Authoritative
               </span>
 
-              <button
-                onClick={() => {
-                  setConfigModalItem(item);
-                  setTestResult(null);
-                }}
-                className="btn-secondary text-2xs py-1 px-3"
-              >
-                Inspect Status
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setConfigModalItem(item);
+                    setTestResult(null);
+                  }}
+                  className="btn-secondary text-2xs py-1 px-2.5"
+                >
+                  Inspect
+                </button>
+                <button
+                  onClick={() => {
+                    setConfigModalItem(item);
+                    handleTestConnection(item.id);
+                  }}
+                  disabled={testingId === item.id}
+                  className="btn-primary text-2xs py-1 px-2.5 flex items-center gap-1"
+                >
+                  {testingId === item.id && <Loader2 size={11} className="animate-spin" />}
+                  Test Connection
+                </button>
+              </div>
             </div>
           </div>
         ))}
@@ -318,17 +343,19 @@ export function IntegrationsPage() {
               <div className="pt-3 border-t border-hairline flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={handleTestConnection}
-                  disabled={testResult?.testing}
-                  className="btn-secondary text-xs flex items-center gap-1.5"
+                  onClick={() => handleTestConnection(configModalItem.id)}
+                  disabled={testResult?.testing || testingId === configModalItem.id}
+                  className="btn-primary text-xs flex items-center gap-1.5"
                 >
-                  {testResult?.testing && <Loader2 size={12} className="animate-spin" />}
-                  Run Live Health Check
+                  {(testResult?.testing || testingId === configModalItem.id) && (
+                    <Loader2 size={12} className="animate-spin" />
+                  )}
+                  Test Connection
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfigModalItem(null)}
-                  className="btn-primary text-xs"
+                  className="btn-secondary text-xs"
                 >
                   Close
                 </button>

@@ -27,8 +27,8 @@ export function InsightsPage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ["insights"],
-    queryFn: () => analyticsApi.insights(),
+    queryKey: ["insights", timeRange],
+    queryFn: () => analyticsApi.insights(timeRange),
   });
 
   const insights = resp?.data?.data;
@@ -112,9 +112,7 @@ export function InsightsPage() {
           <div className="card bg-surface-1 border border-hairline p-4 relative overflow-hidden">
             <div className="flex items-center justify-between text-2xs text-ink-tertiary uppercase font-mono">
               <span>Indexed Documents</span>
-              <span className="text-success flex items-center font-sans">
-                <CheckCircle2 size={12} /> Active
-              </span>
+              <span className="badge-muted text-2xs">Lifetime Total</span>
             </div>
             <p className="text-2xl font-bold text-ink mt-2">
               {insights.totalIndexedDocuments ?? 0}
@@ -125,9 +123,7 @@ export function InsightsPage() {
           <div className="card bg-surface-1 border border-hairline p-4 relative overflow-hidden">
             <div className="flex items-center justify-between text-2xs text-ink-tertiary uppercase font-mono">
               <span>Registered Machinery</span>
-              <span className="text-primary flex items-center font-sans">
-                <Cpu size={12} /> Persisted
-              </span>
+              <span className="badge-muted text-2xs">Lifetime Total</span>
             </div>
             <p className="text-2xl font-bold text-ink mt-2">
               {insights.totalMonitoredEquipment ?? 0}
@@ -138,14 +134,14 @@ export function InsightsPage() {
           <div className="card bg-surface-1 border border-hairline p-4 relative overflow-hidden">
             <div className="flex items-center justify-between text-2xs text-ink-tertiary uppercase font-mono">
               <span>Industrial RAG Queries</span>
-              <span className="text-primary flex items-center font-sans">
-                <Bot size={12} /> Real-time
-              </span>
+              <span className="badge-primary text-2xs font-mono">{timeRange.toUpperCase()}</span>
             </div>
             <p className="text-2xl font-bold text-ink mt-2">
               {insights.totalRAGInquiries ?? 0}
             </p>
-            <p className="text-2xs text-ink-subtle mt-1">Total user questions processed</p>
+            <p className="text-2xs text-ink-subtle mt-1">
+              {timeRange === "all" ? "Lifetime user inquiries" : `Inquiries in the last ${timeRange}`}
+            </p>
           </div>
 
           <div className="card bg-surface-1 border border-hairline p-4 relative overflow-hidden">

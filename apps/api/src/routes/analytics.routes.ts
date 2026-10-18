@@ -148,6 +148,18 @@ Note: Label generated content truthfully. Do not invent unrecorded failures or f
 
 // GET /analytics/insights - Real database counts and reliability metrics
 analyticsRouter.get("/analytics/insights", requireAuth, async (req: Request, res: Response) => {
+  const rawRange = typeof req.query.range === "string" ? req.query.range.toLowerCase() : "all";
+  const validRanges = ["7d", "30d", "all"];
+  if (!validRanges.includes(rawRange)) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: `Invalid range parameter '${rawRange}'. Accepted values: 7d, 30d, all`,
+      },
+    });
+  }
+
   if (!isConnectedToMongo) {
     return res.status(503).json({
       success: false,
@@ -155,17 +167,30 @@ analyticsRouter.get("/analytics/insights", requireAuth, async (req: Request, res
     });
   }
 
+  const range = rawRange as "7d" | "30d" | "all";
+  let startDate: Date | undefined = undefined;
+  if (range === "7d") {
+    startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  } else if (range === "30d") {
+    startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  }
+
   try {
     const [totalDocs, totalEquip, totalQueries, totalIssues] = await Promise.all([
       DocumentModel.countDocuments({ status: "indexed" }),
       Equipment.countDocuments(),
-      Message.countDocuments({ role: "user" }),
+      Message.countDocuments({
+        role: "user",
+        ...(startDate ? { createdAt: { $gte: startDate } } : {}),
+      }),
       MaintenanceIssue.countDocuments({ status: { $in: ["open", "in_progress"] } }),
     ]);
 
     return res.json({
       success: true,
       data: {
+        range,
+        periodStart: startDate ? startDate.toISOString() : null,
         totalIndexedDocuments: totalDocs,
         totalMonitoredEquipment: totalEquip,
         totalRAGInquiries: totalQueries,
