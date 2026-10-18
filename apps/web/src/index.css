@@ -1,0 +1,161 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base resets ─────────────────────────────────────────────────────────── */
+@layer base {
+  :root {
+    --sidebar-width: 240px;
+    --sidebar-collapsed: 56px;
+    --right-panel-width: 320px;
+    --header-height: 48px;
+    color-scheme: dark;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    background-color: #010102;
+    color: #f7f8f8;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #34343a; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #4a4a52; }
+
+  :focus-visible {
+    outline: 2px solid #5e6ad2;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: rgba(94, 106, 210, 0.3);
+    color: #f7f8f8;
+  }
+
+  code, kbd, pre, samp {
+    font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+    font-size: 13px;
+  }
+}
+
+/* ── Component layer ─────────────────────────────────────────────────────── */
+@layer components {
+  .card { @apply bg-surface-1 border border-hairline rounded-lg p-4; }
+  .card-elevated { @apply bg-surface-2 border border-hairline-strong rounded-lg p-4 shadow-elevated; }
+
+  .nav-item {
+    @apply flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium text-ink-subtle
+      hover:bg-surface-2 hover:text-ink transition-colors duration-150 cursor-pointer select-none;
+  }
+  .nav-item-active { @apply bg-surface-2 text-ink; }
+  .nav-item-primary {
+    @apply flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium
+      bg-primary/10 text-primary hover:bg-primary/20 transition-colors duration-150 cursor-pointer;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium
+      transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2
+      focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-40;
+  }
+  .btn-primary  { @apply btn bg-primary text-white hover:bg-primary-hover px-3.5 py-2; }
+  .btn-secondary { @apply btn bg-surface-2 text-ink hover:bg-surface-3 border border-hairline px-3.5 py-2; }
+  .btn-ghost    { @apply btn text-ink-subtle hover:text-ink hover:bg-surface-2 px-3 py-2; }
+  .btn-danger   { @apply btn bg-danger/10 text-danger hover:bg-danger/20 px-3.5 py-2; }
+  .btn-icon     { @apply btn text-ink-subtle hover:text-ink hover:bg-surface-2 p-2 rounded-md; }
+
+  .badge         { @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium; }
+  .badge-primary { @apply badge bg-primary/15 text-primary; }
+  .badge-success { @apply badge bg-success/15 text-success; }
+  .badge-warning { @apply badge bg-warning/15 text-warning; }
+  .badge-danger  { @apply badge bg-danger/15 text-danger; }
+  .badge-muted   { @apply badge bg-surface-3 text-ink-subtle; }
+
+  .input {
+    @apply w-full bg-surface-3 border border-hairline rounded-md px-3 py-2 text-sm text-ink
+      placeholder:text-ink-tertiary focus:border-primary focus:outline-none transition-colors duration-150;
+  }
+
+  .divider { @apply border-t border-hairline; }
+
+  .status-dot         { @apply w-2 h-2 rounded-full flex-shrink-0; }
+  .status-dot-success { @apply status-dot bg-success; }
+  .status-dot-warning { @apply status-dot bg-warning; }
+  .status-dot-danger  { @apply status-dot bg-danger animate-pulse-subtle; }
+  .status-dot-muted   { @apply status-dot bg-ink-tertiary; }
+
+  .skeleton { @apply rounded bg-surface-3 animate-pulse; }
+
+  .citation {
+    @apply inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-mono
+      bg-primary/10 text-primary border border-primary/20 cursor-pointer
+      hover:bg-primary/20 transition-colors;
+  }
+
+  .notice-warning { @apply flex gap-3 p-3 rounded-lg border text-sm; background: rgba(245,158,11,0.06); border-color: rgba(245,158,11,0.2); }
+  .notice-danger  { @apply flex gap-3 p-3 rounded-lg border text-sm; background: rgba(239,68,68,0.06); border-color: rgba(239,68,68,0.2); }
+  .notice-info    { @apply flex gap-3 p-3 rounded-lg border text-sm; background: rgba(94,106,210,0.06); border-color: rgba(94,106,210,0.2); }
+
+  .progress-bar-indeterminate {
+    @apply relative overflow-hidden h-1 bg-surface-3 rounded-full;
+  }
+  .progress-bar-indeterminate::after {
+    content: "";
+    @apply absolute inset-y-0 w-1/2 bg-primary rounded-full;
+    animation: progressIndeterminate 1.5s ease-in-out infinite;
+  }
+
+  .message-user      { @apply bg-surface-2 border border-hairline rounded-xl rounded-br-sm px-4 py-3; }
+  .message-assistant { @apply rounded-xl rounded-bl-sm px-4 py-3; }
+}
+
+/* ── Utility layer ───────────────────────────────────────────────────────── */
+@layer utilities {
+  .text-gradient-primary {
+    background: linear-gradient(135deg, #5e6ad2, #828fff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+
+  .truncate-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .truncate-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+}
+
+/* ── Keyframes ────────────────────────────────────────────────────────────── */
+@keyframes progressIndeterminate {
+  0%   { left: -50%; }
+  100% { left: 100%; }
+}
+
+@keyframes typingDot {
+  0%, 60%, 100% { transform: translateY(0); }
+  30%            { transform: translateY(-4px); }
+}
+
+.typing-dot                   { animation: typingDot 1.2s ease-in-out infinite; }
+.typing-dot:nth-child(2)      { animation-delay: 0.2s; }
+.typing-dot:nth-child(3)      { animation-delay: 0.4s; }

@@ -1,0 +1,176 @@
+import { z } from "zod";
+
+// ─── Auth ───────────────────────────────────────────────────────────────────
+
+export const RegisterSchema = z.object({
+  name: z.string().min(2).max(100),
+  email: z.string().email(),
+  password: z.string().min(8).max(128),
+  role: z.enum(["admin", "engineer", "viewer"]).optional().default("viewer"),
+});
+export type RegisterInput = z.infer<typeof RegisterSchema>;
+
+export const LoginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+export type LoginInput = z.infer<typeof LoginSchema>;
+
+// ─── User ───────────────────────────────────────────────────────────────────
+
+export type UserRole = "admin" | "engineer" | "viewer";
+
+export interface UserDTO {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  createdAt: string;
+}
+
+// ─── Document ────────────────────────────────────────────────────────────────
+
+export type DocumentStatus =
+  | "pending"
+  | "processing"
+  | "indexed"
+  | "failed";
+
+export interface DocumentDTO {
+  id: string;
+  title: string;
+  revision: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  status: DocumentStatus;
+  pageCount?: number;
+  uploadedById: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const UploadDocumentSchema = z.object({
+  title: z.string().min(1).max(255),
+  revision: z.string().max(50).optional().default("v1"),
+  equipmentId: z.string().optional(),
+  tags: z.array(z.string()).optional().default([]),
+});
+export type UploadDocumentInput = z.infer<typeof UploadDocumentSchema>;
+
+// ─── Processing Job ──────────────────────────────────────────────────────────
+
+export type JobStatus = "queued" | "running" | "done" | "failed";
+
+export interface ProcessingJobDTO {
+  id: string;
+  documentId: string;
+  status: JobStatus;
+  progress: number; // 0–100
+  error?: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+// ─── Conversation & Messages ─────────────────────────────────────────────────
+
+export type MessageRole = "user" | "assistant" | "system";
+
+export interface CitationDTO {
+  id: string;
+  documentId: string;
+  documentTitle: string;
+  revision: string;
+  page: number;
+  section?: string;
+  excerpt: string;
+}
+
+export interface MessageDTO {
+  id: string;
+  conversationId: string;
+  role: MessageRole;
+  content: string;
+  citations?: CitationDTO[];
+  createdAt: string;
+}
+
+export interface ConversationDTO {
+  id: string;
+  title: string;
+  lastMessageAt: string;
+  messageCount: number;
+  createdAt: string;
+}
+
+export const SendMessageSchema = z.object({
+  content: z.string().min(1).max(8000),
+  attachmentIds: z.array(z.string()).optional().default([]),
+});
+export type SendMessageInput = z.infer<typeof SendMessageSchema>;
+
+// ─── Equipment ───────────────────────────────────────────────────────────────
+
+export interface EquipmentDTO {
+  id: string;
+  name: string;
+  type: string;
+  model: string;
+  manufacturer: string;
+  serialNumber?: string;
+  location?: string;
+  documentIds: string[];
+  createdAt: string;
+}
+
+export const CreateEquipmentSchema = z.object({
+  name: z.string().min(1).max(255),
+  type: z.string().min(1),
+  model: z.string().min(1),
+  manufacturer: z.string().min(1),
+  serialNumber: z.string().optional(),
+  location: z.string().optional(),
+});
+export type CreateEquipmentInput = z.infer<typeof CreateEquipmentSchema>;
+
+// ─── Feedback ────────────────────────────────────────────────────────────────
+
+export const FeedbackSchema = z.object({
+  messageId: z.string(),
+  rating: z.enum(["up", "down"]),
+  comment: z.string().max(1000).optional(),
+});
+export type FeedbackInput = z.infer<typeof FeedbackSchema>;
+
+// ─── API Response wrapper ────────────────────────────────────────────────────
+
+export interface ApiSuccess<T> {
+  success: true;
+  data: T;
+  meta?: Record<string, unknown>;
+}
+
+export interface ApiError {
+  success: false;
+  error: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
+}
+
+export type ApiResponse<T> = ApiSuccess<T> | ApiError;
+
+// ─── Pagination ──────────────────────────────────────────────────────────────
+
+export interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export const PaginationSchema = z.object({
+  page: z.coerce.number().int().positive().optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+});
