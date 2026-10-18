@@ -1192,3 +1192,56 @@ Stage 4.1 resolves the remaining architectural and production acceptance gaps id
 | **API Server Build** | `pnpm --filter @man-u-ai/api build` | Passed | Exit 0 |
 | **Web Frontend Build** | `pnpm --filter @man-u-ai/web build` | Passed | Exit 0 |
 | **Git Diff Whitespace Check** | `git diff --check` | Passed | 0 errors |
+
+---
+
+## 20. STAGE 4.1.2: ALIGN ALL GEMINI SAMPLING PARAMETERS WITH MODEL CAPABILITIES
+
+### Executive Summary
+Stage 4.1.2 comprehensively aligns generation parameters across all supported models (`gemini-3.8-flash`, `gemini-3.6-flash`, and `gemini-4-argon`) with official Google Gemini API specifications. In modern Gemini architectures, legacy token-sampling hyperparameters (`temperature`, `top_p`, and generation `top_k`) are ignored or rejected by the backend in favor of internal deterministic reasoning. This update ensures that:
+1. Sampling parameters are completely omitted from generation payloads for all modern models in both standard answer generation and multimodal PDF OCR.
+2. The model capability matrix, Settings UI, and backend request payload agree completely without offering misleading controls.
+3. `transcribePdfWithOcr()` uses capability-aware configuration while preserving verbatim extraction instructions and deliberate model selection.
+4. RAG retrieval `topK` is maintained strictly separate as a vector chunk retrieval parameter.
+
+---
+
+### Implementation Details
+
+#### A. Model Capability Matrix Alignment (`settings.service.ts` & `gemini.service.ts`)
+- **Capability Declarations:** Updated `MODEL_CAPABILITIES` in `apps/api/src/services/settings.service.ts` to reflect official support rules:
+  - `gemini-3.8-flash`: `supportsTemperature: false`, `supportsTopP: false`, `supportsGenerationTopK: false`.
+  - `gemini-3.6-flash`: `supportsTemperature: false`, `supportsTopP: false`, `supportsGenerationTopK: false`.
+  - `gemini-4-argon`: `supportsTemperature: false`, `supportsTopP: false`, `supportsGenerationTopK: false`.
+  - Legacy models (`gemini-1.5-pro`, `gemini-1.5-flash`): declared with sampling support for backwards compatibility and regression testing.
+  - Unknown models: safely default to `false` across all sampling parameters.
+- **Dynamic Config Construction:** Refactored `buildModelGenerationConfig(targetModel, options)` in `apps/api/src/services/gemini.service.ts` to inspect `getModelCapabilities(targetModel)`:
+  - Omits `temperature`, `topP`, and generation `topK` whenever the target model does not support them.
+  - Preserves `systemInstruction` when supplied.
+  - Returns `undefined` if no supported configuration properties are present, avoiding empty `config: {}` objects.
+
+#### B. Capability-Aware Multimodal PDF OCR (`gemini.service.ts`)
+- **Refactored `transcribePdfWithOcr(pdfBuffer, modelOverride?)`:**
+  - Invokes `buildModelGenerationConfig(targetModel, { temperature: 0.1 })`.
+  - For `gemini-3.8-flash`, `gemini-3.6-flash`, and `gemini-4-argon`, `temperature: 0.1` is cleanly omitted from the `generateContent()` payload.
+  - For models supporting temperature (e.g. `gemini-1.5-pro`), `temperature: 0.1` is attached.
+  - Preserves verbatim transcription instructions, page boundaries (`--- PAGE X ---`), base64 inline PDF data, and error sanitization.
+  - Model choice is deliberate and preserved; no silent fallback or unverified model switching.
+
+#### C. Settings UI Synchronization (`SettingsPage.tsx`)
+- **Accurate Model List:** Updated initial `supportedModels` state to `["gemini-3.8-flash", "gemini-3.6-flash", "gemini-4-argon"]`.
+- **Misleading Control Removal:** Rendered deterministic reasoning notice whenever `!currentModelCaps.supportsTemperature`, removing misleading temperature sliders for all modern models.
+- **Clear RAG Top-K Labeling:** Maintained explicit labeling: *"RAG Retrieval Top-K (Document Chunks)"* with explanation of chunk retrieval isolation from LLM generation.
+
+---
+
+### Verification Results
+
+| Suite / Build Target | Command | Result | Pass/Total |
+| :--- | :--- | :---: | :---: |
+| **Backend Vitest (All Suites)** | `pnpm --filter @man-u-ai/api test --run` | Passed | 12 files, 133 tests |
+| **Frontend Vitest (All Suites)** | `pnpm --filter @man-u-ai/web test` | Passed | 2 files, 22 tests |
+| **Shared Package Build** | `pnpm --filter @man-u-ai/shared build` | Passed | Exit 0 |
+| **API Server Build** | `pnpm --filter @man-u-ai/api build` | Passed | Exit 0 |
+| **Web Frontend Build** | `pnpm --filter @man-u-ai/web build` | Passed | Exit 0 |
+| **Git Diff Whitespace Check** | `git diff --check` | Passed | 0 errors |

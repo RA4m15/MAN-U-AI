@@ -48,10 +48,9 @@ export function SettingsPage() {
   const [facilityName, setFacilityName] = useState("MAN-U-AI Heavy Operations Facility Alpha");
   const [timezone, setTimezone] = useState("UTC+05:30 (IST)");
   const [supportedModels, setSupportedModels] = useState<string[]>([
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-    "gemini-2.0-flash",
     "gemini-3.8-flash",
+    "gemini-3.6-flash",
+    "gemini-4-argon",
   ]);
 
   // Load persistent settings from backend
@@ -410,34 +409,43 @@ export function SettingsPage() {
               </select>
             </div>
 
-            {selectedModel === "gemini-3.8-flash" ? (
-              <div className="p-3 rounded-lg bg-surface-2 border border-hairline text-2xs text-ink-subtle space-y-1">
-                <span className="font-semibold text-ink">Deterministic Generation Enforced:</span>
-                <p>
-                  Gemini 3.8 Flash operates with deterministic reasoning parameters. Sampling controls (temperature, top-p, generation top-k) are fixed by the model to guarantee strict adherence to technical equipment specifications.
-                </p>
-              </div>
-            ) : (
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="text-2xs font-medium text-ink-subtle uppercase">
-                    Generation Temperature: {temperature}
-                  </label>
+            {(() => {
+              const modelCapabilities = settingsResp?.data?.data?.modelCapabilities || {};
+              const currentModelCaps = modelCapabilities[selectedModel] || {
+                supportsTemperature: false,
+                supportsTopP: false,
+                supportsGenerationTopK: false,
+              };
+
+              return !currentModelCaps.supportsTemperature ? (
+                <div className="p-3 rounded-lg bg-surface-2 border border-hairline text-2xs text-ink-subtle space-y-1">
+                  <span className="font-semibold text-ink">Deterministic Reasoning Enforced:</span>
+                  <p>
+                    {selectedModel} operates with deterministic reasoning parameters. Sampling controls (temperature, top-p, generation top-k) are not supported by the model API and are omitted to guarantee strict factual accuracy.
+                  </p>
                 </div>
-                <input
-                  type="range"
-                  min="0.0"
-                  max="0.8"
-                  step="0.05"
-                  value={temperature}
-                  onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                  className="w-full accent-primary"
-                />
-                <p className="text-2xs text-ink-tertiary mt-1">
-                  Keep low (0.1 - 0.25) to guarantee strict adherence to technical equipment specifications.
-                </p>
-              </div>
-            )}
+              ) : (
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-2xs font-medium text-ink-subtle uppercase">
+                      Generation Temperature: {temperature}
+                    </label>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.0"
+                    max="0.8"
+                    step="0.05"
+                    value={temperature}
+                    onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                    className="w-full accent-primary"
+                  />
+                  <p className="text-2xs text-ink-tertiary mt-1">
+                    Keep low (0.1 - 0.25) to guarantee strict adherence to technical equipment specifications.
+                  </p>
+                </div>
+              );
+            })()}
 
             <div className="grid grid-cols-2 gap-4">
               <div>

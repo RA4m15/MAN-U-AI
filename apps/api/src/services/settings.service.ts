@@ -16,18 +16,29 @@ export interface ModelCapabilities {
   supportsGenerationTopK: boolean;
 }
 
-export const MODEL_CAPABILITIES: Record<SupportedModel, ModelCapabilities> = {
+export const MODEL_CAPABILITIES: Record<string, ModelCapabilities> = {
   "gemini-3.8-flash": {
     supportsTemperature: false,
     supportsTopP: false,
     supportsGenerationTopK: false,
   },
   "gemini-3.6-flash": {
+    supportsTemperature: false,
+    supportsTopP: false,
+    supportsGenerationTopK: false,
+  },
+  "gemini-4-argon": {
+    supportsTemperature: false,
+    supportsTopP: false,
+    supportsGenerationTopK: false,
+  },
+  // Legacy / reference models for capability verification
+  "gemini-1.5-pro": {
     supportsTemperature: true,
     supportsTopP: true,
     supportsGenerationTopK: true,
   },
-  "gemini-4-argon": {
+  "gemini-1.5-flash": {
     supportsTemperature: true,
     supportsTopP: true,
     supportsGenerationTopK: true,
@@ -36,7 +47,7 @@ export const MODEL_CAPABILITIES: Record<SupportedModel, ModelCapabilities> = {
 
 export function getModelCapabilities(model: string): ModelCapabilities {
   if (model in MODEL_CAPABILITIES) {
-    return MODEL_CAPABILITIES[model as SupportedModel];
+    return MODEL_CAPABILITIES[model];
   }
   return {
     supportsTemperature: false,

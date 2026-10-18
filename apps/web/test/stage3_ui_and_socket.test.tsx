@@ -187,6 +187,46 @@ describe("Stage 3 Web UI & Data-Integrity Tests", () => {
         expect(updateSpy).toHaveBeenCalledTimes(1);
       });
     });
+
+    it("does not offer misleading controls for models that omit sampling parameters", async () => {
+      vi.spyOn(settingsApi, "get").mockResolvedValue({
+        data: {
+          success: true,
+          data: {
+            facilityName: "Deterministic Plant",
+            timezone: "UTC",
+            selectedModel: "gemini-3.8-flash",
+            temperature: 0.2,
+            topK: 5,
+            similarityThreshold: 0.5,
+            supportedModels: ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-4-argon"],
+            modelCapabilities: {
+              "gemini-3.8-flash": { supportsTemperature: false, supportsTopP: false, supportsGenerationTopK: false },
+              "gemini-3.6-flash": { supportsTemperature: false, supportsTopP: false, supportsGenerationTopK: false },
+              "gemini-4-argon": { supportsTemperature: false, supportsTopP: false, supportsGenerationTopK: false },
+            },
+          },
+        },
+      } as any);
+
+      renderWithAuthProvider(<SettingsPage />, "admin");
+
+      // Switch to AI & Multimodal RAG tab
+      const aiTabBtn = await screen.findByRole("button", { name: /AI & Multimodal RAG/i });
+      fireEvent.click(aiTabBtn);
+
+      // Verify deterministic notice is present
+      await waitFor(() => {
+        expect(screen.getByText(/Deterministic Reasoning Enforced/i)).toBeDefined();
+      });
+
+      // Assert that NO temperature range input is displayed
+      const sliders = document.querySelectorAll('input[type="range"]');
+      expect(sliders.length).toBe(0);
+
+      // Verify RAG topK is clearly labeled as chunk retrieval
+      expect(screen.getByText(/RAG Retrieval Top-K \(Document Chunks\)/i)).toBeDefined();
+    });
   });
 
   describe("3. Insights Time Range Query & Honest Labels", () => {

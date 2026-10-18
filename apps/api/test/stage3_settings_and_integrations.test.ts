@@ -853,45 +853,71 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
     });
   });
 
-  describe("8. Model-Specific Generation Configuration & Capability Controls (Stage 4.1)", () => {
-    it("buildModelGenerationConfig omits temperature, top_p, and generation top_k for Gemini 3.8 Flash", () => {
-      const config = buildModelGenerationConfig("gemini-3.8-flash", {
-        temperature: 0.7,
-        topP: 0.95,
-        topK: 10,
-        systemInstruction: "Strict engineering mode",
-      });
+  describe("8. Model-Specific Generation Configuration & Sampling Consistency (Stage 4.1.2)", () => {
+    it("getModelCapabilities() matches the official support rules for every allowed model", () => {
+      // Modern Gemini models omit sampling parameters (temperature, top_p, top_k)
+      for (const model of ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-4-argon"] as const) {
+        const caps = getModelCapabilities(model);
+        expect(caps.supportsTemperature).toBe(false);
+        expect(caps.supportsTopP).toBe(false);
+        expect(caps.supportsGenerationTopK).toBe(false);
+      }
 
-      expect(config).toBeDefined();
-      expect(config?.systemInstruction).toBe("Strict engineering mode");
-      expect(config?.temperature).toBeUndefined();
-      expect(config?.topP).toBeUndefined();
-      expect(config?.topK).toBeUndefined();
+      // Legacy/reference models support sampling parameters
+      const legacyCaps = getModelCapabilities("gemini-1.5-pro");
+      expect(legacyCaps.supportsTemperature).toBe(true);
+      expect(legacyCaps.supportsTopP).toBe(true);
+      expect(legacyCaps.supportsGenerationTopK).toBe(true);
+
+      // Unknown or arbitrary models default safely to false
+      const unknownCaps = getModelCapabilities("gemini-unrecognized-model");
+      expect(unknownCaps.supportsTemperature).toBe(false);
+      expect(unknownCaps.supportsTopP).toBe(false);
+      expect(unknownCaps.supportsGenerationTopK).toBe(false);
     });
 
-    it("buildModelGenerationConfig includes temperature and sampling parameters for other supported models", () => {
-      const config36 = buildModelGenerationConfig("gemini-3.6-flash", {
+    it("buildModelGenerationConfig() never emits unsupported parameters for any allowed model", () => {
+      const allowedModels = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-4-argon"] as const;
+
+      for (const model of allowedModels) {
+        const config = buildModelGenerationConfig(model, {
+          temperature: 0.7,
+          topP: 0.95,
+          topK: 10,
+          systemInstruction: `Strict engineering mode for ${model}`,
+        });
+
+        expect(config).toBeDefined();
+        expect(config?.systemInstruction).toBe(`Strict engineering mode for ${model}`);
+        expect(config?.temperature).toBeUndefined();
+        expect(config?.topP).toBeUndefined();
+        expect(config?.topK).toBeUndefined();
+
+        // When no systemInstruction is provided, config should be undefined rather than an empty object
+        const emptyConfig = buildModelGenerationConfig(model, {
+          temperature: 0.2,
+          topP: 0.8,
+          topK: 5,
+        });
+        expect(emptyConfig).toBeUndefined();
+      }
+
+      // Legacy models that support temperature should have it emitted
+      const legacyConfig = buildModelGenerationConfig("gemini-1.5-pro", {
         temperature: 0.15,
         topP: 0.9,
         topK: 8,
-        systemInstruction: "Guideline instructions",
+        systemInstruction: "Legacy guideline",
       });
-
-      expect(config36?.temperature).toBe(0.15);
-      expect(config36?.topP).toBe(0.9);
-      expect(config36?.topK).toBe(8);
-      expect(config36?.systemInstruction).toBe("Guideline instructions");
-
-      const configArgon = buildModelGenerationConfig("gemini-4-argon", {
-        temperature: 0.25,
-      });
-
-      expect(configArgon?.temperature).toBe(0.25);
+      expect(legacyConfig?.temperature).toBe(0.15);
+      expect(legacyConfig?.topP).toBe(0.9);
+      expect(legacyConfig?.topK).toBe(8);
+      expect(legacyConfig?.systemInstruction).toBe("Legacy guideline");
     });
 
-    it("geminiService.generateAnswer sends model-appropriate request config for gemini-3.8-flash", async () => {
+    it("ordinary answer generation sends model-appropriate request config for each model", async () => {
       const generateContentMock = vi.fn().mockResolvedValue({
-        text: "Deterministic response from Gemini 3.8 Flash.",
+        text: "Deterministic response.",
       });
 
       const originalAi = (geminiService as any).ai;
@@ -902,54 +928,104 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
       };
 
       try {
-        const res = await geminiService.generateAnswer("How to align pump coupling?", {
-          model: "gemini-3.8-flash",
-          temperature: 0.2, // Should be omitted from SDK payload
-          systemInstruction: "You are an industrial engineer.",
-        });
+        // Test all allowed models
+        for (const model of ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-4-argon"] as const) {
+          generateContentMock.mockClear();
 
-        expect(res).toBe("Deterministic response from Gemini 3.8 Flash.");
-        expect(generateContentMock).toHaveBeenCalled();
-        const callArgs = generateContentMock.mock.calls[0][0];
+          const res = await geminiService.generateAnswer("How to align pump coupling?", {
+            model,
+            temperature: 0.2,
+            topP: 0.8,
+            topK: 5,
+            systemInstruction: "You are an industrial engineer.",
+          });
 
-        expect(callArgs.model).toBe("gemini-3.8-flash");
-        // Verify temperature was omitted for gemini-3.8-flash
-        expect(callArgs.config?.temperature).toBeUndefined();
-        expect(callArgs.config?.systemInstruction).toBe("You are an industrial engineer.");
-      } finally {
-        (geminiService as any).ai = originalAi;
-      }
-    });
+          expect(res).toBe("Deterministic response.");
+          expect(generateContentMock).toHaveBeenCalledTimes(1);
+          const callArgs = generateContentMock.mock.calls[0][0];
 
-    it("geminiService.generateAnswer sends temperature for models that support it", async () => {
-      const generateContentMock = vi.fn().mockResolvedValue({
-        text: "Response with configurable temperature from Gemini 3.6 Flash.",
-      });
+          expect(callArgs.model).toBe(model);
+          // Verify unsupported sampling parameters are strictly absent
+          expect(callArgs.config?.temperature).toBeUndefined();
+          expect(callArgs.config?.topP).toBeUndefined();
+          expect(callArgs.config?.topK).toBeUndefined();
+          expect(callArgs.config?.systemInstruction).toBe("You are an industrial engineer.");
+        }
 
-      const originalAi = (geminiService as any).ai;
-      (geminiService as any).ai = {
-        models: {
-          generateContent: generateContentMock,
-        },
-      };
-
-      try {
+        // Unsupported models are re-mapped to env.GEMINI_MODEL and omit sampling settings
+        generateContentMock.mockClear();
         await geminiService.generateAnswer("Inspect bearing clearance", {
-          model: "gemini-3.6-flash",
+          model: "gemini-1.5-pro",
           temperature: 0.1,
         });
 
-        expect(generateContentMock).toHaveBeenCalled();
-        const callArgs = generateContentMock.mock.calls[0][0];
-
-        expect(callArgs.model).toBe("gemini-3.6-flash");
-        expect(callArgs.config?.temperature).toBe(0.1);
+        expect(generateContentMock).toHaveBeenCalledTimes(1);
+        const legacyArgs = generateContentMock.mock.calls[0][0];
+        expect(legacyArgs.model).toBe(env.GEMINI_MODEL);
+        expect(legacyArgs.config?.temperature).toBeUndefined();
       } finally {
         (geminiService as any).ai = originalAi;
       }
     });
 
-    it("GET /settings exposes modelCapabilities and marks Gemini 3.8 Flash supportsTemperature as false", async () => {
+    it("transcribePdfWithOcr() uses model-capability-aware generation config under each supported model", async () => {
+      const generateContentMock = vi.fn().mockResolvedValue({
+        text: "--- PAGE 1 ---\nCentrifugal Slurry Pump Maintenance Standard.",
+      });
+
+      const originalAi = (geminiService as any).ai;
+      (geminiService as any).ai = {
+        models: {
+          generateContent: generateContentMock,
+        },
+      };
+
+      try {
+        const dummyPdf = Buffer.from("%PDF-1.4 binary content");
+
+        // Test each supported model: verify unsupported temperature: 0.1 is NEVER sent
+        for (const model of ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-4-argon"] as const) {
+          generateContentMock.mockClear();
+
+          const ocrText = await geminiService.transcribePdfWithOcr(dummyPdf, model);
+          expect(ocrText).toContain("--- PAGE 1 ---");
+          expect(ocrText).toContain("Centrifugal Slurry Pump");
+
+          expect(generateContentMock).toHaveBeenCalledTimes(1);
+          const callArgs = generateContentMock.mock.calls[0][0];
+
+          // Model choice is deliberate and preserved
+          expect(callArgs.model).toBe(model);
+
+          // Inline PDF data is present
+          expect(callArgs.contents[0].inlineData).toBeDefined();
+          expect(callArgs.contents[0].inlineData.mimeType).toBe("application/pdf");
+          expect(callArgs.contents[0].inlineData.data).toBe(dummyPdf.toString("base64"));
+
+          // Verbatim transcription requirement & page boundaries instructions preserved
+          expect(callArgs.contents[1].text).toContain("optical character recognition (OCR)");
+          expect(callArgs.contents[1].text).toContain("--- PAGE X ---");
+          expect(callArgs.contents[1].text).toContain("verbatim");
+
+          // Unsupported sampling settings (temperature, top_p, top_k) MUST be absent
+          expect(callArgs.config?.temperature).toBeUndefined();
+          expect(callArgs.config?.topP).toBeUndefined();
+          expect(callArgs.config?.topK).toBeUndefined();
+        }
+
+        // Test with a model that DOES support temperature (e.g. gemini-1.5-pro)
+        generateContentMock.mockClear();
+        const legacyOcr = await geminiService.transcribePdfWithOcr(dummyPdf, "gemini-1.5-pro");
+        expect(legacyOcr).toContain("--- PAGE 1 ---");
+        const legacyArgs = generateContentMock.mock.calls[0][0];
+        expect(legacyArgs.model).toBe("gemini-1.5-pro");
+        expect(legacyArgs.config?.temperature).toBe(0.1);
+      } finally {
+        (geminiService as any).ai = originalAi;
+      }
+    });
+
+    it("GET /settings exposes modelCapabilities indicating all modern models omit sampling parameters", async () => {
       const res = await request(app)
         .get("/api/v1/settings")
         .set("Authorization", `Bearer ${viewerToken}`);
@@ -962,7 +1038,16 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
         supportsTopP: false,
         supportsGenerationTopK: false,
       });
-      expect(res.body.data.modelCapabilities["gemini-3.6-flash"].supportsTemperature).toBe(true);
+      expect(res.body.data.modelCapabilities["gemini-3.6-flash"]).toEqual({
+        supportsTemperature: false,
+        supportsTopP: false,
+        supportsGenerationTopK: false,
+      });
+      expect(res.body.data.modelCapabilities["gemini-4-argon"]).toEqual({
+        supportsTemperature: false,
+        supportsTopP: false,
+        supportsGenerationTopK: false,
+      });
     });
   });
 });

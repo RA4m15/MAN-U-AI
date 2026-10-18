@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { env } from "../config/env";
-import { SUPPORTED_MODELS } from "./settings.service";
+import { SUPPORTED_MODELS, getModelCapabilities } from "./settings.service";
 
 export interface GenerationOptions {
   model?: string;
@@ -12,8 +12,9 @@ export interface GenerationOptions {
 
 /**
  * Builds runtime generation configuration for the active Gemini model.
- * Gemini 3.8 Flash enforces strict deterministic reasoning and rejects sampling parameters
- * (temperature, top_p, generation top_k). For this model, sampling parameters are omitted entirely.
+ * Modern Gemini models (gemini-3.8-flash, gemini-3.6-flash, gemini-4-argon) enforce
+ * strict deterministic reasoning and reject/ignore sampling parameters
+ * (temperature, top_p, generation top_k). For these models, sampling parameters are omitted entirely.
  */
 export function buildModelGenerationConfig(
   targetModel: string,
@@ -25,19 +26,15 @@ export function buildModelGenerationConfig(
     config.systemInstruction = options.systemInstruction;
   }
 
-  // Gemini 3.8 Flash does not support sampling parameters (temperature, top_p, top_k)
-  if (targetModel === "gemini-3.8-flash") {
-    return Object.keys(config).length > 0 ? config : undefined;
-  }
+  const capabilities = getModelCapabilities(targetModel);
 
-  // For models supporting temperature/sampling controls (gemini-3.6-flash, gemini-4-argon)
-  if (typeof options?.temperature === "number") {
+  if (capabilities.supportsTemperature && typeof options?.temperature === "number") {
     config.temperature = options.temperature;
   }
-  if (typeof options?.topP === "number") {
+  if (capabilities.supportsTopP && typeof options?.topP === "number") {
     config.topP = options.topP;
   }
-  if (typeof options?.topK === "number") {
+  if (capabilities.supportsGenerationTopK && typeof options?.topK === "number") {
     config.topK = options.topK;
   }
 
@@ -174,16 +171,25 @@ export class GeminiService {
 
   /**
    * Transcribes scanned PDF documents using Gemini multimodal vision OCR.
+   * Model generation settings strictly respect model capabilities: sampling parameters
+   * (temperature, top_p, generation top_k) are omitted for models that do not support them
+   * (e.g. gemini-3.8-flash, gemini-3.6-flash, gemini-4-argon).
+   * The configured model (env.GEMINI_MODEL or modelOverride) is deliberately preserved.
    */
-  async transcribePdfWithOcr(pdfBuffer: Buffer): Promise<string> {
+  async transcribePdfWithOcr(pdfBuffer: Buffer, modelOverride?: string): Promise<string> {
     if (!this.isLiveClientConfigured() || !this.ai) {
       throw new Error("Optical character recognition (OCR) unavailable: Gemini multimodal client is not configured.");
     }
 
     try {
+      const targetModel = modelOverride || env.GEMINI_MODEL;
       const base64Data = pdfBuffer.toString("base64");
-      const response = await this.ai.models.generateContent({
-        model: env.GEMINI_MODEL,
+      const generationConfig = buildModelGenerationConfig(targetModel, {
+        temperature: 0.1, // Only emitted if targetModel supports temperature
+      });
+
+      const payload: Record<string, any> = {
+        model: targetModel,
         contents: [
           {
             inlineData: {
@@ -195,10 +201,13 @@ export class GeminiService {
             text: "Perform optical character recognition (OCR) on this scanned industrial document. Transcribe the text verbatim, preserving page numbers in the format '--- PAGE X ---' and technical headings. Do not summarize or invent text.",
           },
         ],
-        config: {
-          temperature: 0.1,
-        },
-      });
+      };
+
+      if (generationConfig) {
+        payload.config = generationConfig;
+      }
+
+      const response = await (this.ai.models.generateContent as any)(payload);
 
       const text = response.text;
       if (!text || text.trim().length === 0) {

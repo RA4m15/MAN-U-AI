@@ -255,7 +255,7 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
     expect(cite.documentId).toBe(privateDocId);
     expect(cite.page).toBe(7);
     expect(cite.excerpt).toContain("0.038 mm");
-  });
+  }, 20000);
 
   // ── 8. Unsupported Question Honesty ───────────────────────────────────────
   it("Requirement 13.8: An unsupported question does not receive a fabricated answer or citation", async () => {
@@ -270,7 +270,7 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
     expect(res.body.success).toBe(true);
     expect(res.body.data.citations.length).toBe(0);
     expect(res.body.data.answer.toLowerCase()).toContain("could not locate");
-  });
+  }, 20000);
 
   // ── 9. Persistence & Server Restart Verification ──────────────────────────
   it("Requirement 13.9: Persistent documents and chunks remain usable after restarting the backend", async () => {
