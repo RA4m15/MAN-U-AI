@@ -1019,3 +1019,111 @@ The actual files modified in commit `e0f04bc` were:
   - **Status:** PASSED (`tsc -b && vite build` exit code 0)
 - **Git Whitespace & Diff Check:** `git diff --check`
   - **Status:** PASSED (0 whitespace errors)
+
+---
+
+## 18. STAGE 4: LIVE PRODUCTION ACCEPTANCE & VERIFICATION AUDIT REPORT
+
+**Verification Date:** October 19, 2026
+**Starting Baseline Commit:** `aef995c6eb9ecc7d94867051031d18327a39fda5`
+**Live Deployed Host:** `https://man-u-ai.onrender.com`
+**Goal:** Verify whether the production application completes the document-to-answer workflow, evaluate live deployment identity and service health, verify integration endpoints, test document ingestion and grounded retrieval in an isolated test database, protect production records, and deliver an honest acceptance audit report using canonical status classifications (`PASS`, `FAIL`, `BLOCKED`, `NOT IMPLEMENTED`).
+
+### Acceptance Classification Summary
+
+| Acceptance Domain | Status | Evidence / Notes |
+| :--- | :---: | :--- |
+| **Live API Service Liveness (`/health`)** | **PASS** | HTTP 200 OK, latency ~300ms, `status: "healthy"`, `environment: "production"`, `database.status: "connected"`, `multimodalEngine.model: "gemini-3.8-flash"`. |
+| **Live Database Readiness (`/health/ready`)** | **PASS** | HTTP 200 OK, evaluates active Mongoose connection state (`readyState === 1`) and non-memory vector store. |
+| **Deployment Identity (Commit SHA Verification)** | **BLOCKED** | Render `/health` and HTTP response headers do not expose Git commit SHA; Render API/dashboard credentials unavailable to agent to confirm commit `aef995c` is active. |
+| **Live Integration Status Endpoint Auth** | **PASS** | `GET /api/v1/integrations/status` strictly enforces JWT authentication, returning HTTP 401 Unauthorized (`UNAUTHORIZED`) for unauthenticated requests. |
+| **Live Authenticated Integration Probes** | **BLOCKED** | Production user/admin credentials intentionally omitted to protect production Atlas data and credentials. Authentication bypass was not attempted. |
+| **Unconfigured Connectors (OPC-UA, Modbus, SAP, Maximo)** | **NOT IMPLEMENTED** | Truthfully report `not_configured` or `not_implemented`; blocked from fabricating connection states. |
+| **Live Production PDF Upload & Ingestion** | **BLOCKED** | Live upload omitted to prevent injecting unverified test artifacts into production Atlas without an authenticated administrative session. |
+| **Isolated Test Document-to-Answer Pipeline** | **PASS** | Tested in isolated test environment (`test/document_to_answer.test.ts`): verified 3-page binary PDF extraction, 3 indexed chunks, Page 2 & Page 1 citation accuracy, out-of-scope hallucination suppression, and private download streaming. |
+| **External AI Provider (Gemini Free Tier Quota)** | **PASS (Degraded)** | Under live free-tier quota exhaustion (`429 RESOURCE_EXHAUSTED`), RAG pipeline fails safe without crashing, providing grounded document excerpts with honest service notices. |
+| **Production Data Protection** | **PASS** | Zero production documents, users, equipment, settings, or audit records were altered, seeded, or deleted during acceptance testing. |
+| **Live Deployed Frontend Web Service** | **BLOCKED** | Static web service `https://man-u-ai-web.onrender.com` returns HTTP 404 (`x-render-routing: no-server`) pending user creation in Render Dashboard. |
+| **Frontend UI Honest Rendering & Integrity** | **PASS** | Verified via 21 unit & UI tests: honest empty database states, dynamic time filtering in Insights, and WebSocket configuration targeting explicit backend hosts. |
+| **Automated Regression Test Suites** | **PASS** | 119/119 backend tests passed; 21/21 frontend tests passed; shared/api/web builds all succeeded with exit code 0; `git diff --check` passed with 0 errors. |
+
+---
+
+### Detailed Findings & Verification Records
+
+#### 1. Live Deployment Health & Identity Probes
+- **Probe 1: `GET https://man-u-ai.onrender.com/health`**
+  - **HTTP Status:** `200 OK`
+  - **Timestamp:** `2026-10-18T21:00:48.725Z`
+  - **Server:** Render via Cloudflare Edge (`rndr-id: 661fb4d5-f61a-48d3`)
+  - **Response Payload:**
+    ```json
+    {
+      "status": "healthy",
+      "ready": true,
+      "timestamp": "2026-10-18T21:00:48.725Z",
+      "service": "MAN-U-AI API Server",
+      "version": "1.0.0",
+      "environment": "production",
+      "database": {
+        "status": "connected",
+        "ready": true,
+        "vectorStore": "mongodb"
+      },
+      "multimodalEngine": {
+        "provider": "Google Gemini",
+        "model": "gemini-3.8-flash",
+        "embeddingModel": "gemini-embedding-001",
+        "status": "key_configured",
+        "keyConfigured": true
+      },
+      "dependencies": {
+        "database": "ready",
+        "vectorStore": "ready",
+        "aiProvider": "key_configured"
+      }
+    }
+    ```
+- **Probe 2: `GET https://man-u-ai.onrender.com/health/ready`**
+  - **HTTP Status:** `200 OK`
+  - **Timestamp:** `2026-10-18T21:00:49.757Z`
+  - **Readiness Invariant:** Confirms live MongoDB Atlas connection pool is established and ready (`database.ready: true`).
+- **Deployment Identity Evaluation:**
+  - While the live API confirms `environment: "production"`, `model: "gemini-3.8-flash"` (introduced in Stage 3), and `vectorStore: "mongodb"`, the service does not report its Git commit SHA.
+  - Without Render Dashboard or API token access in this environment, verification of the active commit SHA on Render is classified as **BLOCKED**.
+
+#### 2. Protected Integration Endpoint Probes
+- **Probe: `GET https://man-u-ai.onrender.com/api/v1/integrations/status`**
+  - **HTTP Status:** `401 Unauthorized`
+  - **Response:** `{"success":false,"error":{"code":"UNAUTHORIZED","message":"Missing or invalid authorization header"}}`
+  - **Finding:** Protected endpoints are actively secured and refuse unauthenticated client access.
+  - **Session Availability:** No production user credentials or active tokens exist in client storage. In compliance with security instructions, authenticated probes against the live production service are marked **BLOCKED** rather than bypassing authentication.
+
+#### 3. Controlled Document-to-Answer Execution (Isolated Pipeline)
+Executed `apps/api/test/document_to_answer.test.ts` against isolated database `manuai_test` using real binary file `test_authorized_manual.pdf` (3 pages):
+1. **Extraction:** Extracted 3 distinct pages containing technical torque ratings (`52 N·m`) and shaft runout limits (`0.04 mm`).
+2. **Persistence & Ingestion:** Uploaded via `/api/v1/documents/upload` (HTTP 202), processed asynchronously, and produced 3 indexed chunks.
+3. **RAG Retrieval & Citation Accuracy:**
+   - Specific Question: *"What is the gland stud torque rating and permissible shaft runout in the Slurry Pump Overhaul Standard?"*
+   - Citation Result: Correctly cited Page 2 of *"Heavy Duty Slurry Pump Overhaul Standard"* with matching excerpt.
+   - Isolation Protocol Question: Correctly cited Page 1 isolation protocol.
+4. **Hallucination Prevention:** Out-of-scope query regarding unsupported domain (*"warp drive antimatter core injection temperature"*) returned insufficient evidence protocol with 0 citations.
+5. **Private Storage & Access Control:** Unauthenticated request to `/api/v1/documents/:id/file` returned HTTP 401; authorized engineer stream verified.
+
+#### 4. Frontend Status
+- **Production Static Site:** `https://man-u-ai-web.onrender.com` returns HTTP 404 (`x-render-routing: no-server`), indicating the static frontend site has not yet been provisioned in the Render dashboard. Marked **BLOCKED**.
+- **Frontend Code Integrity:** All 21 frontend tests in `apps/web` pass, confirming honest empty database rendering, non-mocked data handling, dynamic time filtering, and proper WebSocket resolution.
+
+---
+
+### Final Verification Suite Summary
+
+| Check | Target | Result | Exit Code |
+| :--- | :--- | :---: | :---: |
+| **Backend Tests** | `pnpm --filter @man-u-ai/api test --run` | 12/12 files, 119/119 passed | `0` |
+| **Frontend Tests** | `pnpm --filter @man-u-ai/web test` | 2/2 files, 21/21 passed | `0` |
+| **Shared Build** | `pnpm --filter @man-u-ai/shared build` | TypeScript compile succeeded | `0` |
+| **API Build** | `pnpm --filter @man-u-ai/api build` | TypeScript compile succeeded | `0` |
+| **Web Build** | `pnpm --filter @man-u-ai/web build` | TypeScript & Vite build succeeded | `0` |
+| **Git Diff Check** | `git diff --check` | 0 whitespace errors | `0` |
+| **Git Branch State** | `git status --short --branch` | Clean working tree; `HEAD` == `origin/main` (`aef995c`) | `0` |
