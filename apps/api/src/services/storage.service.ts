@@ -32,7 +32,13 @@ class LocalStorageService implements IStorageService {
   }
 
   getFileStream(storagePath: string): fs.ReadStream {
-    const fullPath = path.join(this.uploadDir, path.basename(storagePath));
+    const safeBase = path.basename(storagePath);
+    const fullPath = path.resolve(this.uploadDir, safeBase);
+    const normalizedUploadDir = path.resolve(this.uploadDir);
+
+    if (!fullPath.startsWith(normalizedUploadDir)) {
+      throw new Error("Path traversal violation: file is outside private storage directory");
+    }
     if (!fs.existsSync(fullPath)) {
       throw new Error("File not found in private storage");
     }
@@ -40,7 +46,13 @@ class LocalStorageService implements IStorageService {
   }
 
   async deleteFile(storagePath: string): Promise<void> {
-    const fullPath = path.join(this.uploadDir, path.basename(storagePath));
+    const safeBase = path.basename(storagePath);
+    const fullPath = path.resolve(this.uploadDir, safeBase);
+    const normalizedUploadDir = path.resolve(this.uploadDir);
+
+    if (!fullPath.startsWith(normalizedUploadDir)) {
+      throw new Error("Path traversal violation: file is outside private storage directory");
+    }
     if (fs.existsSync(fullPath)) {
       await fs.promises.unlink(fullPath);
     }

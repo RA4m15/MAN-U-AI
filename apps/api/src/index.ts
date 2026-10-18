@@ -6,27 +6,21 @@ import { env } from "./config/env";
 import { connectDatabase } from "./config/database";
 import { seedDatabase } from "./config/seed";
 
+import mongoose from "mongoose";
+import { isAllowedOrigin } from "./app";
+import { DocumentModel, DocumentPermission } from "./models";
+import { isConnectedToMongo } from "./config/database";
+
 const server = http.createServer(app);
 
-const allowedOrigins = [
-  ...env.CORS_ORIGIN.split(",").map((o) => o.trim()),
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-].filter(Boolean);
-
-// Socket.IO configuration with real-time room authorization
+// Socket.IO configuration with hardened CORS policy
 export const io = new SocketIOServer(server, {
   cors: {
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (
-        allowedOrigins.includes(origin) ||
-        allowedOrigins.includes("*") ||
-        origin.endsWith(".onrender.com")
-      ) {
+      if (isAllowedOrigin(origin)) {
         return callback(null, true);
       }
-      return callback(null, true);
+      return callback(new Error(`CORS origin not allowed: ${origin}`));
     },
     methods: ["GET", "POST"],
     credentials: true,
@@ -48,6 +42,38 @@ io.use((socket, next) => {
   }
 });
 
+async function canUserAccessDocument(userId: string, role: string, docId: string): Promise<boolean> {
+  if (role === "admin") return true;
+  if (!isConnectedToMongo) {
+    return false;
+  }
+  if (!mongoose.Types.ObjectId.isValid(docId)) {
+    return false;
+  }
+
+  try {
+    const doc = await DocumentModel.findById(docId);
+    if (!doc) return false;
+
+    // The user who uploaded the document has access
+    if (doc.uploadedById && doc.uploadedById.toString() === userId) {
+      return true;
+    }
+
+    // Check explicit permissions
+    const permission = await DocumentPermission.findOne({
+      documentId: doc._id,
+      $or: [{ userId }, { role }],
+      canRead: true,
+    });
+
+    return !!permission;
+  } catch (err) {
+    console.warn(`[Socket.IO Auth] Error checking access for doc ${docId}:`, err);
+    return false;
+  }
+}
+
 io.on("connection", (socket) => {
   const user = (socket as any).user;
   console.log(`[Socket.IO] Client connected: ${socket.id} (User: ${user?.email || "anonymous"})`);
@@ -55,25 +81,49 @@ io.on("connection", (socket) => {
   if (user?.id) {
     socket.join(`user:${user.id}`);
   }
-  // All authenticated connections join the authenticated channel
-  socket.join("authenticated");
+  if (user?.role === "admin") {
+    socket.join("role:admin");
+  }
 
-  // Document-room authorization: verify user is authenticated before allowing room subscription
-  socket.on("subscribe:document", (docId: string) => {
+  // Document-room authorization: verify user has explicit permission before joining document room
+  socket.on("subscribe:document", async (docId: string) => {
     if (!user) {
       socket.emit("subscription:error", { code: "UNAUTHORIZED", message: "Cannot join document room without authentication" });
       return;
     }
+
+    const hasAccess = await canUserAccessDocument(user.id, user.role, docId);
+    if (!hasAccess) {
+      socket.emit("subscription:error", {
+        code: "FORBIDDEN",
+        message: "You are not authorized to subscribe to real-time events for this document",
+        docId,
+      });
+      return;
+    }
+
     socket.join(`doc:${docId}`);
     socket.emit("subscription:confirmed", { docId, room: `doc:${docId}` });
   });
 
-  socket.on("join:doc", (docId: string) => {
+  socket.on("join:doc", async (docId: string) => {
     if (!user) {
       socket.emit("subscription:error", { code: "UNAUTHORIZED", message: "Cannot join document room without authentication" });
       return;
     }
+
+    const hasAccess = await canUserAccessDocument(user.id, user.role, docId);
+    if (!hasAccess) {
+      socket.emit("subscription:error", {
+        code: "FORBIDDEN",
+        message: "You are not authorized to join this document room",
+        docId,
+      });
+      return;
+    }
+
     socket.join(`doc:${docId}`);
+    socket.emit("subscription:confirmed", { docId, room: `doc:${docId}` });
   });
 
   socket.on("unsubscribe:document", (docId: string) => {
@@ -85,18 +135,26 @@ io.on("connection", (socket) => {
   });
 });
 
-export function emitDocumentProgress(documentId: string, progress: number, stage: string) {
-  // Emit to the specific document room and the authenticated channel; never broadcast to unauthenticated clients
-  io.to(`doc:${documentId}`).to("authenticated").emit("document:progress", { documentId, progress, stage });
+export function emitDocumentProgress(documentId: string, progress: number, stage: string, uploaderId?: string) {
+  // Emit exclusively to authorized clients in the document room and the uploader's private channel
+  const target = io.to(`doc:${documentId}`);
+  if (uploaderId) {
+    target.to(`user:${uploaderId}`);
+  }
+  target.emit("document:progress", { documentId, progress, stage });
 }
 
-export function emitDocumentStatus(documentId: string, status: string, pageCount?: number, error?: string) {
-  io.to(`doc:${documentId}`).to("authenticated").emit("document:status", { documentId, status, pageCount, error });
+export function emitDocumentStatus(documentId: string, status: string, pageCount?: number, error?: string, uploaderId?: string) {
+  const target = io.to(`doc:${documentId}`);
+  if (uploaderId) {
+    target.to(`user:${uploaderId}`);
+  }
+  target.emit("document:status", { documentId, status, pageCount, error });
 }
 
 export function emitAuditEvent(event: any) {
-  // Audit events are confidential and streamed exclusively to authenticated clients
-  io.to("authenticated").emit("audit:new", event);
+  // Audit events are confidential and streamed exclusively to administrators
+  io.to("role:admin").emit("audit:new", event);
 }
 
 async function startServer() {

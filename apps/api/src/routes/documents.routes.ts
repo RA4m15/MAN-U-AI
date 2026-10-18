@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { Router, Request, Response } from "express";
 import multer from "multer";
-import { DocumentModel, DocumentChunk, ProcessingJob, AuditEvent } from "../models";
+import { DocumentModel, DocumentChunk, DocumentPermission, ProcessingJob, AuditEvent } from "../models";
 
 import { storageService } from "../services/storage.service";
 import { pdfService } from "../services/pdf.service";
@@ -26,11 +26,85 @@ const upload = multer({
   },
 });
 
+import crypto from "crypto";
+
+export function toMongoObjectId(idStr: string | undefined): mongoose.Types.ObjectId {
+  if (!idStr) return new mongoose.Types.ObjectId();
+  if (mongoose.Types.ObjectId.isValid(idStr) && idStr.length === 24) {
+    return new mongoose.Types.ObjectId(idStr);
+  }
+  const hex = crypto.createHash("md5").update(idStr).digest("hex").slice(0, 24);
+  return new mongoose.Types.ObjectId(hex);
+}
+
+// Authorization helper for document access
+export async function isUserAuthorizedForDocument(
+  userId: string | undefined,
+  role: string | undefined,
+  docId: string
+): Promise<{ authorized: boolean; doc?: any }> {
+  if (!isConnectedToMongo) {
+    return { authorized: true };
+  }
+  if (!mongoose.Types.ObjectId.isValid(docId)) {
+    return { authorized: false };
+  }
+
+  const doc = await DocumentModel.findById(docId);
+  if (!doc) {
+    return { authorized: false };
+  }
+
+  if (role === "admin") {
+    return { authorized: true, doc };
+  }
+
+  const userOid = toMongoObjectId(userId);
+  if (doc.uploadedById && (doc.uploadedById.toString() === userId || doc.uploadedById.toString() === userOid.toString())) {
+    return { authorized: true, doc };
+  }
+
+  const permission = await DocumentPermission.findOne({
+    documentId: doc._id,
+    $or: [{ userId: userOid }, ...(role ? [{ role }] : [])],
+    canRead: true,
+  });
+
+  if (permission) {
+    return { authorized: true, doc };
+  }
+
+  return { authorized: false, doc };
+}
+
 // GET /documents - List all documents permitted for current user
 documentsRouter.get("/", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   if (isConnectedToMongo) {
     try {
-      const docs = await DocumentModel.find().sort({ createdAt: -1 }).limit(100);
+      let query: any = {};
+      if (req.user?.role !== "admin") {
+        const userId = req.user?.id;
+        const userOid = toMongoObjectId(userId);
+        const orConditions: any[] = [{ userId: userOid }];
+        if (req.user?.role) {
+          orConditions.push({ role: req.user.role });
+        }
+
+        const permittedDocs = await DocumentPermission.find({
+          $or: orConditions,
+          canRead: true,
+        }).select("documentId");
+
+        const permittedDocIds = permittedDocs.map((p) => p.documentId);
+        query = {
+          $or: [
+            { uploadedById: userOid },
+            { _id: { $in: permittedDocIds } },
+          ],
+        };
+      }
+
+      const docs = await DocumentModel.find(query).sort({ createdAt: -1 }).limit(100);
       return res.json({
         success: true,
         data: docs.map((d) => ({
@@ -57,80 +131,93 @@ documentsRouter.get("/", requireAuth, async (req: AuthenticatedRequest, res: Res
   });
 });
 
-// GET /documents/:id - Get single document details
-documentsRouter.get("/:id", requireAuth, async (req: Request, res: Response) => {
-  const { id } = req.params;
-  if (isConnectedToMongo) {
-    try {
-      const doc = await DocumentModel.findById(id).populate("equipmentId");
-      if (doc) {
-        return res.json({
-          success: true,
-          data: {
-            id: doc._id.toString(),
-            title: doc.title,
-            revision: doc.revision,
-            filename: doc.filename,
-            sizeBytes: doc.sizeBytes,
-            status: doc.status,
-            pageCount: doc.pageCount,
-            tags: doc.tags,
-            equipment: doc.equipmentId,
-            createdAt: doc.createdAt.toISOString(),
-            updatedAt: doc.updatedAt.toISOString(),
-          },
-        });
-      }
-    } catch (err) {
-      console.warn("[Documents] Find error:", err);
-    }
+// GET /documents/:id - Get single document details (authorized only)
+documentsRouter.get("/:id", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const id = String(req.params.id);
+  const { authorized, doc } = await isUserAuthorizedForDocument(req.user?.id, req.user?.role, id);
+  if (!doc) {
+    return res.status(404).json({
+      success: false,
+      error: { code: "NOT_FOUND", message: "Document not found" },
+    });
+  }
+  if (!authorized) {
+    return res.status(403).json({
+      success: false,
+      error: { code: "FORBIDDEN", message: "Access to document denied" },
+    });
   }
 
-  return res.status(404).json({
-    success: false,
-    error: { code: "NOT_FOUND", message: "Document not found" },
+  return res.json({
+    success: true,
+    data: {
+      id: doc._id.toString(),
+      title: doc.title,
+      revision: doc.revision,
+      filename: doc.filename,
+      sizeBytes: doc.sizeBytes,
+      status: doc.status,
+      pageCount: doc.pageCount,
+      tags: doc.tags,
+      equipment: doc.equipmentId,
+      createdAt: doc.createdAt.toISOString(),
+      updatedAt: doc.updatedAt.toISOString(),
+    },
   });
 });
 
-// GET /documents/:id/chunks - Get all indexed chunks for this document
-documentsRouter.get("/:id/chunks", requireAuth, async (req: Request, res: Response) => {
-  const { id } = req.params;
-  if (isConnectedToMongo) {
-    try {
-      const chunks = await DocumentChunk.find({ documentId: id }).sort({ page: 1 });
-      return res.json({
-        success: true,
-        data: chunks.map((c) => ({
-          id: c._id.toString(),
-          page: c.page,
-          section: c.section,
-          text: c.text,
-          tokenCount: c.tokenCount,
-        })),
-      });
-    } catch (err) {
-      console.warn("[Documents] Chunks fetch error:", err);
-    }
+// GET /documents/:id/chunks - Get all indexed chunks for this document (authorized only)
+documentsRouter.get("/:id/chunks", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const id = String(req.params.id);
+  const { authorized, doc } = await isUserAuthorizedForDocument(req.user?.id, req.user?.role, id);
+  if (!doc) {
+    return res.status(404).json({
+      success: false,
+      error: { code: "NOT_FOUND", message: "Document not found" },
+    });
+  }
+  if (!authorized) {
+    return res.status(403).json({
+      success: false,
+      error: { code: "FORBIDDEN", message: "Access to document chunks denied" },
+    });
   }
 
-  return res.json({ success: true, data: [] });
+  const chunks = await DocumentChunk.find({ documentId: id }).sort({ page: 1 });
+  return res.json({
+    success: true,
+    data: chunks.map((c) => ({
+      id: c._id.toString(),
+      page: c.page,
+      section: c.section,
+      text: c.text,
+      tokenCount: c.tokenCount,
+    })),
+  });
 });
 
-// GET /documents/:id/file - Stream raw document PDF
-documentsRouter.get("/:id/file", requireAuth, async (req: Request, res: Response) => {
-  const { id } = req.params;
-  if (isConnectedToMongo) {
-    try {
-      const doc = await DocumentModel.findById(id);
-      if (doc && doc.storagePath) {
-        res.setHeader("Content-Type", doc.mimeType || "application/pdf");
-        res.setHeader("Content-Disposition", `inline; filename="${doc.filename}"`);
-        const stream = storageService.getFileStream(doc.storagePath);
-        return stream.pipe(res);
-      }
-    } catch (err) {
-      console.warn("[Documents] File streaming error:", err);
-    }
+// GET /documents/:id/file - Stream raw document PDF (authorized only)
+documentsRouter.get("/:id/file", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const id = String(req.params.id);
+  const { authorized, doc } = await isUserAuthorizedForDocument(req.user?.id, req.user?.role, id);
+  if (!doc) {
+    return res.status(404).json({
+      success: false,
+      error: { code: "NOT_FOUND", message: "File not found" },
+    });
+  }
+  if (!authorized) {
+    return res.status(403).json({
+      success: false,
+      error: { code: "FORBIDDEN", message: "Access to document file denied" },
+    });
+  }
+
+  if (doc.storagePath) {
+    res.setHeader("Content-Type", doc.mimeType || "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${doc.filename}"`);
+    const stream = storageService.getFileStream(doc.storagePath);
+    return stream.pipe(res);
   }
 
   return res.status(404).json({
@@ -178,16 +265,12 @@ documentsRouter.post(
           status: "processing",
           tags,
           equipmentId,
-          uploadedById: (req.user?.id && mongoose.Types.ObjectId.isValid(req.user.id))
-            ? (req.user.id as any)
-            : new mongoose.Types.ObjectId(),
+          uploadedById: toMongoObjectId(req.user?.id),
         });
         docId = createdDoc._id.toString();
 
         await AuditEvent.create({
-          userId: (req.user?.id && mongoose.Types.ObjectId.isValid(req.user.id))
-            ? (req.user.id as any)
-            : undefined,
+          userId: toMongoObjectId(req.user?.id),
           userEmail: req.user?.email,
           action: "doc_upload",
           resourceType: "Document",
@@ -205,11 +288,12 @@ documentsRouter.post(
         });
       }
 
+      const uploaderId = req.user?.id;
       // Notify clients that ingestion has started
-      emitDocumentProgress(docId, 10, "Extracting text and structural metadata...");
+      emitDocumentProgress(docId, 10, "Extracting text and structural metadata...", uploaderId);
 
       // 2. Trigger asynchronous background ingestion pipeline
-      processDocumentAsync(docId, title, revision, req.file.buffer).catch((err) =>
+      processDocumentAsync(docId, title, revision, req.file.buffer, uploaderId).catch((err) =>
         console.error(`[Ingestion Error for ${docId}]:`, err)
       );
 
@@ -232,17 +316,26 @@ documentsRouter.post(
   }
 );
 
-// DELETE /documents/:id - Delete document and vector index chunks
+// DELETE /documents/:id - Delete document and vector index chunks (owner or admin only)
 documentsRouter.delete(
   "/:id",
   requireAuth,
   requireRole(["admin", "engineer"]),
   async (req: AuthenticatedRequest, res: Response) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     if (isConnectedToMongo) {
       try {
         const doc = await DocumentModel.findById(id);
         if (doc) {
+          const userOidStr = toMongoObjectId(req.user?.id).toString();
+          const docUploaderStr = doc.uploadedById?.toString();
+          if (req.user?.role !== "admin" && docUploaderStr !== req.user?.id && docUploaderStr !== userOidStr) {
+            return res.status(403).json({
+              success: false,
+              error: { code: "FORBIDDEN", message: "Only administrators or the document owner may delete this document" },
+            });
+          }
+
           try {
             await storageService.deleteFile(doc.storagePath);
           } catch (e) {
@@ -274,35 +367,39 @@ documentsRouter.delete(
   }
 );
 
-// GET /documents/:id/status
-documentsRouter.get("/:id/status", requireAuth, async (req: Request, res: Response) => {
-  const { id } = req.params;
-  if (isConnectedToMongo) {
-    const doc = await DocumentModel.findById(id);
-    if (doc) {
-      return res.json({
-        success: true,
-        data: {
-          id: doc._id.toString(),
-          status: doc.status,
-          pageCount: doc.pageCount,
-        },
-      });
-    }
+// GET /documents/:id/status - Status polling (authorized only)
+documentsRouter.get("/:id/status", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const id = String(req.params.id);
+  const { authorized, doc } = await isUserAuthorizedForDocument(req.user?.id, req.user?.role, id);
+  if (!doc) {
+    return res.status(404).json({
+      success: false,
+      error: { code: "NOT_FOUND", message: "Document not found" },
+    });
+  }
+  if (!authorized) {
+    return res.status(403).json({
+      success: false,
+      error: { code: "FORBIDDEN", message: "Access to document status denied" },
+    });
   }
 
   return res.json({
     success: true,
-    data: { id, status: "indexed", pageCount: 24 },
+    data: {
+      id: doc._id.toString(),
+      status: doc.status,
+      pageCount: doc.pageCount,
+    },
   });
 });
 
-async function processDocumentAsync(docId: string, title: string, revision: string, buffer: Buffer) {
+async function processDocumentAsync(docId: string, title: string, revision: string, buffer: Buffer, uploaderId?: string) {
   try {
-    emitDocumentProgress(docId, 30, "Extracting text and tables via PDF parser...");
+    emitDocumentProgress(docId, 30, "Extracting text and tables via PDF parser...", uploaderId);
     const extraction = await pdfService.extractAndChunk(buffer, title);
 
-    emitDocumentProgress(docId, 60, `Generating vector embeddings for ${extraction.chunks.length} chunks...`);
+    emitDocumentProgress(docId, 60, `Generating vector embeddings for ${extraction.chunks.length} chunks...`, uploaderId);
 
     // Clean existing chunks if re-indexing
     if (isConnectedToMongo) {
@@ -323,7 +420,7 @@ async function processDocumentAsync(docId: string, title: string, revision: stri
       });
       chunkIndex++;
       const progress = 60 + Math.floor((chunkIndex / extraction.chunks.length) * 35);
-      emitDocumentProgress(docId, progress, `Indexing chunk ${chunkIndex} of ${extraction.chunks.length}...`);
+      emitDocumentProgress(docId, progress, `Indexing chunk ${chunkIndex} of ${extraction.chunks.length}...`, uploaderId);
     }
 
     if (isConnectedToMongo) {
@@ -333,14 +430,14 @@ async function processDocumentAsync(docId: string, title: string, revision: stri
       });
     }
 
-    emitDocumentProgress(docId, 100, "Indexing completed successfully");
-    emitDocumentStatus(docId, "indexed", extraction.pageCount);
+    emitDocumentProgress(docId, 100, "Indexing completed successfully", uploaderId);
+    emitDocumentStatus(docId, "indexed", extraction.pageCount, undefined, uploaderId);
     console.log(`[Ingestion Complete] ${title} indexed with ${extraction.chunks.length} chunks.`);
   } catch (err: any) {
     console.error(`[Ingestion Failed for ${docId}]:`, err);
     if (isConnectedToMongo) {
       await DocumentModel.findByIdAndUpdate(docId, { status: "failed" });
     }
-    emitDocumentStatus(docId, "failed", 0, err?.message || "Ingestion pipeline failure");
+    emitDocumentStatus(docId, "failed", 0, err?.message || "Ingestion pipeline failure", uploaderId);
   }
 }

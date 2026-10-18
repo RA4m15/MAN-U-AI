@@ -39,7 +39,11 @@ export async function connectDatabase(overrideUri?: string): Promise<boolean> {
     return true;
   } catch (err: unknown) {
     const errorMsg = sanitizeMongoMessage(err instanceof Error ? err.message : String(err));
-    console.warn(`[MongoDB] Notice: Could not connect to MongoDB (${errorMsg}). Switching to in-memory active store fallback.`);
+    if (env.NODE_ENV === "production") {
+      throw new Error(`[FATAL] Production database connection failed: ${errorMsg}`);
+    }
+
+    console.warn(`[MongoDB] Notice: Could not connect to MongoDB (${errorMsg}). Switching to in-memory active store fallback for development/test.`);
     isConnectedToMongo = false;
     return false;
   }

@@ -22,24 +22,36 @@ app.use(
     contentSecurityPolicy: false, // Allow local development scripts & assets
   })
 );
-const allowedOrigins = [
-  ...env.CORS_ORIGIN.split(",").map((o) => o.trim()),
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-].filter(Boolean);
+export function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
+
+  const configuredOrigins = env.CORS_ORIGIN
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  if (env.NODE_ENV !== "production") {
+    const devOrigins = [
+      ...configuredOrigins,
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "http://localhost:4000",
+      "http://127.0.0.1:4000",
+    ];
+    return devOrigins.includes(origin) || devOrigins.includes("*");
+  }
+
+  // In production, strictly enforce the configured allowlist
+  return configuredOrigins.includes(origin) || configuredOrigins.includes("*");
+}
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      if (
-        allowedOrigins.includes(origin) ||
-        allowedOrigins.includes("*") ||
-        origin.endsWith(".onrender.com")
-      ) {
+      if (isAllowedOrigin(origin)) {
         return callback(null, true);
       }
-      return callback(null, true);
+      return callback(new Error(`CORS origin not allowed: ${origin}`));
     },
     credentials: true,
   })
@@ -87,8 +99,19 @@ app.use((req: Request, res: Response) => {
 
 // Centralized error handler
 app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
-  console.error("[API Error Handler]:", err);
   const message = err instanceof Error ? err.message : "Internal server error";
+
+  if (message.startsWith("CORS origin not allowed")) {
+    return res.status(403).json({
+      success: false,
+      error: {
+        code: "CORS_FORBIDDEN",
+        message,
+      },
+    });
+  }
+
+  console.error("[API Error Handler]:", err);
   res.status(500).json({
     success: false,
     error: {

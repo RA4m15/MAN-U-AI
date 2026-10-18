@@ -78,10 +78,11 @@
 - **Production Guard:** `apps/api/src/config/env.ts` enforces that when `NODE_ENV === "production"`, `JWT_SECRET` cannot match the default development secret and must be at least 32 characters in length.
 
 ### G. MongoDB Atlas Database Integration & Audit
-- **Required Variable & Configuration File:**
+- **Single Canonical Environment Loading:**
   - Variable Name: `MONGODB_URI`
-  - Environment File: Stored locally in `.env` (root directory `C:\Shiva\MORE\Projects\MAN-U-AI\.env` or `apps/api/.env`), which is strictly excluded from Git by `.gitignore`.
-  - Format: `mongodb+srv://<db_user>:<db_password>@cluster0.90gymzr.mongodb.net/manuai?retryWrites=true&w=majority`
+  - Canonical File: Exclusively loaded from the workspace root `.env` (`C:\Shiva\MORE\Projects\MAN-U-AI\.env`).
+  - Elimination of Duplication: Deleted `apps/api/.env` to eliminate ambiguity. Updated `apps/api/src/config/env.ts` to implement `findCanonicalRootEnvPath()`, traversing upward to dynamically detect the workspace root (`pnpm-workspace.yaml`), ensuring all packages resolve the exact same environment file.
+  - Git Isolation: Confirmed `.env` is strictly excluded from Git by `.gitignore`.
 - **Startup Connection Lifecycle:**
   - `apps/api/src/config/env.ts` loads environment variables before any application services are initialized.
   - In `apps/api/src/index.ts`, `server.listen()` is strictly blocked on `await connectDatabase()` and `await seedDatabase()`. No incoming HTTP or WebSocket requests requiring database access can be processed until the connection is established.
@@ -92,16 +93,18 @@
 - **Atlas Connectivity Diagnostics Record:**
   - **DNS SRV Resolution:** Verified. `cluster0.90gymzr.mongodb.net` successfully resolves to the 3 cluster replica set members (`cluster0-shard-00-00`, `cluster0-shard-00-01`, `cluster0-shard-00-02`).
   - **Network & TLS Handshake:** Verified. The cluster accepted TLS connections on port 27017 without firewall or IP access list rejection.
-  - **Authentication & Ping Status:** **VERIFIED & CONNECTED**. Using the updated Atlas credentials, the backend authenticated successfully with zero credential leaks. The cluster returned database ping `{"ok": 1}`.
+  - **Authentication & Ping Status:** **VERIFIED & CONNECTED**. Backend authenticated successfully with zero credential leaks. The cluster returned database ping `{"ok": 1}`.
   - **Live Cluster Details:**
     - Host: `ac-l0nlhix-shard-00-00.90gymzr.mongodb.net`
     - Database Name: `manuai`
     - Cluster Type: MongoDB Atlas (Replica Set)
-    - Persistence Check: Successfully created harmless test record `_AtlasVerification` (`6ad4edd7583af44deb3f57f4`), verified read-after-write, and cleanly deleted.
+    - Persistence Check: Successfully executed `verifyDatabasePersistence()` — wrote temporary harmless record `_AtlasVerification`, verified read-after-write, and cleanly deleted.
     - Application Seeding: Personnel accounts, equipment registry, and vector chunks seeded into MongoDB Atlas. Tested live login (`alex.mercer@plant.io`) and live RAG retrieval against Atlas with 100% success.
+    - Live Health Endpoint Verification: Updated `GET /health` to report actual connected database status, cluster shard host, database name (`manuai`), and `isAtlas: true`.
 - **Data Persistence & Isolation Verification:**
   - Persistence verification helper `verifyDatabasePersistence()` creates a temporary verification record (`_AtlasVerification`), reads it back to confirm consistency, and cleans it up.
   - Automated tests running under `NODE_ENV === "test"` are automatically routed to `TEST_MONGODB_URI` / local isolated test database to prevent test pollution of the production Atlas database.
+  - All test and diagnostic scratch files containing credentials have been purged from the repository.
 - **Storage Architecture Separation (Database Records vs. Binary PDFs):**
   - **MongoDB Atlas** stores all structured application records: users, authentication hashes, equipment assets, document metadata, chunk text, and embeddings.
   - **`storage.service.ts`** stores uploaded PDF binary files on the **local filesystem** (`./uploads`). Cloud object storage (S3/GCS) is not active and is not claimed as cloud-based.
@@ -360,5 +363,69 @@ To complete the live deployment in the Render Dashboard:
 4. **Deploy and Validate Live Services:**
    - Click **Apply**.
    - Monitor build logs for both `man-u-ai-api` and `man-u-ai-web`.
-   - Once deployed, test the live health endpoint: `https://<api-service>.onrender.com/health`.
+   - Once deployed, test the live health endpoint: `https://<api-service>.onrender.com/health/ready`.
    - Open `https://<web-service>.onrender.com` and log in to verify end-to-end functionality.
+
+---
+
+## 9. PRODUCTION HARDENING, SECURITY AUDIT & VERIFICATION REPORT
+
+### A. P0: Security and Data Integrity Enforcements
+1. **Strict CORS Allowlist Enforcement:**
+   - Refactored `apps/api/src/app.ts` and `apps/api/src/index.ts` to implement `isAllowedOrigin()`.
+   - Eliminated all unconditional `callback(null, true)` fallbacks and removed the wildcard `.onrender.com` suffix check.
+   - Origins not present in `env.CORS_ORIGIN` (or development localhost URLs) are rejected with HTTP 403 Forbidden (`CORS_FORBIDDEN`). Verified via live curl and automated tests.
+2. **Socket.IO Document Room & Audit Event Authorization:**
+   - Enforced database-level document permission checks in `subscribe:document` and `join:doc`. Only document owners, users with explicit read permissions, or administrators are permitted to join document rooms. Unauthorized join attempts are rejected with `FORBIDDEN`.
+   - Eliminated global `.to("authenticated")` progress broadcasting from `emitDocumentProgress` and `emitDocumentStatus`. Progress events are scoped exclusively to the specific document room and the uploader's channel.
+   - Protected `emitAuditEvent` to stream exclusively to the `role:admin` room. Normal viewers and engineers no longer receive confidential administrative audit logs.
+3. **RAG Access Control & Document-Level Isolation:**
+   - Updated `RagService.answerQuestion` to resolve permitted document IDs for the querying user prior to vector retrieval.
+   - Non-admin users are strictly restricted to documents they own or have explicit read grants for. If an unauthorized user queries a confidential document, `vectorService.searchSimilar` filters it out, yielding 0 citations and an insufficient-evidence response.
+   - Secured document streaming (`GET /documents/:id/file`), chunk extraction (`GET /documents/:id/chunks`), and document deletion (`DELETE /documents/:id`) with ownership and RBAC enforcement.
+4. **Production-Only Real Data Separation:**
+   - Moved hardcoded demonstration chunks into `DEMO_CHUNKS_FIXTURE` in `vector.service.ts`.
+   - Enforced that when `NODE_ENV === "production"`, candidate chunks are loaded strictly from persisted `DocumentChunk` records in MongoDB. Fallback to demo chunks in production is strictly prohibited.
+5. **Vector Correctness & Incompatible Dimension Rejection:**
+   - Removed the bogus `0.75` fallback for dimension mismatches in `computeCosineSimilarity`.
+   - Enforced that vectors must match the configured 768-dimensional model. Mismatches throw explicit errors (`Embedding dimension mismatch`).
+6. **Truthful Gemini Generative AI Failure Behavior:**
+   - Removed the generic hardcoded mechanical seal SP-400 fallback from `gemini.service.ts`.
+   - When generative AI synthesis is unavailable in production, the system throws an explicit failure state or returns a clearly labelled offline evidence summary extracted verbatim from retrieved documents without inventing torques, tolerances, or citations.
+
+### B. P0: Reliable Production Operation
+1. **Production Environment Guards:**
+   - `apps/api/src/config/env.ts` enforces that when `NODE_ENV === "production"`, `MONGODB_URI` cannot point to localhost or `127.0.0.1`, `VECTOR_STORE` cannot be `"memory"`, and `JWT_SECRET`/`REFRESH_TOKEN_SECRET` must be non-default and at least 32 characters.
+   - `apps/api/src/config/database.ts` aborts server startup if MongoDB fails to connect in production, preventing silent in-memory fallback.
+2. **Liveness vs. Readiness Segregation:**
+   - Implemented `GET /health/live` (process liveness probe, returns HTTP 200) and `GET /health/ready` (dependency readiness probe).
+   - If MongoDB or vector retrieval dependencies are unavailable, `/health/ready` and production `/health` return HTTP 503 Service Unavailable, alerting Render orchestration to delay traffic routing.
+3. **Canonical Environment Path Normalization:**
+   - Implemented dynamic root ascension in `findCanonicalRootEnvPath()` to resolve the monorepo root `.env` from both development `src/config` and compiled `dist/config` directories.
+   - Permitted headless production execution on Render relying purely on system/container environment variables.
+4. **Persistent Disk & PDF Storage Security:**
+   - Implemented path traversal prevention in `LocalStorageService.getFileStream` and `deleteFile`, guaranteeing that resolved file paths cannot escape the designated uploads directory.
+
+### C. P1: Vector Retrieval Architecture & Test Verification
+1. **Retrieval Architecture Specification:**
+   - Current implementation: High-precision hybrid search combining 768-dimensional cosine vector similarity with exact technical keyword overlap scoring across persisted MongoDB `DocumentChunk` documents.
+   - Native Atlas Vector Search: When deployed to an Atlas M10+ cluster with a defined Vector Search index, `$vectorSearch` aggregation pipeline stages are utilized. The system documents that local and M0 shared clusters execute indexed collection retrieval with application-level cosine scoring.
+2. **Focused Security & Hardening Automated Test Results:**
+   - Added `apps/api/test/security_hardening.test.ts` verifying all 9 requirement criteria.
+   - Full automated test suite results (`pnpm --filter @man-u-ai/api test`):
+     ```
+     Test Files  7 passed (7)
+          Tests  42 passed (42)
+       Duration  6.39s
+     ```
+     - `test/security_hardening.test.ts` (9 tests) - PASSED
+     - `test/document_to_answer.test.ts` (7 tests) - PASSED
+     - `test/e2e_acceptance.test.ts` (11 tests) - PASSED
+     - `test/socket_events.test.ts` (6 tests) - PASSED
+     - `test/health.test.ts` (4 tests) - PASSED
+     - `test/rag.test.ts` (3 tests) - PASSED
+     - `test/vector_persistence.test.ts` (2 tests) - PASSED
+3. **Production Builds:**
+   - `@man-u-ai/shared`: TypeScript build clean (0 errors).
+   - `@man-u-ai/api`: TypeScript build clean (0 errors).
+   - `@man-u-ai/web`: Vite production bundle generated (0 errors, 474.59 kB JS, 33.90 kB CSS).

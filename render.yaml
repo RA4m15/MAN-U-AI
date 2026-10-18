@@ -36,7 +36,7 @@ services:
       name: uploads-disk
       mountPath: /var/data/uploads
       sizeGB: 10
-    healthCheckPath: /health
+    healthCheckPath: /health/ready
 
   # ── MAN-U-AI Web Frontend Static Site ─────────────────────────
   - type: web

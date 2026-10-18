@@ -16,10 +16,12 @@ chatRouter.post("/", requireAuth, async (req: AuthenticatedRequest, res: Respons
     });
   }
 
-  const userId = req.user?.id || "usr-demo-01";
+  const userContext = req.user
+    ? { id: req.user.id, role: req.user.role }
+    : { id: "usr-demo-01", role: "viewer" };
 
   try {
-    const result = await ragService.answerQuestion(message, userId, conversationId, equipmentId);
+    const result = await ragService.answerQuestion(message, userContext, conversationId, equipmentId);
 
     if (isConnectedToMongo && conversationId) {
       try {

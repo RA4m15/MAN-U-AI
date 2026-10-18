@@ -1,10 +1,32 @@
 import dotenv from "dotenv";
 import path from "path";
+import fs from "fs";
 import { z } from "zod";
 
-// Canonical single root .env for the pnpm monorepo
-export const CANONICAL_ENV_PATH = path.resolve(__dirname, "../../../.env");
-dotenv.config({ path: CANONICAL_ENV_PATH });
+// Canonical root .env locator for development and compiled execution
+function findCanonicalRootEnvPath(): string {
+  let curr = __dirname;
+  while (curr && curr !== path.dirname(curr)) {
+    const workspaceMarker = path.join(curr, "pnpm-workspace.yaml");
+    const gitMarker = path.join(curr, ".git");
+    if (fs.existsSync(workspaceMarker) || fs.existsSync(gitMarker)) {
+      return path.join(curr, ".env");
+    }
+    curr = path.dirname(curr);
+  }
+  return path.resolve(process.cwd(), ".env");
+}
+
+export const CANONICAL_ENV_PATH = findCanonicalRootEnvPath();
+
+if (fs.existsSync(CANONICAL_ENV_PATH)) {
+  dotenv.config({ path: CANONICAL_ENV_PATH });
+  if (process.env.NODE_ENV !== "test") {
+    console.log(`[Config] Normalized environment loaded from: ${CANONICAL_ENV_PATH}`);
+  }
+} else if (process.env.NODE_ENV !== "test") {
+  console.log(`[Config] Relying on system/container environment variables (no local .env at: ${CANONICAL_ENV_PATH})`);
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
@@ -43,6 +65,25 @@ const envSchema = z.object({
         code: z.ZodIssueCode.custom,
         path: ["REFRESH_TOKEN_SECRET"],
         message: "Production environment requires a strong, non-default REFRESH_TOKEN_SECRET (minimum 32 characters).",
+      });
+    }
+    if (
+      !data.MONGODB_URI ||
+      data.MONGODB_URI === "mongodb://localhost:27017/manuai" ||
+      data.MONGODB_URI.includes("localhost") ||
+      data.MONGODB_URI.includes("127.0.0.1")
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["MONGODB_URI"],
+        message: "Production environment requires a remote MONGODB_URI (e.g. MongoDB Atlas) and cannot use localhost.",
+      });
+    }
+    if (data.VECTOR_STORE === "memory") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["VECTOR_STORE"],
+        message: "Production environment cannot use 'memory' for VECTOR_STORE; must use persistent storage (e.g. 'mongodb').",
       });
     }
   }

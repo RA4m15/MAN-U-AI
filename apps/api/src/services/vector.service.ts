@@ -16,12 +16,8 @@ export interface ScoredChunk {
   score: number;
 }
 
-const CHUNK_TEXT_1 = "Mechanical seal replacement on Slurry Pump Model SP-400 requires complete casing depressurization. Tighten four M12 gland retaining nuts in cross-diagonal sequence to 45 N·m. Maximum permissible shaft runout is 0.05 mm. Use FG-2 silicone lubricant for Viton O-rings.";
-const CHUNK_TEXT_2 = "Lockout Tagout (LOTO) procedure per OSHA 1910.147. Before servicing hydraulic press HP-400 or centrifugal pump systems, technician must close manual ball valve V-101, apply padlocks, and vent accumulator manifold pressure until zero reading is verified on calibrated test gauge.";
-const CHUNK_TEXT_3 = "Fault Code E-0247 indicates hydraulic or pneumatic valve stiction or differential pressure exceeding 1.2 bar across the coalescing separator filter. Inspect scavenging line orifice and verify lubricant level before restarting compressor.";
-
-// In-memory cache for fast search when MongoDB Vector Search is not deployed or during tests
-const inMemoryChunks: Array<{
+// Development & testing fixture (Strictly prohibited in production mode)
+export const DEMO_CHUNKS_FIXTURE: Array<{
   id: string;
   documentId: string;
   documentTitle: string;
@@ -38,8 +34,8 @@ const inMemoryChunks: Array<{
     revision: "Rev 4.1",
     page: 16,
     section: "4.2 Mechanical Seal Rebuild & Dual Cartridge Alignment",
-    text: CHUNK_TEXT_1,
-    embedding: generateDeterministicEmbedding(CHUNK_TEXT_1),
+    text: "Mechanical seal replacement on Slurry Pump Model SP-400 requires complete casing depressurization. Tighten four M12 gland retaining nuts in cross-diagonal sequence to 45 N·m. Maximum permissible shaft runout is 0.05 mm. Use FG-2 silicone lubricant for Viton O-rings.",
+    embedding: generateDeterministicEmbedding("Mechanical seal replacement on Slurry Pump Model SP-400 requires complete casing depressurization. Tighten four M12 gland retaining nuts in cross-diagonal sequence to 45 N·m. Maximum permissible shaft runout is 0.05 mm. Use FG-2 silicone lubricant for Viton O-rings."),
   },
   {
     id: "chk-02",
@@ -48,8 +44,8 @@ const inMemoryChunks: Array<{
     revision: "Rev 8.0",
     page: 12,
     section: "3.1 Lockout Tagout Verification",
-    text: CHUNK_TEXT_2,
-    embedding: generateDeterministicEmbedding(CHUNK_TEXT_2),
+    text: "Lockout Tagout (LOTO) procedure per OSHA 1910.147. Before servicing hydraulic press HP-400 or centrifugal pump systems, technician must close manual ball valve V-101, apply padlocks, and vent accumulator manifold pressure until zero reading is verified on calibrated test gauge.",
+    embedding: generateDeterministicEmbedding("Lockout Tagout (LOTO) procedure per OSHA 1910.147. Before servicing hydraulic press HP-400 or centrifugal pump systems, technician must close manual ball valve V-101, apply padlocks, and vent accumulator manifold pressure until zero reading is verified on calibrated test gauge."),
   },
   {
     id: "chk-03",
@@ -58,10 +54,22 @@ const inMemoryChunks: Array<{
     revision: "Rev 2.3",
     page: 44,
     section: "Fault Code E-0247 & Discharge High Temp",
-    text: CHUNK_TEXT_3,
-    embedding: generateDeterministicEmbedding(CHUNK_TEXT_3),
+    text: "Fault Code E-0247 indicates hydraulic or pneumatic valve stiction or differential pressure exceeding 1.2 bar across the coalescing separator filter. Inspect scavenging line orifice and verify lubricant level before restarting compressor.",
+    embedding: generateDeterministicEmbedding("Fault Code E-0247 indicates hydraulic or pneumatic valve stiction or differential pressure exceeding 1.2 bar across the coalescing separator filter. Inspect scavenging line orifice and verify lubricant level before restarting compressor."),
   },
 ];
+
+// Ephemeral in-memory store for runtime/testing
+let ephemeralMemoryChunks: Array<{
+  id: string;
+  documentId: string;
+  documentTitle: string;
+  revision: string;
+  page: number;
+  section?: string;
+  text: string;
+  embedding: number[];
+}> = [];
 
 export class VectorService {
   /**
@@ -77,8 +85,12 @@ export class VectorService {
     text: string;
     embedding: number[];
   }): Promise<void> {
+    if (!chunk.embedding || chunk.embedding.length !== 768) {
+      throw new Error(`Invalid embedding dimension: chunk requires 768-dimensional embedding, received ${chunk.embedding?.length || 0}`);
+    }
+
     const chunkId = chunk.id || `chk-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    inMemoryChunks.push({ ...chunk, id: chunkId });
+    ephemeralMemoryChunks.push({ ...chunk, id: chunkId });
 
     if (isConnectedToMongo) {
       try {
@@ -94,12 +106,14 @@ export class VectorService {
         });
       } catch (err) {
         console.warn("[VectorService] Error inserting chunk to MongoDB:", err);
+        throw err;
       }
     }
   }
 
   /**
    * Retrieves top-K semantically similar chunks with keyword-hybrid scoring.
+   * In production mode, retrieval strictly queries real persisted MongoDB chunks.
    */
   async searchSimilar(
     queryEmbedding: number[],
@@ -108,14 +122,39 @@ export class VectorService {
     minSimilarity = 0.5,
     filterDocIds?: string[]
   ): Promise<ScoredChunk[]> {
-    let candidateChunks = inMemoryChunks;
+    if (!queryEmbedding || queryEmbedding.length !== 768) {
+      throw new Error(`Embedding dimension mismatch: query dimension (${queryEmbedding?.length || 0}) is invalid; expected 768 dimensions`);
+    }
 
-    // When connected to MongoDB, pull persisted chunks directly from DocumentChunk collection
+    // If an explicit filter array is provided and is empty, user has no permitted documents
+    if (filterDocIds !== undefined && filterDocIds.length === 0) {
+      return [];
+    }
+
+    let candidateChunks: Array<{
+      id: string;
+      documentId: string;
+      documentTitle: string;
+      revision: string;
+      page: number;
+      section?: string;
+      text: string;
+      embedding: number[];
+    }> = [];
+
+    const isProduction = env.NODE_ENV === "production";
+
+    // 1. Fetch real persisted chunks from MongoDB
     if (isConnectedToMongo) {
       try {
-        const mongoChunks = await DocumentChunk.find().limit(500).lean();
+        const queryFilter: any = {};
+        if (filterDocIds && filterDocIds.length > 0) {
+          queryFilter.documentId = { $in: filterDocIds };
+        }
+
+        const mongoChunks = await DocumentChunk.find(queryFilter).limit(500).lean();
         if (mongoChunks.length > 0) {
-          const mappedMongoChunks = mongoChunks.map((c) => ({
+          candidateChunks = mongoChunks.map((c) => ({
             id: c._id.toString(),
             documentId: c.documentId.toString(),
             documentTitle: c.documentTitle,
@@ -125,28 +164,37 @@ export class VectorService {
             text: c.text,
             embedding: c.embedding,
           }));
-
-          // Merge MongoDB chunks with in-memory seed chunks, prioritizing persisted MongoDB chunks
-          const seen = new Set<string>();
-          candidateChunks = [];
-          for (const chunk of [...mappedMongoChunks, ...inMemoryChunks]) {
-            const key = `${chunk.documentTitle}:${chunk.page}:${chunk.text.slice(0, 40)}`;
-            if (!seen.has(key)) {
-              seen.add(key);
-              candidateChunks.push(chunk);
-            }
-          }
         }
       } catch (err) {
-        console.warn("[VectorService] MongoDB chunk lookup failed, using local in-memory pool:", err);
+        console.warn("[VectorService] MongoDB chunk lookup failed:", err);
+        if (isProduction) {
+          throw new Error("Vector database search failure in production environment");
+        }
       }
+    } else if (isProduction) {
+      // In production, if MongoDB is disconnected, fail safely without returning demonstration data
+      throw new Error("Production vector search unavailable: MongoDB database is disconnected");
     }
 
+    // In development or test environments ONLY: allow fallback to test fixtures if DB has no chunks
+    if (!isProduction && candidateChunks.length === 0) {
+      let devPool = [...ephemeralMemoryChunks, ...DEMO_CHUNKS_FIXTURE];
+      if (filterDocIds && filterDocIds.length > 0) {
+        devPool = devPool.filter((c) => filterDocIds.includes(c.documentId));
+      }
+      candidateChunks = devPool;
+    }
+
+    if (candidateChunks.length === 0) {
+      return [];
+    }
+
+    // Filter by allowed document IDs if not already applied
     if (filterDocIds && filterDocIds.length > 0) {
       candidateChunks = candidateChunks.filter((c) => filterDocIds.includes(c.documentId));
     }
 
-    // Compute hybrid score: Combines Cosine Vector Similarity with Exact Technical Keyword Overlap
+    // Compute hybrid score: Combines Cosine Vector Similarity with Technical Keyword Overlap
     const stopwords = new Set(["what", "the", "for", "and", "are", "with", "how", "does", "from", "into"]);
     const cleanTokens = queryKeywords
       .toLowerCase()
@@ -165,14 +213,9 @@ export class VectorService {
         }
       }
       const keywordRatio = cleanTokens.length > 0 ? keywordMatches / cleanTokens.length : 0;
-      // High-precision industrial hybrid score: exact technical matches guarantee high relevance.
-      // If query has zero keyword overlap with manual content, scale down to prevent hallucinations.
       const hybridScore = keywordMatches > 0
         ? Math.max(cosineSim, 0.45 + keywordRatio * 0.45)
         : cosineSim * 0.5;
-
-
-
 
       return {
         chunk: {
@@ -194,9 +237,13 @@ export class VectorService {
       .slice(0, topK);
   }
 
-  private computeCosineSimilarity(a: number[], b: number[]): number {
-    if (!a.length || !b.length || a.length !== b.length) {
-      return 0.75; // Default safe fallback
+  computeCosineSimilarity(a: number[], b: number[]): number {
+    if (!a || !b || !a.length || !b.length) {
+      throw new Error("Vector dimension error: vectors cannot be empty");
+    }
+
+    if (a.length !== b.length) {
+      throw new Error(`Embedding dimension mismatch: query dimension (${a.length}) does not match chunk dimension (${b.length})`);
     }
 
     let dot = 0;

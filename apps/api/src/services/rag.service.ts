@@ -4,6 +4,7 @@ import { vectorService, ScoredChunk } from "./vector.service";
 import { Message, Conversation, AuditEvent } from "../models";
 
 import { isConnectedToMongo } from "../config/database";
+import { env } from "../config/env";
 import type { CitationDTO } from "@man-u-ai/shared";
 
 export interface RagResponse {
@@ -16,32 +17,81 @@ export interface RagResponse {
 
 export class RagService {
   /**
-   * Main RAG execution pipeline.
+   * Main RAG execution pipeline with document-level authorization.
    */
   async answerQuestion(
     query: string,
-    userId: string,
+    userContext: { id: string; role?: string } | string,
     conversationId?: string,
     equipmentId?: string
   ): Promise<RagResponse> {
-    // 1. Generate query embedding
+    const userIdStr = typeof userContext === "object" ? userContext.id : userContext;
+    const userRole = typeof userContext === "object" ? userContext.role : undefined;
+
+    // 1. Determine permitted document IDs for this user
+    let permittedDocIds: string[] | undefined = undefined;
+
+    if (userRole === "admin") {
+      permittedDocIds = undefined; // Admins have access to all documents
+    } else if (isConnectedToMongo) {
+      try {
+        const { DocumentModel, DocumentPermission, User } = await import("../models");
+
+        let resolvedRole = userRole;
+        if (!resolvedRole && userIdStr && mongoose.Types.ObjectId.isValid(userIdStr)) {
+          const u = await User.findById(userIdStr);
+          resolvedRole = u?.role || "viewer";
+        }
+
+        if (resolvedRole === "admin") {
+          permittedDocIds = undefined;
+        } else {
+          const { toMongoObjectId } = await import("../routes/documents.routes");
+          const userOid = toMongoObjectId(userIdStr);
+
+          const explicitPermissions = await DocumentPermission.find({
+            $or: [
+              { userId: userOid },
+              ...(resolvedRole ? [{ role: resolvedRole }] : []),
+            ],
+            canRead: true,
+          }).select("documentId");
+
+          const explicitDocIds = explicitPermissions.map((p) => p.documentId);
+
+          const accessibleDocs = await DocumentModel.find({
+            $or: [
+              { uploadedById: userOid },
+              { _id: { $in: explicitDocIds } },
+            ],
+          }).select("_id");
+
+          permittedDocIds = accessibleDocs.map((d) => d._id.toString());
+        }
+      } catch (err) {
+        console.warn("[RagService] Could not resolve permitted document IDs:", err);
+        permittedDocIds = [];
+      }
+    }
+
+    // 2. Generate query embedding
     const queryEmbedding = await geminiService.generateEmbedding(query);
 
-    // 2. Retrieve relevant chunks via hybrid search (minimum similarity 0.40 to filter out unrelated queries)
-    const retrieved = await vectorService.searchSimilar(queryEmbedding, query, 5, 0.40);
+    // 3. Retrieve relevant chunks via hybrid search (filtered to authorized documents)
+    const retrieved = await vectorService.searchSimilar(queryEmbedding, query, 5, 0.40, permittedDocIds);
 
-    // 3. Check for insufficient evidence
+    // 4. Check for insufficient evidence
     if (retrieved.length === 0) {
       return {
         answer:
-          "I could not locate sufficient verified documentation in the current knowledge index to answer this inquiry safely. Please upload the relevant equipment manual or check with a certified plant supervisor.",
+          "I could not locate sufficient verified documentation in your authorized knowledge index to answer this inquiry safely. Please upload the relevant equipment manual or check with a certified plant supervisor.",
         citations: [],
         warningLevel: "none",
         confidenceScore: 0.1,
       };
     }
 
-    // 4. Determine safety severity level based on query keywords
+    // 5. Determine safety severity level based on query keywords
     const lowerQuery = query.toLowerCase();
     const isCritical =
       lowerQuery.includes("loto") ||
@@ -52,7 +102,7 @@ export class RagService {
 
     const warningLevel = isCritical ? "critical" : "caution";
 
-    // 5. Construct grounded system prompt
+    // 6. Construct grounded system prompt
     const evidenceBlocks = retrieved
       .map(
         (r, i) =>
@@ -80,11 +130,23 @@ ${query}
 
 Respond in clean GitHub Markdown:`;
 
-    // 6. Generate answer
-    const answer = await geminiService.generateAnswer(prompt, {
-      temperature: 0.2,
-      systemInstruction: "You are an industrial maintenance AI assistant. Ground all claims in the provided documentation.",
-    });
+    // 7. Generate answer
+    let answer: string;
+    try {
+      answer = await geminiService.generateAnswer(prompt, {
+        temperature: 0.2,
+        systemInstruction: "You are an industrial maintenance AI assistant. Ground all claims in the provided documentation.",
+      });
+    } catch (err: unknown) {
+      if (env.NODE_ENV === "production") {
+        throw err;
+      }
+      answer = `[NOTICE: AI Generative Service Unavailable — Grounded Documentation Mode]
+
+Live generative synthesis could not be completed. The following verified excerpts were retrieved from authorized plant documentation:
+
+${retrieved.map((r, i) => `[${i + 1}] **${r.chunk.documentTitle}** (Page ${r.chunk.page}, ${r.chunk.section || "General"}):\n> ${r.chunk.text}`).join("\n\n")}`;
+    }
 
     // 7. Extract verifiable citations strictly from the retrieved pool
     const citations: CitationDTO[] = retrieved.map((r, i) => ({
@@ -102,7 +164,7 @@ Respond in clean GitHub Markdown:`;
     if (isConnectedToMongo) {
       try {
         await AuditEvent.create({
-          userId: (userId && mongoose.Types.ObjectId.isValid(userId)) ? userId : undefined,
+          userId: (userIdStr && mongoose.Types.ObjectId.isValid(userIdStr)) ? userIdStr : undefined,
           action: "rag_query",
           resourceType: "Conversation",
           resourceId: (conversationId && mongoose.Types.ObjectId.isValid(conversationId)) ? conversationId : undefined,

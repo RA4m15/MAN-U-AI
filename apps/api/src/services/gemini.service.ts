@@ -90,29 +90,24 @@ export class GeminiService {
       }
     }
 
+    if (env.NODE_ENV === "production") {
+      this.lastProvider = "deterministic-fallback";
+      throw new Error("AI generation service is currently unavailable. Generative synthesis failed or API key is not configured.");
+    }
+
     this.lastProvider = "deterministic-fallback";
     return this.generateGroundedFallback(prompt);
   }
 
   private generateGroundedFallback(prompt: string): string {
-    return `### Technical Analysis & Procedural Guidance
+    return `### [NOTICE: AI Generative Service Unavailable — Offline Documentation Mode]
 
-Based on the indexed equipment documentation and operating manuals:
+Live AI synthesis is currently unavailable in this environment.
 
-1. **Pre-Work Safety & LOTO Requirements**
-   - Confirm complete mechanical isolation and verify 0 kPa residual pressure on system manifold.
-   - Attach personal lockout padlock and verify zero kinetic or hydraulic energy state.
-
-2. **Step-by-Step Technical Sequence**
-   - Disassemble fasteners in cross-diagonal star pattern to avoid gland plate warping.
-   - Inspect seal faces and shaft sleeves for any axial wear exceeding 0.05 mm permissible tolerance.
-   - Torque gland plate retaining nuts to 45 N·m (33 ft-lbs) using calibrated torque wrench.
-
-3. **Commissioning & Verification**
-   - Perform hand-rotation check prior to power restoration.
-   - Monitor initial running seal temperature and vibration spectrum for 60 minutes.
-
-*(Response synthesized from verified technical manual passages)*`;
+To ensure plant safety and procedural compliance:
+- Do not rely on unverified generative steps.
+- Inspect the verified citation excerpts attached to this response for authorized specifications, torques, and tolerances.
+- Consult the physical manufacturer manual or a certified plant reliability engineer.`;
   }
 }
 
