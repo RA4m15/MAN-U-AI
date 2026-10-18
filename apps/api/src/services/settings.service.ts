@@ -91,7 +91,6 @@ export class SettingsService {
         updatedAt: created.updatedAt ? created.updatedAt.toISOString() : null,
       };
       return { ...this.cache };
-    } catch {
       // If concurrent insert or collision occurred, re-query
       const retry = await FacilitySettings.findOne().sort({ updatedAt: -1 });
       if (retry) {
@@ -108,7 +107,7 @@ export class SettingsService {
         };
         return { ...this.cache };
       }
-      return { ...DEFAULT_SETTINGS };
+      throw new Error("Failed to initialize or retrieve persistent facility settings from database.");
     }
   }
 

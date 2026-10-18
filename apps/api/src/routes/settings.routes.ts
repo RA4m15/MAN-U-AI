@@ -54,6 +54,14 @@ const UpdateSettingsZodSchema = z.object({
     .optional(),
 });
 
+function sanitizeError(err: unknown): string {
+  if (!err) return "Unknown error";
+  let msg = err instanceof Error ? err.message : String(err);
+  msg = msg.replace(/mongodb(?:\+srv)?:\/\/[^\s@]+@[^\s/]+/gi, "mongodb://[REDACTED_USER:PASS]@[REDACTED_HOST]");
+  msg = msg.replace(/(?:key|apiKey|api_key|secret|api_secret|password|token)=([a-zA-Z0-9_\-]+)/gi, "$1=[REDACTED]");
+  return msg;
+}
+
 // GET /settings - Retrieve current authoritative facility and AI configuration
 settingsRouter.get("/", requireAuth, async (req: Request, res: Response) => {
   if (!isConnectedToMongo) {
@@ -76,7 +84,7 @@ settingsRouter.get("/", requireAuth, async (req: Request, res: Response) => {
       },
     });
   } catch (err) {
-    console.warn("[Settings] Failed to query authoritative settings:", err);
+    console.warn("[Settings] Failed to query authoritative settings:", sanitizeError(err));
     return res.status(500).json({
       success: false,
       error: {
@@ -141,12 +149,12 @@ settingsRouter.put(
         },
       });
     } catch (err: any) {
-      console.error("[Settings] Mongo persist failed:", err);
+      console.error("[Settings] Mongo persist failed:", sanitizeError(err));
       return res.status(500).json({
         success: false,
         error: {
           code: "PERSISTENCE_FAILED",
-          message: err?.message || "Failed to persist application settings to database",
+          message: "Failed to persist application settings to database.",
         },
       });
     }
