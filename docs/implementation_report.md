@@ -594,3 +594,58 @@ git diff --check
 - [x] `render.yaml` updated to free plan without disk dependency.
 - [x] Local integration verified against MongoDB Atlas and live Gemini API.
 - [ ] **Live Render Remote Deployment Endpoints:** **BLOCKED** — Render API credentials (`RENDER_API_KEY`) and external deployment URL are not provisioned in this local environment. Live deployment tests must be executed after deploying the verified commit with configured environment variables.
+
+---
+
+## 11. STAGE 1: REMOVAL OF SYNTHETIC PDF UPLOADS AND FALSE-SUCCESS API RESPONSES
+
+**Verification Date:** October 19, 2026
+**Baseline Commit:** `dd20e28`
+**Goal:** Ensure every document upload requires an authentic user-selected PDF, and every successful API response represents an operation that actually succeeded.
+
+### Verified Changes
+
+1. **Frontend Document Ingestion (`apps/web/src/pages/KnowledgeLibraryPage.tsx`):**
+   - Eliminated synthetic PDF generation (`mockPdfContent`, `new Blob([mockPdfContent], { type: 'application/pdf' })`, and the fallback upload branch).
+   - Enforced mandatory user-selected file (`selectedFile`) validation before initiating ingestion.
+   - Disabled the "Start Ingestion" button whenever `selectedFile` is absent or required fields (title) are invalid.
+   - Added explicit user-facing validation error messages for missing files and non-PDF MIME types or extensions.
+   - Aligned frontend size check with the backend 50MB upload limit (`50 * 1024 * 1024` bytes).
+   - Preserved upload progress indicators, error alerts, and React Query invalidation for the document list.
+
+2. **Equipment Route Resilience & Integrity (`apps/api/src/routes/equipment.routes.ts`):**
+   - **`GET /`**: Returns HTTP 503 (`SERVICE_UNAVAILABLE`) when MongoDB is disconnected; returns HTTP 500 (`QUERY_FAILED`) when the database query fails. Never returns an empty `200 OK` list during a database outage.
+   - **`GET /:id`**: Validates ObjectId format; returns HTTP 503 when disconnected, HTTP 404 (`NOT_FOUND`) when the record does not exist or has an invalid ID format, and HTTP 500 on query errors.
+   - **`POST /`**: Returns HTTP 503 if disconnected; returns HTTP 500 (`DATABASE_WRITE_FAILED`) if persistence fails. Returns HTTP 201 only after `Equipment.create()` successfully persists the record. Removed fabricated fallback IDs (`eq-${Date.now()}`) and fallback mock objects.
+   - **`DELETE /:id`**: Returns HTTP 503 if disconnected; returns HTTP 404 if the record is missing or ID is malformed; returns HTTP 500 if deletion fails. Returns HTTP 200 only upon confirmed deletion of an existing record.
+
+3. **Feedback Route Authenticity (`apps/api/src/routes/feedback.routes.ts`):**
+   - Removed hardcoded user fallback identifier (`usr-demo-01`).
+   - Binds feedback strictly to the authenticated caller's verified ID via `toMongoObjectId(req.user?.id)`.
+   - Returns HTTP 503 (`SERVICE_UNAVAILABLE`) when MongoDB is disconnected.
+   - Returns HTTP 500 (`DATABASE_WRITE_FAILED`) if `Feedback.create()` throws or fails to persist.
+   - Returns HTTP 201 only after the feedback document is persistently saved in the database.
+
+4. **Regression Test Suite (`apps/api/test/stage1_dynamic_persistence.test.ts`):**
+   - Implemented 9 focused regression tests:
+     1. Upload without a file returns 400 (`NO_FILE`).
+     2. Invalid / non-PDF file upload returns 400 (`INVALID_FILE_SIGNATURE`).
+     3. Equipment listing returns 503 when MongoDB is disconnected.
+     4. Equipment listing returns 500 rather than empty success if database query fails.
+     5. Equipment creation returns 503 when disconnected.
+     6. Equipment creation returns 500 on write failure and 201 only on real persistence with valid ObjectId.
+     7. Equipment deletion returns 503 when disconnected, 404 for missing records, and 500 on error.
+     8. Feedback creation returns 503 when disconnected and 500 when persistence fails.
+     9. Feedback creation returns 201 only upon persistence, binding the authenticated user ID without fallback.
+
+### Verification Test & Build Results
+- **Full Backend Test Suite:** `pnpm --filter @man-u-ai/api test --run`
+  - **Status:** PASSED (11/11 test files, 88/88 tests passed)
+- **Shared Package Build:** `pnpm --filter @man-u-ai/shared build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **API Service Build:** `pnpm --filter @man-u-ai/api build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **Web Frontend Build:** `pnpm --filter @man-u-ai/web build`
+  - **Status:** PASSED (`tsc -b && vite build` exit code 0)
+- **Git Whitespace & Diff Check:** `git diff --check`
+  - **Status:** PASSED (0 whitespace errors)

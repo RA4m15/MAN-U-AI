@@ -103,23 +103,33 @@ export function KnowledgeLibraryPage() {
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle.trim()) return;
+    if (!newTitle.trim()) {
+      setUploadError("Please enter a document title.");
+      return;
+    }
+
+    if (!selectedFile) {
+      setUploadError("Please select an authentic PDF document file to upload.");
+      return;
+    }
+
+    if (!selectedFile.name.toLowerCase().endsWith(".pdf") && selectedFile.type !== "application/pdf") {
+      setUploadError("Invalid file type. Only authentic PDF manuals are accepted.");
+      return;
+    }
+
+    if (selectedFile.size > 50 * 1024 * 1024) {
+      setUploadError("File exceeds the 50MB upload size limit.");
+      return;
+    }
 
     setIsUploading(true);
     setUploadError(null);
 
     try {
       const formData = new FormData();
-      if (selectedFile) {
-        formData.append("file", selectedFile);
-      } else {
-        // Create an authorized synthetic industrial PDF buffer for test manuals
-        const mockPdfContent = `%PDF-1.4\n% Industrial Equipment Manual: ${newTitle}\n1 0 obj\n<< /Title (${newTitle}) /Author (Reliability Engineering) >>\nendobj\n%%EOF`;
-        const blob = new Blob([mockPdfContent], { type: "application/pdf" });
-        formData.append("file", blob, `${newTitle.toLowerCase().replace(/[^a-z0-9]/g, "_")}.pdf`);
-      }
-
-      formData.append("title", newTitle);
+      formData.append("file", selectedFile);
+      formData.append("title", newTitle.trim());
       formData.append("revision", newRevision || "Rev 1.0");
       if (newTags) {
         formData.append("tags", newTags);
@@ -426,26 +436,49 @@ export function KnowledgeLibraryPage() {
               {/* Drag and drop upload zone */}
               <div>
                 <label className="block text-2xs font-medium text-ink-subtle uppercase mb-1">
-                  PDF / Technical File
+                  PDF Technical Manual <span className="text-danger">*</span>
                 </label>
-                <div className="border-2 border-dashed border-hairline hover:border-primary/50 rounded-xl p-5 text-center bg-surface-2 transition-colors cursor-pointer relative">
+                <div className={cn(
+                  "border-2 border-dashed rounded-xl p-5 text-center bg-surface-2 transition-colors cursor-pointer relative",
+                  selectedFile ? "border-primary/60 bg-primary/5" : "border-hairline hover:border-primary/50"
+                )}>
                   <input
                     type="file"
-                    accept=".pdf,.png,.jpg,.jpeg,.tiff"
+                    accept=".pdf,application/pdf"
                     onChange={(e) => {
                       if (e.target.files && e.target.files[0]) {
-                        setSelectedFile(e.target.files[0]);
+                        const file = e.target.files[0];
+                        if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
+                          setUploadError("Invalid file type. Only authentic PDF manuals are accepted.");
+                          setSelectedFile(null);
+                          return;
+                        }
+                        if (file.size > 50 * 1024 * 1024) {
+                          setUploadError("File exceeds the 50MB maximum upload limit.");
+                          setSelectedFile(null);
+                          return;
+                        }
+                        setSelectedFile(file);
+                        setUploadError(null);
+                        if (!newTitle.trim()) {
+                          setNewTitle(file.name.replace(/\.[^/.]+$/, ""));
+                        }
                       }
                     }}
                     className="absolute inset-0 opacity-0 cursor-pointer"
                   />
-                  <FileText className="mx-auto text-primary w-7 h-7 mb-2" />
+                  <FileText className={cn("mx-auto w-7 h-7 mb-2", selectedFile ? "text-primary" : "text-ink-tertiary")} />
                   <p className="text-xs font-medium text-ink">
-                    {selectedFile ? selectedFile.name : "Select or drag PDF file here"}
+                    {selectedFile ? selectedFile.name : "Select or drag authentic PDF manual here"}
                   </p>
                   <p className="text-2xs text-ink-tertiary mt-1">
-                    Accepts authorized PDFs up to 50MB. OCR and structural chunking run in background.
+                    Accepts genuine PDF files up to 50MB. OCR and structural chunking run in background.
                   </p>
+                  {!selectedFile && (
+                    <p className="text-2xs text-amber-500/90 mt-1 font-medium">
+                      Authentic PDF file selection is required to enable upload.
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -459,8 +492,8 @@ export function KnowledgeLibraryPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isUploading}
-                  className="btn-primary text-xs flex items-center gap-1.5"
+                  disabled={isUploading || !selectedFile || !newTitle.trim()}
+                  className="btn-primary text-xs flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {isUploading && <Loader2 size={13} className="animate-spin" />}
                   <span>{isUploading ? "Uploading to Storage..." : "Start Ingestion"}</span>
