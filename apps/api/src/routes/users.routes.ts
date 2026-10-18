@@ -7,29 +7,36 @@ import { RegisterSchema } from "@man-u-ai/shared";
 
 export const usersRouter: Router = Router();
 
-// GET /users - List users
-usersRouter.get("/", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  if (isConnectedToMongo) {
-    try {
-      const users = await User.find().sort({ createdAt: -1 });
-      return res.json({
-        success: true,
-        data: users.map((u) => ({
-          id: u._id.toString(),
-          name: u.name,
-          email: u.email,
-          role: u.role,
-          status: "active",
-          createdAt: u.createdAt.toISOString(),
-          lastLogin: u.updatedAt.toISOString(),
-        })),
-      });
-    } catch (err) {
-      console.warn("[Users] Find error:", err);
-    }
+// GET /users - List users (Admin only)
+usersRouter.get("/", requireAuth, requireRole(["admin"]), async (req: AuthenticatedRequest, res: Response) => {
+  if (!isConnectedToMongo) {
+    return res.status(503).json({
+      success: false,
+      error: { code: "SERVICE_UNAVAILABLE", message: "Database connection unavailable" },
+    });
   }
 
-  return res.json({ success: true, data: [] });
+  try {
+    const users = await User.find().sort({ createdAt: -1 });
+    return res.json({
+      success: true,
+      data: users.map((u) => ({
+        id: u._id.toString(),
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        status: "active",
+        createdAt: u.createdAt.toISOString(),
+        lastLogin: u.updatedAt.toISOString(),
+      })),
+    });
+  } catch (err) {
+    console.error("[Users] Find error:", err);
+    return res.status(500).json({
+      success: false,
+      error: { code: "SERVER_ERROR", message: "Failed to query personnel registry" },
+    });
+  }
 });
 
 // POST /users - Create new user (Admin only)

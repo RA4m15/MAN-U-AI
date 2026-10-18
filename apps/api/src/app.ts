@@ -113,11 +113,12 @@ app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
   }
 
   console.error("[API Error Handler]:", err);
+  const isProduction = env.NODE_ENV === "production";
   res.status(500).json({
     success: false,
     error: {
       code: "INTERNAL_ERROR",
-      message,
+      message: isProduction ? "An internal server error occurred" : message,
     },
   });
 });

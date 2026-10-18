@@ -413,13 +413,21 @@ To complete the live deployment in the Render Dashboard:
      - Operates via MongoDB chunk retrieval with application-side cosine similarity computation rather than native Atlas Vector Search ($vectorSearch).
      - Candidate chunk evaluation is capped at `CANDIDATE_CHUNK_LIMIT = 500`.
      - High-performance cosine dot-product and keyword relevance scoring run in-memory within Node.js over permitted chunks.
-2. **Focused Security & Hardening Automated Test Results:**
-   - Full automated test suite results (`pnpm --filter @man-u-ai/api test`):
+### C. P1: Vector Retrieval Architecture & Test Verification
+1. **Retrieval Architecture Specification:**
+   - Current implementation: High-precision hybrid search combining 768-dimensional cosine vector similarity with exact technical keyword overlap scoring across persisted MongoDB `DocumentChunk` documents.
+   - Vector Retrieval Architecture & Candidate Limit:
+     - Operates via MongoDB chunk retrieval with application-side cosine similarity computation rather than native Atlas Vector Search ($vectorSearch).
+     - Candidate chunk evaluation is capped at `CANDIDATE_CHUNK_LIMIT = 500`.
+     - High-performance cosine dot-product and keyword relevance scoring run in-memory within Node.js over permitted chunks.
+2. **Comprehensive Automated Test Results:**
+   - Full automated test suite results (`pnpm --filter @man-u-ai/api test --run`):
      ```
-     Test Files  8 passed (8)
-          Tests  53 passed (53)
-       Duration  6.67s
+     Test Files  9 passed (9)
+          Tests  64 passed (64)
+       Duration  6.71s
      ```
+     - `test/final_hardening.test.ts` (11 tests) - PASSED
      - `test/socket_events.test.ts` (10 tests) - PASSED
      - `test/production_corrections.test.ts` (7 tests) - PASSED
      - `test/security_hardening.test.ts` (9 tests) - PASSED
@@ -429,43 +437,84 @@ To complete the live deployment in the Render Dashboard:
      - `test/rag.test.ts` (3 tests) - PASSED
      - `test/vector_persistence.test.ts` (2 tests) - PASSED
 3. **Production Builds:**
-   - `@man-u-ai/shared`: TypeScript build clean (0 errors).
-   - `@man-u-ai/api`: TypeScript build clean (0 errors).
-   - `@man-u-ai/web`: Vite production bundle generated (0 errors, 474.59 kB JS, 33.90 kB CSS).
+   - `@man-u-ai/shared`: TypeScript build clean (`tsc`, exit code 0).
+   - `@man-u-ai/api`: TypeScript build clean (`tsc`, exit code 0).
+   - `@man-u-ai/web`: Vite production bundle generated (`tsc -b && vite build`, exit code 0; 474.59 kB JS, 33.90 kB CSS).
 
 ---
 
-## 6. FINAL PRODUCTION CORRECTIONS & HARDENING AUDIT
+## 6. FINAL PRODUCTION HARDENING & SECURITY VERIFICATION (PHASES 1-5)
 
-### Summary of Completed Corrections
-1. **Seed-Account Persistence & Credential Idempotency:**
-   - Removed hardcoded fallback password from `apps/api/src/config/seed.ts`.
-   - Automatic demo account creation is disabled in production unless `ALLOW_INITIAL_SEED=true` with a securely supplied `INITIAL_SEED_PASSWORD`.
-   - Idempotency verified: server restarts never overwrite or rotate existing user passwords.
-2. **Fail-Closed Document Authorization:**
-   - `isUserAuthorizedForDocument()` in `apps/api/src/routes/documents.routes.ts` fails closed (`{ authorized: false, doc: null }`) when MongoDB is disconnected or encounters an error.
-   - Document endpoints return HTTP 403 Forbidden for unauthorized requests and HTTP 404 for missing documents, preventing any accidental data leakage.
-3. **Explicit Production Embedding Failure:**
-   - In `apps/api/src/services/gemini.service.ts`, embedding generation throws explicit errors in production when the Gemini API is unconfigured or fails.
-   - Deterministic pseudo-embeddings are confined strictly to local development and offline unit tests, preventing vector index contamination.
-4. **Explicit Production CORS & Wildcard Rejection:**
-   - `env.ts` schema validation strictly rejects wildcard `*` origins in production.
-   - Express CORS middleware and Socket.IO use the same strict allowlist matching policy.
-5. **Architectural Transparency for Vector Retrieval:**
-   - Formally documented that the retrieval pipeline queries MongoDB `DocumentChunk` records (up to `CANDIDATE_CHUNK_LIMIT = 500`) and evaluates cosine similarity application-side in Node.js.
-   - Unit tests confirm mathematical cosine correctness and candidate limit enforcement.
-6. **Privacy-Preserving Public Health Endpoints:**
-   - Redacted internal database infrastructure details (`host`, `name`, `isAtlas`) from `/health` and `/health/ready`.
-   - Gemini engine status is truthfully reported as `key_configured` or `unconfigured` rather than falsely labeled `active` merely because an API key exists.
+### Phase 1: Security Gaps Closed
+1. **Registration Hardening (`apps/api/src/routes/auth.routes.ts`):**
+   - Unauthenticated requests attempting to register with `role: "admin"` are rejected with HTTP 403 `ROLE_UNAUTHORIZED`.
+   - Public self-registration is disabled in production unless `ENABLE_PUBLIC_REGISTRATION=true` is set.
+   - Database connection failure returns truthful HTTP 503 rather than generating mock in-memory tokens.
+2. **Seed Account Credential Idempotency (`apps/api/src/config/seed.ts`):**
+   - Hardcoded fallback seed password removed.
+   - In production, demo accounts and fixtures are not seeded unless `ALLOW_INITIAL_SEED=true` with a securely supplied `INITIAL_SEED_PASSWORD`.
+   - Server restarts verify existing user accounts and strictly preserve their password hashes.
+   - Baseline plant manuals seed role permissions (`engineer`, `viewer`) without exposing private uploads.
+3. **Conversation Ownership Privacy (`apps/api/src/routes/conversations.routes.ts`):**
+   - `GET /conversations/:id/messages` enforces ownership verification: only the conversation creator or an administrator can access messages; unauthorized users receive HTTP 403 `FORBIDDEN`.
+4. **Strict Production CORS (`apps/api/src/app.ts`, `apps/api/src/config/env.ts`):**
+   - Wildcard `*` origins are strictly rejected in production.
+   - Express CORS middleware and Socket.IO share the identical explicit allowlist validation.
+5. **Fail-Closed Document Authorization & Socket Delivery (`apps/api/src/routes/documents.routes.ts`, `apps/api/src/index.ts`):**
+   - `isUserAuthorizedForDocument` immediately returns `{ authorized: false }` if MongoDB is disconnected.
+   - `emitDocumentProgress` and `emitDocumentStatus` broadcast strictly to the authorized document room and the uploader's private room (`user:${uploaderId}`).
+
+### Phase 2: Industrial Document Trustworthiness & Evidence Integrity
+1. **PDF Processing & Magic Byte Validation (`apps/api/src/services/pdf.service.ts`):**
+   - Implemented `isValidPdfSignature(buffer)` verifying `%PDF-` signature bytes.
+   - Malformed files, non-PDF payloads, and corrupt documents are rejected with HTTP 400 `INVALID_FILE_SIGNATURE`.
+   - Scanned PDFs invoke Gemini multimodal OCR (`transcribePdfWithOcr()`); failures throw explicit errors rather than generating placeholder text.
+2. **Chunk Hygiene & Re-Indexing Safety:**
+   - Ingestion errors trigger automatic cleanup: `DocumentChunk.deleteMany({ documentId: docId })`, guaranteeing partial or failed extractions are never exposed to retrieval.
+3. **Grounded Operational Summaries (`apps/api/src/routes/analytics.routes.ts`):**
+   - Completely removed manufactured shift reports, hardcoded vibration readings (4.8 mm/s), and fictional maintenance logs.
+   - `POST /summaries/generate` synthesizes exclusively from authentic database records (`AuditEvent`, `MaintenanceIssue`, `Equipment`) and prepends an explicit `### [AI-Assisted Operational Synthesis]` notice.
+4. **Vector Retrieval Architecture Transparency:**
+   - Retrieval queries MongoDB `DocumentChunk` records (up to `CANDIDATE_CHUNK_LIMIT = 500`) and evaluates exact cosine similarity and keyword boosting application-side in Node.js.
+   - Fully documented that free-tier MongoDB M0 clusters use application-side vector scoring rather than native Atlas `$vectorSearch`.
+
+### Phase 3: API & Operational Security
+1. **User List Restriction (`apps/api/src/routes/users.routes.ts`):**
+   - `GET /api/v1/users` is restricted exclusively to administrators (`requireRole(["admin"])`); viewers and engineers receive HTTP 403 `FORBIDDEN`.
+2. **Truthful Error Handling & Outage Resilience:**
+   - When MongoDB is disconnected, endpoints return HTTP 503 `SERVICE_UNAVAILABLE` rather than fabricating mock data or returning false successes.
+3. **Production Exception Sanitization (`apps/api/src/app.ts`):**
+   - Centralized error handler masks raw internal error details with `"An internal server error occurred"` when `NODE_ENV === "production"`.
+4. **Dedicated Rate Limiters (`apps/api/src/middlewares/rateLimiters.ts`):**
+   - `authLimiter`: 20 requests per 15 minutes on login and registration.
+   - `uploadLimiter`: 30 requests per 15 minutes on document upload endpoints.
 
 ### Real Operational Limitations
-- **Free-Tier Gemini API Quota:** The Google Gemini API free-tier project rate limit is 20 requests per day for generative synthesis. Under heavy load or after quota exhaustion, the live API returns HTTP 429 Too Many Requests. In production, requests fail truthfully; in offline dev/test modes, responses fall back gracefully to verbatim document excerpts.
+- **Free-Tier Gemini API Quota:** The Google Gemini API free-tier project rate limit is 20 requests per day for generative synthesis (`gemini-3.8-flash`). When quota is exhausted, the live API returns HTTP 429 Too Many Requests. Production mode fails explicitly; offline development/test mode falls back gracefully to verbatim document excerpts.
 - **Atlas Vector Search vs. Application Similarity:** Standard free-tier Atlas M0 clusters do not support native `$vectorSearch` indexes. The system intentionally uses application-side vector scoring capped at 500 candidates. For corpora exceeding tens of thousands of chunks, upgrading to Atlas M10+ with native Vector Search index creation is recommended.
 - **Storage Encryption:** Private uploads are isolated in `./uploads` with strict auth-gated streaming. Disk encryption at rest relies on the hosting platform's filesystem encryption (e.g. Render Persistent Disk encryption).
 
+### Exact Run Commands for Verification
+```bash
+# 1. Run all backend tests across all test suites
+pnpm --filter @man-u-ai/api test --run
+
+# 2. Build shared types package
+pnpm --filter @man-u-ai/shared build
+
+# 3. Build backend API package
+pnpm --filter @man-u-ai/api build
+
+# 4. Build frontend web package
+pnpm --filter @man-u-ai/web build
+
+# 5. Verify Git formatting and whitespace
+git diff --check
+```
+
 ### Pre-Deployment Verification Checklist
-- [x] All 8 test files and 49 backend tests pass (`vitest`).
+- [x] All 9 test files and 64 backend tests pass (`vitest`).
 - [x] Shared package, API server, and Vite frontend builds succeed cleanly with 0 errors.
 - [x] Git diff hygiene (`git diff --check`) returns 0 whitespace or formatting errors.
 - [x] `.gitignore` verified: all `.env` files, credentials, local PDF uploads (`uploads/`), and database dumps are excluded from Git.
-- [x] Working tree is clean and ready for commit.
+- [x] All 5 Phases of production hardening implemented, tested, and verified.

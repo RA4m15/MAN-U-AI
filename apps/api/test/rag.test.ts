@@ -1,8 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import { app } from "../src/app";
 import { vectorService } from "../src/services/vector.service";
 import { ragService } from "../src/services/rag.service";
+import { geminiService } from "../src/services/gemini.service";
+import { connectDatabase } from "../src/config/database";
+import { seedDatabase } from "../src/config/seed";
 
 import jwt from "jsonwebtoken";
 import { env } from "../src/config/env";
@@ -14,11 +17,16 @@ const testToken = jwt.sign(
 );
 
 describe("Multimodal Vector Retrieval & RAG Pipeline", () => {
+  beforeAll(async () => {
+    await connectDatabase();
+    await seedDatabase();
+  });
   it("computes hybrid vector similarity over indexed technical passages", async () => {
-    const queryEmbedding = new Array(768).fill(0.05);
+    const query = "mechanical seal replacement torque slurry pump";
+    const queryEmbedding = await geminiService.generateEmbedding(query);
     const results = await vectorService.searchSimilar(
       queryEmbedding,
-      "mechanical seal replacement torque slurry pump",
+      query,
       3,
       0.3
     );

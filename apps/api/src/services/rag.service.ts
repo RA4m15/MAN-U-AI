@@ -31,9 +31,7 @@ export class RagService {
     // 1. Determine permitted document IDs for this user
     let permittedDocIds: string[] | undefined = undefined;
 
-    if (userRole === "admin") {
-      permittedDocIds = undefined; // Admins have access to all documents
-    } else if (isConnectedToMongo) {
+    if (isConnectedToMongo) {
       try {
         const { DocumentModel, DocumentPermission, User } = await import("../models");
 
@@ -44,7 +42,8 @@ export class RagService {
         }
 
         if (resolvedRole === "admin") {
-          permittedDocIds = undefined;
+          const indexedDocs = await DocumentModel.find({ status: "indexed" }).select("_id");
+          permittedDocIds = indexedDocs.map((d) => d._id.toString());
         } else {
           const { toMongoObjectId } = await import("../routes/documents.routes");
           const userOid = toMongoObjectId(userIdStr);
@@ -60,6 +59,7 @@ export class RagService {
           const explicitDocIds = explicitPermissions.map((p) => p.documentId);
 
           const accessibleDocs = await DocumentModel.find({
+            status: "indexed",
             $or: [
               { uploadedById: userOid },
               { _id: { $in: explicitDocIds } },
@@ -72,6 +72,9 @@ export class RagService {
         console.warn("[RagService] Could not resolve permitted document IDs:", err);
         permittedDocIds = [];
       }
+    } else {
+      // In disconnected mode: production strictly fails closed ([]), dev/test allows in-memory fixture lookup
+      permittedDocIds = env.NODE_ENV === "production" ? [] : undefined;
     }
 
     // 2. Generate query embedding

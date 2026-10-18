@@ -1,215 +1,228 @@
 import { Router, Request, Response } from "express";
-import { AuditEvent, Message, DocumentModel, Equipment, Conversation, SummaryModel, MaintenanceIssue } from "../models";
+import { AuditEvent, Message, DocumentModel, Equipment, SummaryModel, MaintenanceIssue } from "../models";
 import { isConnectedToMongo } from "../config/database";
 import { requireAuth, AuthenticatedRequest } from "../middlewares/auth";
 import { geminiService } from "../services/gemini.service";
-import { emitAuditEvent } from "../index";
 
 export const analyticsRouter: Router = Router();
 
 // GET /summaries - Get real persisted summaries
 analyticsRouter.get("/summaries", requireAuth, async (req: Request, res: Response) => {
-  if (isConnectedToMongo) {
-    try {
-      const summaries = await SummaryModel.find().sort({ createdAt: -1 });
-      if (summaries.length > 0) {
-        return res.json({
-          success: true,
-          data: summaries.map((s) => ({
-            id: s._id.toString(),
-            title: s.title,
-            type: s.type,
-            shift: s.shift,
-            author: s.author,
-            equipmentCovered: s.equipmentCovered,
-            keyHighlights: s.keyHighlights,
-            fullMarkdown: s.fullMarkdown,
-            createdAt: s.createdAt.toISOString(),
-          })),
-        });
-      }
-    } catch (err) {
-      console.warn("[Summaries] DB fetch error:", err);
-    }
+  if (!isConnectedToMongo) {
+    return res.status(503).json({
+      success: false,
+      error: { code: "SERVICE_UNAVAILABLE", message: "Database connection unavailable" },
+    });
   }
 
-  // Baseline standard summaries if collection is fresh
-  return res.json({
-    success: true,
-    data: [
-      {
-        id: "sum-01",
-        title: "Shift Handoff Report: Line 1 & Line 3 Mechanical Operations",
-        type: "shift_handoff",
-        shift: "Day Shift (06:00 - 18:00)",
-        author: "MAN-U-AI Autonomous Agent (Reviewed by Alex Mercer)",
-        equipmentCovered: ["Centrifugal Slurry Pump P-102", "Hydraulic Stamping Press HP-400"],
-        keyHighlights: [
-          "Slurry Pump P-102 vibration velocity stabilized at 4.8 mm/s after mechanical seal flush line purge.",
-          "HP-400 encountered intermittent proportional valve stiction at 14:22; LOTO procedure executed and spool valve freed.",
-          "Zero lost-time injuries or reportable environmental excursions logged during shift.",
-        ],
-        fullMarkdown: `# Shift Handoff Report — Day Shift (06:00 - 18:00)
-
-## Executive Summary
-Production targets were met at 94.2% efficiency across Lines 1, 2 and 3. Primary operational friction centered around Hydraulic Press HP-400 proportional valve hesitation which required 35 minutes of controlled maintenance intervention.
-
-## Equipment Interventions & Observations
-
-### 1. Centrifugal Slurry Pump P-102
-- **Pre-shift condition:** Vibration alert at 6.1 mm/s.
-- **Action taken:** Executed SOP-PUMP-04 flush line backpressure cleanout.
-- **Post-action state:** Vibration reduced to 4.8 mm/s. Recommended seal cartridge changeout during next planned weekly window (Rev 4.1, Section 4.2).
-
-### 2. Hydraulic Stamping Press HP-400
-- **Issue:** Fault code E-0247 logged at 14:22.
-- **Procedure:** Full Lockout/Tagout confirmed per OSHA 1910.147 (Padlock #4402).
-- **Resolution:** Directional spool valve disassembled, particulate debris removed from pilot orifice. Pressure restored to 210 bar nominal.`,
-        createdAt: new Date().toISOString(),
-      },
-    ],
-  });
+  try {
+    const summaries = await SummaryModel.find().sort({ createdAt: -1 });
+    return res.json({
+      success: true,
+      data: summaries.map((s) => ({
+        id: s._id.toString(),
+        title: s.title,
+        type: s.type,
+        shift: s.shift,
+        author: s.author,
+        equipmentCovered: s.equipmentCovered,
+        keyHighlights: s.keyHighlights,
+        fullMarkdown: s.fullMarkdown,
+        createdAt: s.createdAt.toISOString(),
+      })),
+    });
+  } catch (err) {
+    console.error("[Summaries] DB fetch error:", err);
+    return res.status(500).json({
+      success: false,
+      error: { code: "SERVER_ERROR", message: "Failed to retrieve summaries" },
+    });
+  }
 });
 
-// POST /summaries/generate - Generate and save a new real summary
+// POST /summaries/generate - Generate and save an authentic operational summary from real plant records
 analyticsRouter.post("/summaries/generate", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  if (!isConnectedToMongo) {
+    return res.status(503).json({
+      success: false,
+      error: { code: "SERVICE_UNAVAILABLE", message: "Database unavailable for summary generation" },
+    });
+  }
+
   const { summaryType, focusArea } = req.body;
   const user = req.user;
 
   try {
-    const prompt = `Generate a realistic, professional Industrial ${summaryType || "Shift Handoff Report"} for "${focusArea || "Plant General Operations"}".
-Include:
-1. Executive Summary
-2. Equipment Interventions (references to SOPs, torque, LOTO if applicable)
-3. Action items for incoming shift.
-Respond in clean markdown.`;
+    // Gather authentic records from the database
+    const [recentAudits, openIssues, relevantEquipment] = await Promise.all([
+      AuditEvent.find().sort({ createdAt: -1 }).limit(10),
+      MaintenanceIssue.find({ status: { $in: ["open", "in_progress"] } }).limit(10),
+      Equipment.find(focusArea ? { name: new RegExp(focusArea, "i") } : {}).limit(5),
+    ]);
+
+    const auditSummary =
+      recentAudits.map((a) => `- ${a.action} on ${a.resourceType} (${(a as any).actorName || a.userEmail || "System"})`).join("\n") ||
+      "No recent audit events logged.";
+    const issueSummary =
+      openIssues.map((i) => `- [${(i.severity || "NORMAL").toUpperCase()}] ${i.title}: ${i.description}`).join("\n") ||
+      "No open maintenance issues recorded.";
+    const equipSummary =
+      relevantEquipment.map((e) => `- ${e.name} (${e.model}, ${e.type}) at ${e.location || "plant floor"}`).join("\n") ||
+      "General plant facility equipment.";
+
+    const prompt = `Synthesize an authentic ${summaryType || "Shift Handoff Report"} strictly from the following plant records:
+
+Equipment Under Observation:
+${equipSummary}
+
+Open Maintenance Issues:
+${issueSummary}
+
+Recent Operational Actions:
+${auditSummary}
+
+Structure into:
+1. Executive Operational Summary
+2. Active Maintenance Issues & Equipment Status
+3. Next Shift Action Items
+
+Note: Label generated content truthfully. Do not invent unrecorded failures or fictional measurements.`;
 
     const generatedText = await geminiService.generateAnswer(prompt, {
-      temperature: 0.3,
-      systemInstruction: "You are an industrial reliability engineer writing an official shift handover brief.",
+      temperature: 0.2,
+      systemInstruction:
+        "You are an industrial reliability copilot synthesizing operational briefs from verified database records. Prepend an explicit '[AI-Assisted Operational Synthesis]' label and ground statements in provided records.",
     });
 
-    const title = `${summaryType === "root_cause" ? "RCFA" : "Shift Brief"}: ${focusArea || "Facility Equipment"}`;
+    const labeledMarkdown = `### [AI-Assisted Operational Synthesis]\n*Synthesized from verified plant maintenance issues, equipment records, and audit logs.*\n\n${generatedText}`;
+
+    const title = `${summaryType === "root_cause" ? "RCFA" : "Operational Brief"}: ${focusArea || "Facility Records"}`;
     const keyHighlights = [
-      `Synthesized operating conditions and maintenance logs for ${focusArea || "facility cells"}.`,
-      "Verified procedure compliance with plant reliability standards.",
-      "Identified follow-up inspection checkpoints for upcoming shifts.",
+      `Synthesized operational state from ${openIssues.length} active maintenance records and ${recentAudits.length} audit logs.`,
+      `Monitored equipment scope: ${relevantEquipment.map((e) => e.name).join(", ") || "General facility"}.`,
     ];
 
-    let summaryId = `sum-${Date.now()}`;
-    if (isConnectedToMongo) {
-      const created = await SummaryModel.create({
-        title,
-        type: summaryType || "shift_handoff",
-        shift: "Current Active Window",
-        author: `${user?.name || "Engineer"} (AI Assisted)`,
-        equipmentCovered: [focusArea || "General Equipment"],
-        keyHighlights,
-        fullMarkdown: generatedText,
-      });
-      summaryId = created._id.toString();
+    const created = await SummaryModel.create({
+      title,
+      type: summaryType || "shift_handoff",
+      shift: "Active Operational Window",
+      author: `${user?.name || "Engineer"} (AI Assisted)`,
+      equipmentCovered: relevantEquipment.map((e) => e.name),
+      keyHighlights,
+      fullMarkdown: labeledMarkdown,
+    });
 
-      await AuditEvent.create({
-        userId: user?.id,
-        userEmail: user?.email,
-        action: "summary_generate",
-        resourceType: "Summary",
-        resourceId: summaryId,
-        details: { title, summaryType },
-      });
-    }
+    const { toMongoObjectId } = await import("./documents.routes");
+    await AuditEvent.create({
+      userId: toMongoObjectId(user?.id),
+      userEmail: user?.email,
+      action: "summary_generate",
+      resourceType: "Summary",
+      resourceId: created._id.toString(),
+      details: { title, summaryType },
+    });
 
     return res.status(201).json({
       success: true,
       data: {
-        id: summaryId,
+        id: created._id.toString(),
         title,
         type: summaryType,
-        shift: "Current Active Window",
-        author: `${user?.name || "Engineer"} (AI Assisted)`,
-        equipmentCovered: [focusArea || "General Equipment"],
+        shift: created.shift,
+        author: created.author,
+        equipmentCovered: created.equipmentCovered,
         keyHighlights,
-        fullMarkdown: generatedText,
-        createdAt: new Date().toISOString(),
+        summary: labeledMarkdown,
+        fullMarkdown: labeledMarkdown,
+        createdAt: created.createdAt.toISOString(),
       },
     });
   } catch (err: unknown) {
+    console.error("[Summary Generation Error]:", err);
     return res.status(500).json({
       success: false,
-      error: { code: "SUMMARY_FAILED", message: "Failed to generate summary", details: String(err) },
+      error: { code: "SUMMARY_FAILED", message: "Failed to generate operational summary" },
     });
   }
 });
 
 // GET /analytics/insights - Real database counts and reliability metrics
 analyticsRouter.get("/analytics/insights", requireAuth, async (req: Request, res: Response) => {
-  let totalDocs = 0;
-  let totalEquip = 0;
-  let totalQueries = 0;
-  let totalIssues = 0;
-
-  if (isConnectedToMongo) {
-    try {
-      [totalDocs, totalEquip, totalQueries, totalIssues] = await Promise.all([
-        DocumentModel.countDocuments({ status: "indexed" }),
-        Equipment.countDocuments(),
-        Message.countDocuments({ role: "user" }),
-        MaintenanceIssue.countDocuments({ status: { $in: ["open", "in_progress"] } }),
-      ]);
-    } catch (err) {
-      console.warn("[Insights] Count error:", err);
-    }
+  if (!isConnectedToMongo) {
+    return res.status(503).json({
+      success: false,
+      error: { code: "SERVICE_UNAVAILABLE", message: "Database connection unavailable" },
+    });
   }
 
-  return res.json({
-    success: true,
-    data: {
-      totalIndexedDocuments: totalDocs,
-      totalMonitoredEquipment: totalEquip,
-      totalRAGInquiries: totalQueries,
-      activeOpenIssues: totalIssues,
-      metrics: {
-        groundingPolicy: "Strict (Zero-Tolerance)",
-        unverifiedCitationsAllowed: 0,
-        evaluationMethod: "Exact Chunk Substring & Vector Verification",
+  try {
+    const [totalDocs, totalEquip, totalQueries, totalIssues] = await Promise.all([
+      DocumentModel.countDocuments({ status: "indexed" }),
+      Equipment.countDocuments(),
+      Message.countDocuments({ role: "user" }),
+      MaintenanceIssue.countDocuments({ status: { $in: ["open", "in_progress"] } }),
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        totalIndexedDocuments: totalDocs,
+        totalMonitoredEquipment: totalEquip,
+        totalRAGInquiries: totalQueries,
+        activeOpenIssues: totalIssues,
+        metrics: {
+          groundingPolicy: "Strict (Zero-Tolerance)",
+          unverifiedCitationsAllowed: 0,
+          evaluationMethod: "Exact Chunk Substring & Vector Verification",
+        },
       },
-    },
-  });
+    });
+  } catch (err) {
+    console.error("[Insights] Count error:", err);
+    return res.status(500).json({
+      success: false,
+      error: { code: "SERVER_ERROR", message: "Failed to query analytics metrics" },
+    });
+  }
 });
 
 // GET /audit - Get real audit events from MongoDB
 analyticsRouter.get("/audit", requireAuth, async (req: Request, res: Response) => {
+  if (!isConnectedToMongo) {
+    return res.status(503).json({
+      success: false,
+      error: { code: "SERVICE_UNAVAILABLE", message: "Database connection unavailable" },
+    });
+  }
+
   const { action, limit } = req.query;
   const maxLimit = Math.min(100, parseInt(limit as string) || 50);
 
-  if (isConnectedToMongo) {
-    try {
-      const query: any = {};
-      if (action && action !== "all") {
-        query.action = action;
-      }
-      const logs = await AuditEvent.find(query).sort({ createdAt: -1 }).limit(maxLimit);
-      return res.json({
-        success: true,
-        data: logs.map((l) => ({
-          id: l._id.toString(),
-          action: l.action,
-          actorName: l.userEmail ? l.userEmail.split("@")[0] : "System",
-          actorRole: "Plant Personnel",
-          description: l.details?.title ? `Processed: "${l.details.title}"` : `Action: ${l.action}`,
-          resourceTitle: l.resourceType,
-          status: "success",
-          timestamp: l.createdAt.toISOString(),
-          metadata: l.details,
-        })),
-      });
-    } catch (err) {
-      console.warn("[Audit] Mongo query failed:", err);
+  try {
+    const query: any = {};
+    if (action && action !== "all") {
+      query.action = action;
     }
+    const logs = await AuditEvent.find(query).sort({ createdAt: -1 }).limit(maxLimit);
+    return res.json({
+      success: true,
+      data: logs.map((l) => ({
+        id: l._id.toString(),
+        action: l.action,
+        actorName: l.userEmail ? l.userEmail.split("@")[0] : "System",
+        actorRole: "Plant Personnel",
+        description: l.details?.title ? `Processed: "${l.details.title}"` : `Action: ${l.action}`,
+        resourceTitle: l.resourceType,
+        status: "success",
+        timestamp: l.createdAt.toISOString(),
+        metadata: l.details,
+      })),
+    });
+  } catch (err) {
+    console.error("[Audit] Mongo query failed:", err);
+    return res.status(500).json({
+      success: false,
+      error: { code: "SERVER_ERROR", message: "Failed to query audit events" },
+    });
   }
-
-  return res.json({
-    success: true,
-    data: [],
-  });
 });

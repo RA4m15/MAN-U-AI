@@ -1,8 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 import { app } from "../src/app";
 import { env } from "../src/config/env";
+import { connectDatabase } from "../src/config/database";
+import { seedDatabase } from "../src/config/seed";
 import { vectorService } from "../src/services/vector.service";
 import { ragService } from "../src/services/rag.service";
 
@@ -25,6 +27,10 @@ const viewerToken = jwt.sign(
 );
 
 describe("Acceptance Test Suite — Industrial End-to-End Verification", () => {
+  beforeAll(async () => {
+    await connectDatabase();
+    await seedDatabase();
+  });
   // TEST 5 — Authentication & Protected Endpoints
   describe("TEST 5: Strict JWT Authentication", () => {
     it("rejects unauthenticated requests without Bearer token", async () => {

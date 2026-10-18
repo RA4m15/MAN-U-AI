@@ -1,5 +1,6 @@
+import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
-import { User, Equipment, DocumentModel, DocumentChunk, AuditEvent } from "../models";
+import { User, Equipment, DocumentModel, DocumentChunk, DocumentPermission, AuditEvent } from "../models";
 import { generateDeterministicEmbedding } from "../services/gemini.service";
 import { env } from "./env";
 
@@ -98,6 +99,9 @@ export async function seedDatabase() {
       const docCount = await DocumentModel.countDocuments();
       if (docCount === 0) {
         console.log("[Seed] Seeding authorized equipment manuals and SOPs...");
+        const anyUser = await User.findOne();
+        const uploaderId = leadEngineer?._id || adminUser?._id || anyUser?._id || new mongoose.Types.ObjectId();
+
         const doc1 = await DocumentModel.create({
           title: "Centrifugal Slurry Pump Maintenance & Rebuild Manual",
           revision: "Rev 4.1",
@@ -109,7 +113,7 @@ export async function seedDatabase() {
           pageCount: 148,
           equipmentId: pumpId ? (pumpId as any) : undefined,
           tags: ["Mechanical", "Hydraulics", "Shaft Seals", "Torque Specs"],
-          uploadedById: leadEngineer?._id,
+          uploadedById: uploaderId,
         });
 
         const doc2 = await DocumentModel.create({
@@ -122,7 +126,7 @@ export async function seedDatabase() {
           status: "indexed",
           pageCount: 24,
           tags: ["Safety", "LOTO", "High Pressure", "OSHA 1910.147"],
-          uploadedById: leadEngineer?._id,
+          uploadedById: uploaderId,
         });
 
         const doc3 = await DocumentModel.create({
@@ -135,7 +139,7 @@ export async function seedDatabase() {
           status: "indexed",
           pageCount: 86,
           tags: ["Compressor", "Pneumatics", "Fault Codes"],
-          uploadedById: leadEngineer?._id,
+          uploadedById: uploaderId,
         });
 
         // Seed real vector chunks
@@ -188,6 +192,27 @@ export async function seedDatabase() {
         }
 
         console.log("[Seed] Ingestion and vector embeddings seeded successfully in MongoDB.");
+      }
+
+      // Ensure baseline document permissions exist for plant personnel
+      const permCount = await DocumentPermission.countDocuments();
+      if (permCount === 0) {
+        const docs = await DocumentModel.find();
+        for (const doc of docs) {
+          await DocumentPermission.create({
+            documentId: doc._id,
+            role: "engineer",
+            canRead: true,
+            canWrite: true,
+          });
+          await DocumentPermission.create({
+            documentId: doc._id,
+            role: "viewer",
+            canRead: true,
+            canWrite: false,
+          });
+        }
+        console.log(`[Seed] Seeded baseline role permissions for ${docs.length} equipment manuals.`);
       }
   } catch (err) {
     console.warn("[Seed] Database seed notice:", err);

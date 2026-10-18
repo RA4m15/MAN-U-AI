@@ -114,6 +114,44 @@ export class GeminiService {
     return this.generateGroundedFallback(prompt);
   }
 
+  /**
+   * Transcribes scanned PDF documents using Gemini multimodal vision OCR.
+   */
+  async transcribePdfWithOcr(pdfBuffer: Buffer): Promise<string> {
+    if (!this.client) {
+      throw new Error("Optical character recognition (OCR) unavailable: Gemini multimodal client is not configured.");
+    }
+
+    try {
+      const model = this.client.getGenerativeModel({
+        model: env.GEMINI_MODEL,
+        generationConfig: { temperature: 0.1 },
+      });
+
+      const base64Data = pdfBuffer.toString("base64");
+      const result = await model.generateContent([
+        {
+          inlineData: {
+            data: base64Data,
+            mimeType: "application/pdf",
+          },
+        },
+        {
+          text: "Perform optical character recognition (OCR) on this scanned industrial document. Transcribe the text verbatim, preserving page numbers in the format '--- PAGE X ---' and technical headings. Do not summarize or invent text.",
+        },
+      ]);
+
+      const response = await result.response;
+      const text = response.text();
+      if (!text || text.trim().length === 0) {
+        throw new Error("OCR returned empty text.");
+      }
+      return text;
+    } catch (err) {
+      throw new Error(`Multimodal OCR extraction failed: ${safeErrorMsg(err)}`);
+    }
+  }
+
   private generateGroundedFallback(prompt: string): string {
     return `### [NOTICE: AI Generative Service Unavailable — Offline Documentation Mode]
 

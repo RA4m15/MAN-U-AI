@@ -4,11 +4,12 @@ import multer from "multer";
 import { DocumentModel, DocumentChunk, DocumentPermission, ProcessingJob, AuditEvent } from "../models";
 
 import { storageService } from "../services/storage.service";
-import { pdfService } from "../services/pdf.service";
+import { pdfService, isValidPdfSignature } from "../services/pdf.service";
 import { geminiService } from "../services/gemini.service";
 import { vectorService } from "../services/vector.service";
 import { isConnectedToMongo } from "../config/database";
 import { requireAuth, requireRole, AuthenticatedRequest } from "../middlewares/auth";
+import { uploadLimiter } from "../middlewares/rateLimiters";
 import { emitDocumentProgress, emitDocumentStatus, emitAuditEvent } from "../index";
 
 export const documentsRouter: Router = Router();
@@ -235,6 +236,7 @@ documentsRouter.get("/:id/file", requireAuth, async (req: AuthenticatedRequest, 
 // POST /documents/upload - Upload and initiate ingestion
 documentsRouter.post(
   "/upload",
+  uploadLimiter,
   requireAuth,
   requireRole(["admin", "engineer"]),
   upload.single("file"),
@@ -243,6 +245,20 @@ documentsRouter.post(
       return res.status(400).json({
         success: false,
         error: { code: "NO_FILE", message: "No document file was provided" },
+      });
+    }
+
+    if (!isValidPdfSignature(req.file.buffer)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "INVALID_FILE_SIGNATURE", message: "File does not match a valid PDF file signature (%PDF-)" },
+      });
+    }
+
+    if (!isConnectedToMongo) {
+      return res.status(503).json({
+        success: false,
+        error: { code: "DATABASE_UNAVAILABLE", message: "Database connection unavailable for document ingestion" },
       });
     }
 
@@ -443,6 +459,11 @@ async function processDocumentAsync(docId: string, title: string, revision: stri
     console.error(`[Ingestion Failed for ${docId}]:`, err);
     if (isConnectedToMongo) {
       await DocumentModel.findByIdAndUpdate(docId, { status: "failed" });
+      try {
+        await DocumentChunk.deleteMany({ documentId: docId });
+      } catch (cleanupErr) {
+        console.warn(`[Ingestion Cleanup Error for ${docId}]:`, cleanupErr);
+      }
     }
     emitDocumentStatus(docId, "failed", 0, err?.message || "Ingestion pipeline failure", uploaderId);
   }
