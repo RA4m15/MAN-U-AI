@@ -194,10 +194,15 @@ export async function seedDatabase() {
         console.log("[Seed] Ingestion and vector embeddings seeded successfully in MongoDB.");
       }
 
-      // Ensure baseline document permissions exist for plant personnel
+      // Ensure baseline document permissions exist strictly for baseline seeded equipment manuals
       const permCount = await DocumentPermission.countDocuments();
       if (permCount === 0) {
-        const docs = await DocumentModel.find();
+        const baselineFilenames = [
+          "slurry_pump_manual_rev4.pdf",
+          "sop_loto_hydraulic_press.pdf",
+          "rotary_compressor_manual.pdf",
+        ];
+        const docs = await DocumentModel.find({ filename: { $in: baselineFilenames } });
         for (const doc of docs) {
           await DocumentPermission.create({
             documentId: doc._id,

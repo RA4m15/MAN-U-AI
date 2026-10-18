@@ -146,8 +146,11 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
   });
 
   // 2. Seed-account password stability across restarts
-  it("Requirement 2: Server seed process never resets existing account passwords", async () => {
-    if (!isConnectedToMongo) return;
+  it("Requirement 2: Server seed process never resets existing account passwords", async (ctx) => {
+    if (!isConnectedToMongo) {
+      ctx.skip();
+      return;
+    }
 
     const email = "stability.check@plant.io";
     await User.deleteOne({ email });
@@ -177,8 +180,11 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
   });
 
   // 3. Conversation ownership and message privacy
-  it("Requirement 3: Verifies conversation ownership before returning messages", async () => {
-    if (!isConnectedToMongo || !userAConvId) return;
+  it("Requirement 3: Verifies conversation ownership before returning messages", async (ctx) => {
+    if (!isConnectedToMongo || !userAConvId) {
+      ctx.skip();
+      return;
+    }
 
     // User B attempts to access User A's conversation messages
     const resForbidden = await request(app)
@@ -288,8 +294,11 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
   });
 
   // 9. Authorized retrieval and citation isolation
-  it("Requirement 9: Cross-user isolation in RAG retrieval", async () => {
-    if (!isConnectedToMongo || !docAId) return;
+  it("Requirement 9: Cross-user isolation in RAG retrieval", async (ctx) => {
+    if (!isConnectedToMongo || !docAId) {
+      ctx.skip();
+      return;
+    }
 
     // User B queries regarding User A's private blueprint
     const resB = await ragService.answerQuestion(
@@ -312,8 +321,11 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
   });
 
   // 9b. Non-indexed documents (processing, failed) cannot supply answer evidence or citations
-  it("Requirement 9b: Non-indexed documents (processing, failed) cannot supply chunks or citations", async () => {
-    if (!isConnectedToMongo) return;
+  it("Requirement 9b: Non-indexed documents (processing, failed) cannot supply chunks or citations", async (ctx) => {
+    if (!isConnectedToMongo) {
+      ctx.skip();
+      return;
+    }
 
     // Create a document with status "processing"
     const processingDoc = await DocumentModel.create({

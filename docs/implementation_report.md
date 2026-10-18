@@ -501,19 +501,32 @@ To complete the live deployment in the Render Dashboard:
    - Enforced that only documents with `status: "indexed"` can contribute chunks or citations.
    - Enforced equally across administrators, engineers, and viewers. Documents in `processing` or `failed` state are strictly excluded from candidate chunks and citation outputs.
 
-### Read-Only Atlas Database Audit Summary
+### Read-Only Atlas Database Audit & Source-Provenance Findings
 - **Target Host:** `ac-l0nlhix-shard-00-00.90gymzr.mongodb.net` | **Database:** `manuai`
 - **Users (Total: 3):** Elena Rostova (`admin`), Alex Mercer (`engineer`), Marcus Vance (`viewer`).
-- **Documents (Total: 3):**
-  1. `6ad4ee0bb277e637f9c22005`: *"Centrifugal Slurry Pump Maintenance & Rebuild Manual"* (Rev 4.1, 148 pages, `status: "indexed"`)
-  2. `6ad4ee0bb277e637f9c22007`: *"Standard Operating Procedure: Hydraulic Lockout Tagout (LOTO)"* (Rev 8.0, 24 pages, `status: "indexed"`)
-  3. `6ad4ee0bb277e637f9c22009`: *"Rotary Screw Air Compressor Operator Guide"* (Rev 2.3, 86 pages, `status: "indexed"`)
+- **Seeded Demonstration Documents (Total: 3):**
+  1. `6ad4ee0bb277e637f9c22005`: *"Centrifugal Slurry Pump Maintenance & Rebuild Manual"* (Rev 4.1, 148 pages, `status: "indexed"`, storagePath: `seed_slurry_pump_manual.pdf`)
+  2. `6ad4ee0bb277e637f9c22007`: *"Standard Operating Procedure: Hydraulic Lockout Tagout (LOTO)"* (Rev 8.0, 24 pages, `status: "indexed"`, storagePath: `seed_sop_loto.pdf`)
+  3. `6ad4ee0bb277e637f9c22009`: *"Rotary Screw Air Compressor Operator Guide"* (Rev 2.3, 86 pages, `status: "indexed"`, storagePath: `seed_rotary_compressor.pdf`)
+- **Binary-File Provenance Status:** **UNVERIFIED DEMONSTRATION CONTENT**.
+  - Read-only filesystem inspection of the private storage provider (`./uploads`) confirmed that `seed_slurry_pump_manual.pdf`, `seed_sop_loto.pdf`, and `seed_rotary_compressor.pdf` **do not exist** as binary PDF files on disk.
+  - The single chunks associated with these records in Atlas (`CHUNK_TEXT_1`, `CHUNK_TEXT_2`, `CHUNK_TEXT_3`) are hard-coded sample snippets defined in `apps/api/src/config/seed.ts`.
+  - Because the original source binaries are absent, these records cannot be compared against source PDF page bytes and must strictly be classified as **unverified demonstration content**, not verified authentic extractions.
+  - No Atlas records were modified, deleted, or re-seeded during this audit.
 - **Document Permissions (Total: 12):** 6 pairs of duplicate role permissions (`engineer` and `viewer`) created by previous manual seed scripts. No destructive modifications were performed; pending operator approval before cleanup.
 - **Records Summary:** 3 Document Chunks, 0 Conversations, 0 Messages, 2 Audit Events.
-- **Chunk Ingestion Investigation:**
-  - Each of the 3 baseline indexed documents has exactly 1 chunk in the database (`6ad4ee0bb277e637f9c2200b` on Page 16, `6ad4ee0bb277e637f9c2200d` on Page 12, `6ad4ee0bb277e637f9c2200f` on Page 44).
-  - Inspection of `apps/api/src/config/seed.ts` confirmed that the initial seeding script was deliberately designed to insert 1 verified representative technical excerpt per manual (e.g. 45 N·m torque on Page 16, OSHA 1910.147 LOTO on Page 12, Fault Code E-0247 on Page 44) with real extracted text and 768-dim embeddings, rather than parsing 100+ page PDFs during server boot.
-  - Authentic multi-chunk ingestion is dynamically executed when users upload PDF manuals via `POST /api/v1/documents/upload` using `pdfService.extractAndChunk()`.
+
+### Authentic Full-Document Ingestion & Citation Grounding (Verified via Test Pipeline)
+- **Controlled PDF Fixture:** [`test/test_authorized_manual.pdf`](file:///c:/Shiva/MORE/Projects/MAN-U-AI/apps/api/test_authorized_manual.pdf) (Genuine 3-page binary PDF overhaul standard).
+- **Live Ingestion Pipeline Verification (`test/document_to_answer.test.ts`):**
+  - **Binary Extraction:** `pdfService.extractAndChunk()` parsed the 3-page binary PDF and generated 3 discrete chunk records preserving page boundaries (`\n\n--- PAGE X ---\n\n`).
+  - **Upload & Storage:** Invoked `POST /api/v1/documents/upload` with JWT authentication. The file was persisted to private storage under a UUID filename and metadata committed to the test database.
+  - **Multi-Chunk Grounding:** Retrieval for torque specifications matched Page 2 (52 N·m, 0.04 mm runout). Retrieval for isolation procedures matched Page 1 (MCB-104 lockout, 0 kPa pressure).
+  - **Hallucination Prevention:** Out-of-scope question ("warp drive antimatter core") returned 0 citations and triggered the strict insufficient-evidence protocol.
+  - **Binary Streaming:** Authenticated users streamed genuine PDF bytes via `GET /documents/:id/file`; unauthenticated requests returned HTTP 401.
+- **Test Suite Truthfulness & Database Isolation:**
+  - Automated integration tests execute against the isolated local test database `manuai_test` (`localhost:27017`), completely decoupling tests from the production Atlas cluster.
+  - In `final_hardening.test.ts`, database-dependent tests utilize explicit `ctx.skip()` if database connectivity is unavailable, preventing tests with unexecuted assertions from falsely registering as passed.
 
 ### Real Operational Limitations
 - **Free-Tier Gemini API Quota:** The Google Gemini API free-tier project rate limit is 20 requests per day for generative synthesis (`gemini-3.8-flash`). When quota is exhausted, the live API returns HTTP 429 Too Many Requests. Production mode fails explicitly; offline development/test mode falls back gracefully to verbatim document excerpts.
