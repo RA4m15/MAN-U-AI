@@ -24,4 +24,8 @@ export default defineConfig({
       },
     },
   },
+  // @ts-expect-error vitest config field
+  test: {
+    environment: "happy-dom",
+  },
 });

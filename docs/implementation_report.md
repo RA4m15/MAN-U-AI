@@ -711,3 +711,57 @@ git diff --check
   - **Status:** PASSED (`tsc -b && vite build` exit code 0)
 - **Git Whitespace & Diff Check:** `git diff --check`
   - **Status:** PASSED (0 whitespace errors)
+
+---
+
+## 13. STAGE 2.1: REMOVAL OF FIELD-LEVEL FABRICATION & COMPONENT-LEVEL UI VERIFICATION
+
+**Verification Date:** October 19, 2026
+**Baseline Commit:** `b43c596`
+**Goal:** Eliminate all remaining field-level default substitutions across frontend pages, correct Insights labeling, and replace duplicate helper test code with real component-level UI tests.
+
+### Verified Field-Level Corrections
+
+1. **Equipment Registry (`apps/web/src/pages/EquipmentPage.tsx`):**
+   - Removed `"Unnamed Machine"` and `"General Machinery"` defaults; missing descriptive metadata renders as `"Not provided"`.
+   - Removed `"operational"` status default; absent/unknown status renders as `"Status unavailable"` and is excluded from operational KPI counts.
+   - Preserved truthful telemetry labels (`"Not connected"`, `"No telemetry available"`).
+
+2. **Operational Summaries (`apps/web/src/pages/SummariesPage.tsx`):**
+   - Removed default substitutions: `"Active Shift"` -> `"Not recorded"`, `"MAN-U-AI Agent"` -> `"Not recorded"`, `"Recent"` -> `"Not recorded"`, `"Untitled Summary"` -> `"Not titled"`.
+   - Removed synthetic heading fallback (`"# Operational Summary"`); empty markdown displays `"Content unavailable. No markdown text recorded for this summary."`.
+
+3. **Activity & Audit Trail (`apps/web/src/pages/ActivityPage.tsx`):**
+   - Removed `new Date().toISOString()` fallback for missing audit timestamps; renders `"Timestamp unavailable"` in both table and detail modal.
+   - Removed `"success"` status fallback; renders `"Status unavailable"` where status is absent.
+   - Renders `"Actor unavailable"` and `"Role unavailable"` where caller information is missing.
+   - Maintained real-time Socket.IO `audit:new` invalidation and clean unmount teardown.
+
+4. **Settings & Access Control (`apps/web/src/pages/SettingsPage.tsx`):**
+   - Removed `"active"` status fallback in user mapping and table; renders authentic status or `"Status unavailable"` when untracked.
+   - Maintained min-8-character password requirement with empty initial state.
+
+5. **Insights Page Labeling (`apps/web/src/pages/InsightsPage.tsx`):**
+   - Replaced `"Live Database Telemetry"` header badge with `"Persisted Database Counts"`.
+   - Explicitly clarified that equipment telemetry is unavailable until an authentic industrial gateway (OPC-UA, MQTT, or Modbus TCP) is actively connected.
+
+6. **Component-Level React Tests (`apps/web/test/stage2_data_integrity.test.tsx`):**
+   - Completely eliminated duplicated production helper transforms (`transformEquipment`, `transformSummaries`, etc.).
+   - Integrated `@testing-library/react` and `happy-dom` to mount real React components (`<EquipmentPage />`, `<InsightsPage />`, `<SummariesPage />`, `<ActivityPage />`, `<SettingsPage />`).
+   - Implemented 14 component tests covering empty, incomplete, populated, and API failure states.
+   - Verified that incomplete data never produces operational status, successful audit events, current timestamps, fake active user badges, or synthetic summary markdown.
+
+### Verification Test & Build Results
+
+- **Frontend Test Suite:** `pnpm --filter @man-u-ai/web test`
+  - **Status:** PASSED (1/1 test file, 14/14 tests passed)
+- **Full Backend Test Suite:** `pnpm --filter @man-u-ai/api test --run`
+  - **Status:** PASSED (11/11 test files, 88/88 tests passed)
+- **Shared Package Build:** `pnpm --filter @man-u-ai/shared build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **API Service Build:** `pnpm --filter @man-u-ai/api build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **Web Frontend Build:** `pnpm --filter @man-u-ai/web build`
+  - **Status:** PASSED (`tsc -b && vite build` exit code 0)
+- **Git Whitespace & Diff Check:** `git diff --check`
+  - **Status:** PASSED (0 whitespace errors)

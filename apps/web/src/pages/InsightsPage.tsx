@@ -52,7 +52,7 @@ export function InsightsPage() {
             <h1 className="text-xl md:text-2xl font-bold tracking-tight text-ink">
               System Insights & Reliability Metrics
             </h1>
-            <span className="badge-primary text-2xs">Live Database Telemetry</span>
+            <span className="badge-primary text-2xs">Persisted Database Counts</span>
             <span className="badge-muted text-2xs font-mono">Production MongoDB</span>
           </div>
           <p className="text-xs md:text-sm text-ink-subtle">
@@ -200,7 +200,7 @@ export function InsightsPage() {
             Live Hardware Sensor Ingestion: Standby (Not connected)
           </p>
           <p className="text-ink-subtle text-xs leading-relaxed">
-            The industrial copilot actively answers technical queries using vector-indexed manuals and SOPs. Real-time predictive failure detection (such as FFT vibration spectral spalling analysis and thermal runaway alerting) requires an active OPC-UA, MQTT, or Modbus hardware stream.
+            The industrial copilot actively answers technical queries using vector-indexed manuals and SOPs. Equipment telemetry is unavailable until a real hardware sensor stream (OPC-UA, MQTT, or Modbus TCP) is actively connected. Real-time predictive failure detection requires live telemetry data.
           </p>
           <div className="pt-2 flex items-center justify-between text-2xs text-ink-tertiary border-t border-hairline">
             <span>Protocol: OPC-UA TCP (Configurable in Integrations)</span>

@@ -59,14 +59,14 @@ export function SummariesPage() {
   const summaries: SummaryItem[] = Array.isArray(rawSummaries)
     ? rawSummaries.map((s: any) => ({
         id: String(s.id || s._id),
-        title: s.title || "Untitled Summary",
-        type: s.type || "shift_handoff",
-        date: s.createdAt ? new Date(s.createdAt).toLocaleDateString() : "Recent",
-        shift: s.shift || "Active Shift",
-        author: s.author || "MAN-U-AI Agent",
+        title: s.title || "Not titled",
+        type: s.type || "Not specified",
+        date: s.createdAt ? new Date(s.createdAt).toLocaleDateString() : "Not recorded",
+        shift: s.shift || "Not recorded",
+        author: s.author || "Not recorded",
         equipmentCovered: Array.isArray(s.equipmentCovered) ? s.equipmentCovered : [],
         keyHighlights: Array.isArray(s.keyHighlights) ? s.keyHighlights : [],
-        fullMarkdown: s.fullMarkdown || s.summary || "# Operational Summary",
+        fullMarkdown: s.fullMarkdown || s.summary || "",
       }))
     : [];
 
@@ -325,9 +325,15 @@ export function SummariesPage() {
 
             {/* Raw Markdown Output */}
             <div className="prose prose-sm dark:prose-invert max-w-none text-xs text-ink-subtle space-y-3 leading-relaxed font-sans">
-              <pre className="whitespace-pre-wrap font-sans bg-transparent p-0 border-0 text-ink leading-relaxed">
-                {activeSelected.fullMarkdown}
-              </pre>
+              {activeSelected.fullMarkdown.trim() ? (
+                <pre className="whitespace-pre-wrap font-sans bg-transparent p-0 border-0 text-ink leading-relaxed">
+                  {activeSelected.fullMarkdown}
+                </pre>
+              ) : (
+                <div className="p-4 rounded-xl bg-surface-2 border border-hairline text-center text-xs text-ink-tertiary">
+                  Content unavailable. No markdown text recorded for this summary.
+                </div>
+              )}
             </div>
           </div>
         </div>

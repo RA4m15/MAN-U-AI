@@ -29,8 +29,8 @@ interface AuditLogItem {
   actorRole: string;
   description: string;
   resourceTitle?: string;
-  status: "success" | "warning" | "error";
-  timestamp: string;
+  status: "success" | "warning" | "error" | "Status unavailable" | string;
+  timestamp: string | null;
   metadata?: Record<string, string>;
 }
 
@@ -70,12 +70,12 @@ export function ActivityPage() {
     ? rawLogs.map((l: any) => ({
         id: String(l.id || l._id),
         action: l.action || "audit_event",
-        actorName: l.actorName || l.userEmail || "System",
-        actorRole: l.actorRole || "Plant User",
-        description: l.description || `Action: ${l.action}`,
-        resourceTitle: l.resourceTitle || l.resourceType || "Audit Resource",
-        status: (l.status as any) || "success",
-        timestamp: l.timestamp || l.createdAt || new Date().toISOString(),
+        actorName: l.actorName || l.userEmail || "Actor unavailable",
+        actorRole: l.actorRole || "Role unavailable",
+        description: l.description || (l.action ? `Action: ${l.action}` : "Description unavailable"),
+        resourceTitle: l.resourceTitle || l.resourceType || "Resource unavailable",
+        status: (l.status as any) || "Status unavailable",
+        timestamp: l.timestamp || l.createdAt || null,
         metadata: l.metadata || {},
       }))
     : [];
@@ -100,7 +100,7 @@ export function ActivityPage() {
         .concat(
           filteredLogs.map(
             (l) =>
-              `"${l.id}","${l.action}","${l.actorName}","${l.actorRole}","${l.description.replace(/"/g, '""')}","${l.timestamp}","${l.status}"`
+              `"${l.id}","${l.action}","${l.actorName}","${l.actorRole}","${l.description.replace(/"/g, '""')}","${l.timestamp || "Timestamp unavailable"}","${l.status}"`
           )
         )
         .join("\n");
@@ -271,7 +271,7 @@ export function ActivityPage() {
                       {log.description}
                     </td>
                     <td className="py-3 px-4 text-ink-tertiary text-2xs font-mono whitespace-nowrap">
-                      {formatRelativeTime(log.timestamp)}
+                      {log.timestamp ? formatRelativeTime(log.timestamp) : "Timestamp unavailable"}
                     </td>
                     <td className="py-3 px-4 text-right">
                       <button className="btn-secondary text-2xs py-1 px-2 group-hover:border-primary/40">
@@ -308,7 +308,20 @@ export function ActivityPage() {
                 </div>
                 <div className="p-3 rounded-lg bg-surface-2 border border-hairline">
                   <span className="text-2xs text-ink-tertiary">Status</span>
-                  <p className="font-medium text-success capitalize mt-0.5">{selectedLog.status}</p>
+                  <p
+                    className={cn(
+                      "font-medium capitalize mt-0.5",
+                      selectedLog.status === "success"
+                        ? "text-success"
+                        : selectedLog.status === "warning"
+                        ? "text-warning"
+                        : selectedLog.status === "error"
+                        ? "text-danger"
+                        : "text-ink-subtle"
+                    )}
+                  >
+                    {selectedLog.status}
+                  </p>
                 </div>
               </div>
 
@@ -327,7 +340,9 @@ export function ActivityPage() {
               <div className="p-3 rounded-lg bg-surface-2 border border-hairline">
                 <span className="text-2xs text-ink-tertiary">Timestamp</span>
                 <p className="font-mono text-ink mt-0.5">
-                  {new Date(selectedLog.timestamp).toLocaleString()} ({selectedLog.timestamp})
+                  {selectedLog.timestamp
+                    ? `${new Date(selectedLog.timestamp).toLocaleString()} (${selectedLog.timestamp})`
+                    : "Timestamp unavailable"}
                 </p>
               </div>
 

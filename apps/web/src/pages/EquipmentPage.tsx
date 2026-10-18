@@ -30,7 +30,7 @@ interface EquipmentItem {
   manufacturer: string;
   serialNumber: string;
   location: string;
-  status: "operational" | "warning" | "critical" | "offline";
+  status: "operational" | "warning" | "critical" | "offline" | "unavailable";
   healthScore?: number | null;
   temperature?: number | null;
   vibrationRms?: number | null;
@@ -75,13 +75,13 @@ export function EquipmentPage() {
   const equipmentList: EquipmentItem[] = Array.isArray(rawEquipment)
     ? rawEquipment.map((item: any) => ({
         id: String(item.id || item._id),
-        name: item.name || "Unnamed Machine",
-        type: item.type || "General Machinery",
+        name: item.name || "Not provided",
+        type: item.type || "Not provided",
         model: item.model || "Not provided",
         manufacturer: item.manufacturer || "Not provided",
         serialNumber: item.serialNumber || "Not provided",
         location: item.location || "Not provided",
-        status: (item.status as any) || "operational",
+        status: (item.status as any) || "unavailable",
         linkedManualsCount: Array.isArray(item.documentIds) ? item.documentIds.length : 0,
         documentIds: Array.isArray(item.documentIds) ? item.documentIds : [],
         activeAlarms: Array.isArray(item.activeAlarms) ? item.activeAlarms : [],
@@ -393,6 +393,9 @@ export function EquipmentPage() {
                   )}
                   {eq.status === "offline" && (
                     <span className="badge-muted text-2xs flex-shrink-0">Offline</span>
+                  )}
+                  {(!eq.status || eq.status === "unavailable" || !["operational", "warning", "critical", "offline"].includes(eq.status)) && (
+                    <span className="badge-muted text-2xs flex-shrink-0">Status unavailable</span>
                   )}
                 </div>
 

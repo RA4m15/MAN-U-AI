@@ -26,7 +26,7 @@ interface UserRecord {
   name: string;
   email: string;
   role: UserRole;
-  status: "active" | "suspended";
+  status: "active" | "suspended" | "Status unavailable" | string;
   lastLogin: string;
 }
 
@@ -71,10 +71,10 @@ export function SettingsPage() {
   const users: UserRecord[] = Array.isArray(rawUsers)
     ? rawUsers.map((u: any) => ({
         id: String(u.id || u._id),
-        name: u.name || "Unnamed User",
-        email: u.email || "No email",
+        name: u.name || "Not provided",
+        email: u.email || "Not provided",
         role: (u.role as UserRole) || "viewer",
-        status: "active",
+        status: u.status || "Status unavailable",
         lastLogin: u.lastLogin
           ? new Date(u.lastLogin).toLocaleDateString()
           : u.createdAt
@@ -486,9 +486,19 @@ export function SettingsPage() {
                           </select>
                         </td>
                         <td className="py-3 px-4">
-                          <span className="badge-success text-2xs flex items-center gap-1 w-max">
-                            <CheckCircle2 size={10} /> Active
-                          </span>
+                          {u.status === "active" ? (
+                            <span className="badge-success text-2xs flex items-center gap-1 w-max">
+                              <CheckCircle2 size={10} /> Active
+                            </span>
+                          ) : u.status === "suspended" ? (
+                            <span className="badge-warning text-2xs flex items-center gap-1 w-max">
+                              Suspended
+                            </span>
+                          ) : (
+                            <span className="badge-muted text-2xs flex items-center gap-1 w-max">
+                              {u.status}
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-ink-tertiary text-2xs font-mono">
                           {u.lastLogin}
