@@ -67,6 +67,7 @@ export interface IDocumentModel extends MongooseDocument {
   revision: string;
   filename: string;
   storagePath: string;
+  storageProvider?: "local" | "cloudinary" | "s3" | "gcs";
   mimeType: string;
   sizeBytes: number;
   status: DocumentStatus;
@@ -84,6 +85,11 @@ const DocumentSchema = new Schema<IDocumentModel>(
     revision: { type: String, default: "v1.0" },
     filename: { type: String, required: true },
     storagePath: { type: String, required: true },
+    storageProvider: {
+      type: String,
+      enum: ["local", "cloudinary", "s3", "gcs"],
+      default: "local",
+    },
     mimeType: { type: String, required: true },
     sizeBytes: { type: Number, required: true },
     status: {

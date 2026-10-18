@@ -3,7 +3,7 @@ services:
   - type: web
     name: man-u-ai-api
     runtime: node
-    plan: starter
+    plan: free
     region: oregon
     buildCommand: pnpm install --frozen-lockfile && pnpm --filter @man-u-ai/shared build && pnpm --filter @man-u-ai/api build
     startCommand: pnpm --filter @man-u-ai/api start
@@ -23,19 +23,21 @@ services:
       - key: VECTOR_STORE
         value: mongodb
       - key: STORAGE_PROVIDER
-        value: local
-      - key: STORAGE_LOCAL_PATH
-        value: /var/data/uploads
+        value: cloudinary
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_URL
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3.8-flash
       - key: GEMINI_EMBEDDING_MODEL
         value: gemini-embedding-001
-    disk:
-      name: uploads-disk
-      mountPath: /var/data/uploads
-      sizeGB: 10
     healthCheckPath: /health/ready
 
   # ── MAN-U-AI Web Frontend Static Site ─────────────────────────

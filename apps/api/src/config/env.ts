@@ -38,8 +38,12 @@ const envSchema = z.object({
   REFRESH_TOKEN_EXPIRES_IN: z.string().default("30d"),
   MONGODB_URI: z.string().default("mongodb://localhost:27017/manuai"),
   VECTOR_STORE: z.enum(["mongodb", "chromadb", "pinecone", "memory"]).default("mongodb"),
-  STORAGE_PROVIDER: z.enum(["local", "s3", "gcs"]).default("local"),
+  STORAGE_PROVIDER: z.enum(["local", "cloudinary", "s3", "gcs"]).default("local"),
   STORAGE_LOCAL_PATH: z.string().default("./uploads"),
+  CLOUDINARY_CLOUD_NAME: z.string().optional().default(""),
+  CLOUDINARY_API_KEY: z.string().optional().default(""),
+  CLOUDINARY_API_SECRET: z.string().optional().default(""),
+  CLOUDINARY_URL: z.string().optional().default(""),
   GEMINI_API_KEY: z.string().optional().default(""),
   GEMINI_MODEL: z.string().default("gemini-3.8-flash"),
   GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-001"),
@@ -47,6 +51,17 @@ const envSchema = z.object({
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),
 }).superRefine((data, ctx) => {
   if (data.NODE_ENV === "production") {
+    if (data.STORAGE_PROVIDER === "cloudinary") {
+      const hasDirectCreds = Boolean(data.CLOUDINARY_CLOUD_NAME && data.CLOUDINARY_API_KEY && data.CLOUDINARY_API_SECRET);
+      const hasUrl = Boolean(data.CLOUDINARY_URL);
+      if (!hasDirectCreds && !hasUrl) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["STORAGE_PROVIDER"],
+          message: "Production environment requires CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET (or CLOUDINARY_URL) when STORAGE_PROVIDER=cloudinary.",
+        });
+      }
+    }
     if (
       data.JWT_SECRET === "manuai-industrial-secure-jwt-secret-key-2025" ||
       data.JWT_SECRET.length < 32

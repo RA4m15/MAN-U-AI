@@ -531,11 +531,45 @@ To complete the live deployment in the Render Dashboard:
 ### Real Operational Limitations
 - **Free-Tier Gemini API Quota:** The Google Gemini API free-tier project rate limit is 20 requests per day for generative synthesis (`gemini-3.8-flash`). When quota is exhausted, the live API returns HTTP 429 Too Many Requests. Production mode fails explicitly; offline development/test mode falls back gracefully to verbatim document excerpts.
 - **Atlas Vector Search vs. Application Similarity:** Standard free-tier Atlas M0 clusters do not support native `$vectorSearch` indexes. The system intentionally uses application-side vector scoring capped at 500 candidates. For corpora exceeding tens of thousands of chunks, upgrading to Atlas M10+ with native Vector Search index creation is recommended.
-- **Storage Encryption:** Private uploads are isolated in `./uploads` with strict auth-gated streaming. Disk encryption at rest relies on the hosting platform's filesystem encryption (e.g. Render Persistent Disk encryption).
+### Real Operational Limitations
+- **Free-Tier Gemini API Quota:** The Google Gemini API free-tier project rate limit is 20 requests per day for generative synthesis (`gemini-3.8-flash`). When quota is exhausted, the live API returns HTTP 429 Too Many Requests. Production mode fails explicitly; offline development/test mode falls back gracefully to verbatim document excerpts.
+- **Atlas Vector Search vs. Application Similarity:** Standard free-tier Atlas M0 clusters do not support native `$vectorSearch` indexes. The system intentionally uses application-side vector scoring capped at 500 candidates. For corpora exceeding tens of thousands of chunks, upgrading to Atlas M10+ with native Vector Search index creation is recommended.
+- **Cloudinary Free Tier File Retention:** Cloudinary persistent storage provides 25 monthly credits (approx. 25 GB storage / net bandwidth), which fully covers the industrial document library on Render Free.
+
+---
+
+## 6. CLOUDINARY PERSISTENT STORAGE INTEGRATION (RENDER FREE TIER COMPATIBILITY)
+
+### Motivation & Architectural Strategy
+- **Problem:** Render's Free tier does not support persistent disks. Eagerly mounting or creating `/var/data/uploads` caused crashes or transient data loss upon spin-down.
+- **Solution:** Replaced local disk persistence with Cloudinary server-side storage for manual PDFs, allowing the API service to run on the Render `free` plan without requiring a paid disk add-on.
+
+### Implementation Details
+1. **Cloudinary Node.js SDK:** Integrated official `cloudinary` v2 into `apps/api`.
+2. **Environment Configuration:**
+   - Added `STORAGE_PROVIDER` support for `cloudinary` (alongside `local`).
+   - Configured `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in `apps/api/src/config/env.ts`.
+   - In production, validated that Cloudinary credentials must be non-empty when `STORAGE_PROVIDER === "cloudinary"`.
+   - Credentials are kept strictly server-side; excluded from Git, `.env.example`, client bundles, and logs.
+3. **Storage Service Refactoring (`apps/api/src/services/storage.service.ts`):**
+   - **`CloudinaryStorageService`:** Implemented authenticated upload of PDFs with `resource_type: "raw"`, `type: "authenticated"`, and folder `manuai/documents`.
+   - **Public ID Identifier:** The generated Cloudinary `public_id` (e.g. `manuai/documents/<uuid>.pdf`) is stored as `storagePath`, with `storageProvider: "cloudinary"`. Public URLs are never used as identifiers or exposed to clients.
+   - **Authorized Streaming:** Document files are served exclusively through `GET /api/v1/documents/:id/file`. The backend validates the user's JWT and permissions before generating an ephemeral, signed private download URL (`cloudinary.utils.private_download_url`) and piping the response stream to the client.
+   - **Lazy Initialization (Zero Local Disk Touch):** `StorageServiceFacade` only instantiates `CloudinaryStorageService` when `STORAGE_PROVIDER=cloudinary`. `LocalStorageService` is not constructed on startup, completely preventing any attempt to create `/var/data/uploads` on Render Free.
+   - **Backward Compatibility:** Existing documents with `storageProvider: "local"` or unset are seamlessly resolved via the local storage adapter on development or existing disk environments.
+4. **Ingestion & Rollback Workflow (`apps/api/src/routes/documents.routes.ts`):**
+   - PDF signature validation (`%PDF-`) and upload limits (50MB) enforced before upload.
+   - Chunks and embeddings are extracted from the in-memory request buffer and stored in MongoDB Atlas (PDF binary is never stored in MongoDB).
+   - If MongoDB metadata persistence fails after Cloudinary upload, `cloudinary.v2.uploader.destroy` immediately cleans up the orphaned Cloudinary raw asset.
+   - Non-fatal secondary failures (audit logging, Socket.IO broadcast) preserve the committed document and Cloudinary asset.
+5. **Render Infrastructure (`render.yaml`):**
+   - Switched `man-u-ai-api` service from `starter` to `free` plan.
+   - Removed `disk` definition (`uploads-disk`) and `STORAGE_LOCAL_PATH`.
+   - Added `STORAGE_PROVIDER: cloudinary` and Cloudinary environment variable placeholders (`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`).
 
 ### Exact Run Commands for Verification
 ```bash
-# 1. Run all backend tests across all test suites
+# 1. Run all backend tests across all 10 test suites
 pnpm --filter @man-u-ai/api test --run
 
 # 2. Build shared types package
@@ -552,10 +586,11 @@ git diff --check
 ```
 
 ### Pre-Deployment Verification Checklist
-- [x] All 9 test files and 72 backend tests pass (`vitest`).
+- [x] All 10 test files and 79 backend tests pass (`vitest`).
+- [x] Cloudinary unit test suite (`test/storage_cloudinary.test.ts`) verifies upload, cleanup, authorized stream, unauthorized rejection, and absence of local directory creation.
 - [x] Shared package, API server, and Vite frontend builds succeed cleanly with 0 errors.
 - [x] Git diff hygiene (`git diff --check`) returns 0 whitespace or formatting errors.
 - [x] `.gitignore` verified: all `.env` files, credentials, local PDF uploads (`uploads/`), and database dumps are excluded from Git.
-- [x] All phases of production hardening implemented, tested, and verified.
+- [x] `render.yaml` updated to free plan without disk dependency.
 - [x] Local integration verified against MongoDB Atlas and live Gemini API.
 - [ ] **Live Render Remote Deployment Endpoints:** **BLOCKED** — Render API credentials (`RENDER_API_KEY`) and external deployment URL are not provisioned in this local environment. Live deployment tests must be executed after deploying the verified commit with configured environment variables.

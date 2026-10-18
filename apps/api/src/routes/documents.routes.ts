@@ -227,8 +227,16 @@ documentsRouter.get("/:id/file", requireAuth, async (req: AuthenticatedRequest, 
   if (doc.storagePath) {
     res.setHeader("Content-Type", doc.mimeType || "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="${doc.filename}"`);
-    const stream = storageService.getFileStream(doc.storagePath);
-    return stream.pipe(res);
+    try {
+      const stream = await storageService.getFileStream(doc.storagePath, doc.storageProvider);
+      return stream.pipe(res);
+    } catch (streamErr: any) {
+      console.error(`[Documents] Error streaming document ${id}:`, streamErr);
+      return res.status(404).json({
+        success: false,
+        error: { code: "NOT_FOUND", message: "File not found in storage" },
+      });
+    }
   }
 
   return res.status(404).json({
@@ -276,11 +284,13 @@ documentsRouter.post(
     const equipmentId = req.body.equipmentId || undefined;
 
     let savedStoragePath: string | null = null;
+    let savedStorageProvider: string | undefined = undefined;
     let documentCreated = false;
     try {
       // 1. Save privately in storage service
-      const { storagePath, sizeBytes } = await storageService.saveFile(req.file.originalname, req.file.buffer);
-      savedStoragePath = storagePath;
+      const storageResult = await storageService.saveFile(req.file.originalname, req.file.buffer);
+      savedStoragePath = storageResult.storagePath;
+      savedStorageProvider = storageResult.storageProvider;
 
       let docId: string;
       try {
@@ -288,9 +298,10 @@ documentsRouter.post(
           title,
           revision,
           filename: req.file.originalname,
-          storagePath,
+          storagePath: storageResult.storagePath,
+          storageProvider: storageResult.storageProvider,
           mimeType: req.file.mimetype,
-          sizeBytes,
+          sizeBytes: storageResult.sizeBytes,
           status: "processing",
           tags,
           equipmentId,
@@ -303,7 +314,7 @@ documentsRouter.post(
         console.error("[Documents] Database persistence failed after file storage, cleaning up orphaned file:", dbErr);
         if (savedStoragePath) {
           try {
-            await storageService.deleteFile(savedStoragePath);
+            await storageService.deleteFile(savedStoragePath, savedStorageProvider);
           } catch (cleanErr) {
             console.warn("[Documents] Failed to delete orphaned file after DB failure:", cleanErr);
           }
@@ -322,7 +333,7 @@ documentsRouter.post(
           action: "doc_upload",
           resourceType: "Document",
           resourceId: docId,
-          details: { title, revision, sizeBytes },
+          details: { title, revision, sizeBytes: storageResult.sizeBytes },
         });
       } catch (auditErr) {
         console.warn("[Documents] Non-fatal audit log failure on upload, preserving document and file:", auditErr);
@@ -367,7 +378,7 @@ documentsRouter.post(
     } catch (err: unknown) {
       if (savedStoragePath && !documentCreated) {
         try {
-          await storageService.deleteFile(savedStoragePath);
+          await storageService.deleteFile(savedStoragePath, savedStorageProvider);
         } catch (cleanErr) {
           console.warn("[Documents] Failed to delete orphaned file after general error:", cleanErr);
         }
@@ -401,7 +412,7 @@ documentsRouter.delete(
           }
 
           try {
-            await storageService.deleteFile(doc.storagePath);
+            await storageService.deleteFile(doc.storagePath, doc.storageProvider);
           } catch (e) {
             console.warn("[Documents] File cleanup warning:", e);
           }
