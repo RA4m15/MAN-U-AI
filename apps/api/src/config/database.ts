@@ -3,6 +3,38 @@ import { env } from "./env";
 
 export let isConnectedToMongo = false;
 
+let listenersRegistered = false;
+
+export function setupMongooseListeners(): void {
+  if (listenersRegistered) return;
+  listenersRegistered = true;
+
+  mongoose.connection.on("connected", () => {
+    isConnectedToMongo = true;
+  });
+
+  mongoose.connection.on("disconnected", () => {
+    isConnectedToMongo = false;
+  });
+
+  mongoose.connection.on("reconnected", () => {
+    isConnectedToMongo = true;
+  });
+
+  mongoose.connection.on("close", () => {
+    isConnectedToMongo = false;
+  });
+
+  mongoose.connection.on("error", () => {
+    if (mongoose.connection.readyState !== 1) {
+      isConnectedToMongo = false;
+    }
+  });
+}
+
+// Initialize listeners once on module load
+setupMongooseListeners();
+
 export function setIsConnectedToMongo(connected: boolean): void {
   isConnectedToMongo = connected;
 }

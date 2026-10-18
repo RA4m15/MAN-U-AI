@@ -6,7 +6,7 @@ import mongoose from "mongoose";
 import { app, isAllowedOrigin } from "../src/app";
 import { env } from "../src/config/env";
 import { connectDatabase, isConnectedToMongo } from "../src/config/database";
-import { User, Conversation, Message, DocumentModel, DocumentChunk } from "../src/models";
+import { User, Conversation, Message, DocumentModel, DocumentChunk, AuditEvent } from "../src/models";
 import { seedDatabase } from "../src/config/seed";
 import { isUserAuthorizedForDocument, toMongoObjectId } from "../src/routes/documents.routes";
 import { pdfService, isValidPdfSignature } from "../src/services/pdf.service";
@@ -311,6 +311,79 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
     expect(userACitations[0].documentTitle).toBe("Proprietary Submersible Seal Blueprint");
   });
 
+  // 9b. Non-indexed documents (processing, failed) cannot supply answer evidence or citations
+  it("Requirement 9b: Non-indexed documents (processing, failed) cannot supply chunks or citations", async () => {
+    if (!isConnectedToMongo) return;
+
+    // Create a document with status "processing"
+    const processingDoc = await DocumentModel.create({
+      title: "Draft Processing Turbine Manual",
+      revision: "Rev 0.1",
+      filename: "draft_turbine.pdf",
+      storagePath: "draft_turbine.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      status: "processing",
+      pageCount: 1,
+      uploadedById: toMongoObjectId(userAId),
+    });
+
+    const chunk = await DocumentChunk.create({
+      documentId: processingDoc._id,
+      documentTitle: processingDoc.title,
+      revision: processingDoc.revision,
+      page: 1,
+      section: "Turbine Clearance",
+      text: "Turbine clearance limit for Draft Turbine is strictly 0.088 mm under hot test.",
+      embedding: new Array(768).fill(0.01),
+      tokenCount: 16,
+    });
+
+    try {
+      // 1. Admin query should NOT retrieve chunks from processing document
+      const adminRes = await ragService.answerQuestion(
+        "What is the turbine clearance limit for Draft Turbine?",
+        { id: "usr-admin-root", role: "admin" }
+      );
+      const adminMatches = adminRes.citations.filter((c) => c.documentId === processingDoc._id.toString());
+      expect(adminMatches.length).toBe(0);
+
+      // 2. Owner (User A) query should NOT retrieve chunks from processing document
+      const ownerRes = await ragService.answerQuestion(
+        "What is the turbine clearance limit for Draft Turbine?",
+        { id: userAId, role: "engineer" }
+      );
+      const ownerMatches = ownerRes.citations.filter((c) => c.documentId === processingDoc._id.toString());
+      expect(ownerMatches.length).toBe(0);
+
+      // 3. Change status to "failed"
+      processingDoc.status = "failed";
+      await processingDoc.save();
+
+      const failedRes = await ragService.answerQuestion(
+        "What is the turbine clearance limit for Draft Turbine?",
+        { id: userAId, role: "engineer" }
+      );
+      const failedMatches = failedRes.citations.filter((c) => c.documentId === processingDoc._id.toString());
+      expect(failedMatches.length).toBe(0);
+
+      // 4. Change status to "indexed" -> now it CAN supply citations
+      processingDoc.status = "indexed";
+      await processingDoc.save();
+
+      const indexedRes = await ragService.answerQuestion(
+        "What is the turbine clearance limit for Draft Turbine?",
+        { id: userAId, role: "engineer" }
+      );
+      const indexedMatches = indexedRes.citations.filter((c) => c.documentId === processingDoc._id.toString());
+      expect(indexedMatches.length).toBeGreaterThan(0);
+      expect(indexedMatches[0].documentTitle).toBe("Draft Processing Turbine Manual");
+    } finally {
+      await DocumentModel.findByIdAndDelete(processingDoc._id);
+      await DocumentChunk.findByIdAndDelete(chunk._id);
+    }
+  });
+
   // 10. Operational summaries generated from actual records, not manufactured
   it("Requirement 10: Operational summaries generate from authentic records and label AI synthesis", async () => {
     const res = await request(app)
@@ -340,6 +413,48 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
     }
   });
 
+  // 11b. Production failure where connectDatabase() rejects on real connection error
+  it("Requirement 11b: connectDatabase rejects in production when connection fails", async () => {
+    const prevEnv = env.NODE_ENV;
+    const mongooseSpy = vi.spyOn(mongoose, "connect").mockRejectedValueOnce(new Error("Simulated network timeout"));
+
+    try {
+      (env as any).NODE_ENV = "production";
+      await expect(connectDatabase("mongodb://invalid-cluster.invalid:27017/manuai")).rejects.toThrow(
+        /Production database connection failed/
+      );
+    } finally {
+      (env as any).NODE_ENV = prevEnv;
+      mongooseSpy.mockRestore();
+    }
+  });
+
+  // 11c. Idempotent Mongoose connection lifecycle handlers update connection state
+  it("Requirement 11c: Mongoose connection lifecycle handlers update state on disconnect and reconnect idempotently", async () => {
+    const { setupMongooseListeners, isConnectedToMongo: prevConnected } = await import("../src/config/database");
+
+    // Test idempotency: calling setupMongooseListeners repeatedly does not duplicate listeners
+    const listenerCountBefore = mongoose.connection.listenerCount("disconnected");
+    setupMongooseListeners();
+    setupMongooseListeners();
+    const listenerCountAfter = mongoose.connection.listenerCount("disconnected");
+    expect(listenerCountAfter).toBe(listenerCountBefore);
+
+    // Test disconnected event updates isConnectedToMongo to false
+    mongoose.connection.emit("disconnected");
+    const { isConnectedToMongo: disconnectedState } = await import("../src/config/database");
+    expect(disconnectedState).toBe(false);
+
+    // Test reconnected event updates isConnectedToMongo to true
+    mongoose.connection.emit("reconnected");
+    const { isConnectedToMongo: reconnectedState } = await import("../src/config/database");
+    expect(reconnectedState).toBe(true);
+
+    // Restore original state
+    const { setIsConnectedToMongo } = await import("../src/config/database");
+    setIsConnectedToMongo(prevConnected);
+  });
+
   // 12. Disconnected database fails closed on GET /documents
   it("Requirement 12: GET /documents fails closed with 503 when database is disconnected", async () => {
     const { setIsConnectedToMongo, isConnectedToMongo: prevConnected } = await import("../src/config/database");
@@ -357,9 +472,9 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
     }
   });
 
-  // 13. Failed upload persistence cleans up orphaned stored file
-  it("Requirement 13: Failed upload persistence cleans up orphaned stored file and returns 503", async () => {
-    const validPdfBuffer = Buffer.from("%PDF-1.7\nSample technical manual content for upload failure test");
+  // 13a. File storage succeeds but DocumentModel.create() fails -> file cleaned up, no doc created
+  it("Requirement 13a: Failed upload persistence cleans up orphaned stored file and returns 503", async () => {
+    const validPdfBuffer = Buffer.from("%PDF-1.7\nSample technical manual content for upload failure test 13a");
     const createSpy = vi.spyOn(DocumentModel, "create").mockRejectedValueOnce(new Error("Simulated MongoDB write failure"));
     const deleteSpy = vi.spyOn(storageService, "deleteFile");
 
@@ -367,15 +482,87 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
       const res = await request(app)
         .post("/api/v1/documents/upload")
         .set("Authorization", `Bearer ${adminToken}`)
-        .attach("file", validPdfBuffer, "fail_upload_test.pdf");
+        .attach("file", validPdfBuffer, "fail_upload_test_13a.pdf");
 
       expect(res.status).toBe(503);
       expect(res.body.success).toBe(false);
       expect(res.body.error.code).toBe("DATABASE_PERSISTENCE_FAILED");
       expect(deleteSpy).toHaveBeenCalled();
+
+      // Verify no document record exists in database
+      const doc = await DocumentModel.findOne({ filename: "fail_upload_test_13a.pdf" });
+      expect(doc).toBeNull();
     } finally {
       createSpy.mockRestore();
       deleteSpy.mockRestore();
+    }
+  });
+
+  // 13b. DocumentModel.create() succeeds but AuditEvent.create() fails -> document and file preserved
+  it("Requirement 13b: Audit logging failure after document creation preserves document and file", async () => {
+    const validPdfBuffer = Buffer.from("%PDF-1.7\nSample technical manual content for upload failure test 13b");
+    const auditSpy = vi.spyOn(AuditEvent, "create").mockRejectedValueOnce(new Error("Simulated audit write failure"));
+    const deleteSpy = vi.spyOn(storageService, "deleteFile");
+
+    let createdDocId: string | null = null;
+    try {
+      const res = await request(app)
+        .post("/api/v1/documents/upload")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .attach("file", validPdfBuffer, "audit_fail_test_13b.pdf");
+
+      expect(res.status).toBe(202);
+      expect(res.body.success).toBe(true);
+      createdDocId = res.body.data.id;
+
+      // Verify file was NOT deleted
+      expect(deleteSpy).not.toHaveBeenCalled();
+
+      // Verify document record exists in database
+      const doc = await DocumentModel.findOne({ filename: "audit_fail_test_13b.pdf" });
+      expect(doc).not.toBeNull();
+      expect(["processing", "failed"]).toContain(doc?.status);
+    } finally {
+      auditSpy.mockRestore();
+      deleteSpy.mockRestore();
+      if (createdDocId) {
+        await DocumentModel.findByIdAndDelete(createdDocId);
+      }
+    }
+  });
+
+  // 13c. Socket audit event emission fails after metadata persistence -> document and file preserved
+  it("Requirement 13c: Socket audit event emission failure after creation preserves document and file", async () => {
+    const validPdfBuffer = Buffer.from("%PDF-1.7\nSample technical manual content for upload failure test 13c");
+    const socketModule = await import("../src/index");
+    const emitSpy = vi.spyOn(socketModule.io, "to").mockImplementationOnce(() => {
+      throw new Error("Simulated socket emission error");
+    });
+    const deleteSpy = vi.spyOn(storageService, "deleteFile");
+
+    let createdDocId: string | null = null;
+    try {
+      const res = await request(app)
+        .post("/api/v1/documents/upload")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .attach("file", validPdfBuffer, "socket_fail_test_13c.pdf");
+
+      expect(res.status).toBe(202);
+      expect(res.body.success).toBe(true);
+      createdDocId = res.body.data.id;
+
+      // Verify file was NOT deleted
+      expect(deleteSpy).not.toHaveBeenCalled();
+
+      // Verify document record exists in database
+      const doc = await DocumentModel.findOne({ filename: "socket_fail_test_13c.pdf" });
+      expect(doc).not.toBeNull();
+    } finally {
+      emitSpy.mockRestore();
+      deleteSpy.mockRestore();
+      if (createdDocId) {
+        await DocumentModel.findByIdAndDelete(createdDocId);
+      }
     }
   });
 });

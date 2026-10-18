@@ -489,6 +489,32 @@ To complete the live deployment in the Render Dashboard:
    - `authLimiter`: 20 requests per 15 minutes on login and registration.
    - `uploadLimiter`: 30 requests per 15 minutes on document upload endpoints.
 
+### Phase 4: Data-Integrity Hardening & Upload Partial-Failure Lifecycle
+1. **Dynamic Connection Lifecycle & Production Fail-Fast (`apps/api/src/config/database.ts`):**
+   - Implemented idempotent Mongoose event listeners (`connected`, `disconnected`, `reconnected`, `close`, `error`) preventing listener leaks.
+   - `isConnectedToMongo` dynamically tracks runtime database connection state.
+   - In production mode, `connectDatabase()` rejects immediately on connection or ping failure, aborting server startup rather than starting degraded.
+2. **Safe Upload Partial-Failure Handling (`apps/api/src/routes/documents.routes.ts`):**
+   - Scope of file cleanup: disk files are deleted if and only if metadata persistence (`DocumentModel.create()`) fails before being committed.
+   - Audit failure policy: if metadata is successfully committed, secondary failures in `AuditEvent.create()` or Socket.IO emissions log non-fatal warnings and strictly preserve both the stored binary file and database record, preventing orphaned metadata or deleted files.
+3. **RAG Status Filtering (`apps/api/src/services/rag.service.ts`, `apps/api/src/services/vector.service.ts`):**
+   - Enforced that only documents with `status: "indexed"` can contribute chunks or citations.
+   - Enforced equally across administrators, engineers, and viewers. Documents in `processing` or `failed` state are strictly excluded from candidate chunks and citation outputs.
+
+### Read-Only Atlas Database Audit Summary
+- **Target Host:** `ac-l0nlhix-shard-00-00.90gymzr.mongodb.net` | **Database:** `manuai`
+- **Users (Total: 3):** Elena Rostova (`admin`), Alex Mercer (`engineer`), Marcus Vance (`viewer`).
+- **Documents (Total: 3):**
+  1. `6ad4ee0bb277e637f9c22005`: *"Centrifugal Slurry Pump Maintenance & Rebuild Manual"* (Rev 4.1, 148 pages, `status: "indexed"`)
+  2. `6ad4ee0bb277e637f9c22007`: *"Standard Operating Procedure: Hydraulic Lockout Tagout (LOTO)"* (Rev 8.0, 24 pages, `status: "indexed"`)
+  3. `6ad4ee0bb277e637f9c22009`: *"Rotary Screw Air Compressor Operator Guide"* (Rev 2.3, 86 pages, `status: "indexed"`)
+- **Document Permissions (Total: 12):** 6 pairs of duplicate role permissions (`engineer` and `viewer`) created by previous manual seed scripts. No destructive modifications were performed; pending operator approval before cleanup.
+- **Records Summary:** 3 Document Chunks, 0 Conversations, 0 Messages, 2 Audit Events.
+- **Chunk Ingestion Investigation:**
+  - Each of the 3 baseline indexed documents has exactly 1 chunk in the database (`6ad4ee0bb277e637f9c2200b` on Page 16, `6ad4ee0bb277e637f9c2200d` on Page 12, `6ad4ee0bb277e637f9c2200f` on Page 44).
+  - Inspection of `apps/api/src/config/seed.ts` confirmed that the initial seeding script was deliberately designed to insert 1 verified representative technical excerpt per manual (e.g. 45 N·m torque on Page 16, OSHA 1910.147 LOTO on Page 12, Fault Code E-0247 on Page 44) with real extracted text and 768-dim embeddings, rather than parsing 100+ page PDFs during server boot.
+  - Authentic multi-chunk ingestion is dynamically executed when users upload PDF manuals via `POST /api/v1/documents/upload` using `pdfService.extractAndChunk()`.
+
 ### Real Operational Limitations
 - **Free-Tier Gemini API Quota:** The Google Gemini API free-tier project rate limit is 20 requests per day for generative synthesis (`gemini-3.8-flash`). When quota is exhausted, the live API returns HTTP 429 Too Many Requests. Production mode fails explicitly; offline development/test mode falls back gracefully to verbatim document excerpts.
 - **Atlas Vector Search vs. Application Similarity:** Standard free-tier Atlas M0 clusters do not support native `$vectorSearch` indexes. The system intentionally uses application-side vector scoring capped at 500 candidates. For corpora exceeding tens of thousands of chunks, upgrading to Atlas M10+ with native Vector Search index creation is recommended.
@@ -513,10 +539,10 @@ git diff --check
 ```
 
 ### Pre-Deployment Verification Checklist
-- [x] All 9 test files and 67 backend tests pass (`vitest`).
+- [x] All 9 test files and 72 backend tests pass (`vitest`).
 - [x] Shared package, API server, and Vite frontend builds succeed cleanly with 0 errors.
 - [x] Git diff hygiene (`git diff --check`) returns 0 whitespace or formatting errors.
 - [x] `.gitignore` verified: all `.env` files, credentials, local PDF uploads (`uploads/`), and database dumps are excluded from Git.
-- [x] All 5 Phases of production hardening implemented, tested, and verified.
+- [x] All phases of production hardening implemented, tested, and verified.
 - [x] Local integration verified against MongoDB Atlas and live Gemini API.
 - [ ] **Live Render Remote Deployment Endpoints:** **BLOCKED** — Render API credentials (`RENDER_API_KEY`) and external deployment URL are not provisioned in this local environment. Live deployment tests must be executed after deploying the verified commit with configured environment variables.

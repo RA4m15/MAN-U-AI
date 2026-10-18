@@ -1,4 +1,4 @@
-import { DocumentChunk, IDocumentChunk } from "../models";
+import { DocumentChunk, DocumentModel, IDocumentChunk } from "../models";
 import { isConnectedToMongo } from "../config/database";
 import { env } from "../config/env";
 import { generateDeterministicEmbedding } from "./gemini.service";
@@ -166,6 +166,10 @@ export class VectorService {
         const queryFilter: any = {};
         if (filterDocIds && filterDocIds.length > 0) {
           queryFilter.documentId = { $in: filterDocIds };
+        } else if (filterDocIds === undefined) {
+          const indexedDocs = await DocumentModel.find({ status: "indexed" }).select("_id").lean();
+          const indexedIds = indexedDocs.map((d: any) => d._id.toString());
+          queryFilter.documentId = { $in: indexedIds };
         }
 
         const mongoChunks = await DocumentChunk.find(queryFilter).limit(CANDIDATE_CHUNK_LIMIT).lean();

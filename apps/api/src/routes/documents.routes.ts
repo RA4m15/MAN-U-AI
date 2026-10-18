@@ -276,6 +276,7 @@ documentsRouter.post(
     const equipmentId = req.body.equipmentId || undefined;
 
     let savedStoragePath: string | null = null;
+    let documentCreated = false;
     try {
       // 1. Save privately in storage service
       const { storagePath, sizeBytes } = await storageService.saveFile(req.file.originalname, req.file.buffer);
@@ -296,23 +297,7 @@ documentsRouter.post(
           uploadedById: toMongoObjectId(req.user?.id),
         });
         docId = createdDoc._id.toString();
-
-        await AuditEvent.create({
-          userId: toMongoObjectId(req.user?.id),
-          userEmail: req.user?.email,
-          action: "doc_upload",
-          resourceType: "Document",
-          resourceId: docId,
-          details: { title, revision, sizeBytes },
-        });
-
-        emitAuditEvent({
-          id: `aud-${Date.now()}`,
-          action: "doc_upload",
-          actorName: req.user?.name || "User",
-          description: `Uploaded document: "${title}" (${revision})`,
-          timestamp: new Date().toISOString(),
-        });
+        documentCreated = true;
       } catch (dbErr) {
         // Safe partial-failure cleanup: storage succeeded but DB persistence failed
         console.error("[Documents] Database persistence failed after file storage, cleaning up orphaned file:", dbErr);
@@ -329,9 +314,40 @@ documentsRouter.post(
         });
       }
 
+      // Non-blocking audit logging: preserve valid document and file if audit log write fails
+      try {
+        await AuditEvent.create({
+          userId: toMongoObjectId(req.user?.id),
+          userEmail: req.user?.email,
+          action: "doc_upload",
+          resourceType: "Document",
+          resourceId: docId,
+          details: { title, revision, sizeBytes },
+        });
+      } catch (auditErr) {
+        console.warn("[Documents] Non-fatal audit log failure on upload, preserving document and file:", auditErr);
+      }
+
+      // Non-blocking real-time audit event emission to administrators
+      try {
+        emitAuditEvent({
+          id: `aud-${Date.now()}`,
+          action: "doc_upload",
+          actorName: req.user?.name || "User",
+          description: `Uploaded document: "${title}" (${revision})`,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (auditEmitErr) {
+        console.warn("[Documents] Non-fatal emitAuditEvent failure on upload:", auditEmitErr);
+      }
+
       const uploaderId = req.user?.id;
       // Notify clients that ingestion has started
-      emitDocumentProgress(docId, 10, "Extracting text and structural metadata...", uploaderId);
+      try {
+        emitDocumentProgress(docId, 10, "Extracting text and structural metadata...", uploaderId);
+      } catch (progErr) {
+        console.warn("[Documents] Non-fatal emitDocumentProgress failure on upload:", progErr);
+      }
 
       // 2. Trigger asynchronous background ingestion pipeline
       processDocumentAsync(docId, title, revision, req.file.buffer, uploaderId).catch((err) =>
@@ -349,7 +365,7 @@ documentsRouter.post(
         },
       });
     } catch (err: unknown) {
-      if (savedStoragePath) {
+      if (savedStoragePath && !documentCreated) {
         try {
           await storageService.deleteFile(savedStoragePath);
         } catch (cleanErr) {
