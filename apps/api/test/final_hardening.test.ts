@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
@@ -12,6 +12,7 @@ import { isUserAuthorizedForDocument, toMongoObjectId } from "../src/routes/docu
 import { pdfService, isValidPdfSignature } from "../src/services/pdf.service";
 import { GeminiService } from "../src/services/gemini.service";
 import { ragService } from "../src/services/rag.service";
+import { storageService } from "../src/services/storage.service";
 
 describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
   let adminToken: string;
@@ -321,5 +322,60 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.summary).toContain("AI-Assisted Operational Synthesis");
     expect(res.body.data.summary).not.toContain("Line 1 & Line 3 Mechanical Operations - Shift Handover");
+  });
+
+  // 11. Production startup aborts when required MongoDB connection fails
+  it("Requirement 11: Production startup aborts when required MongoDB connection fails", async () => {
+    const prevEnv = env.NODE_ENV;
+    const dbModule = await import("../src/config/database");
+    const connectSpy = vi.spyOn(dbModule, "connectDatabase").mockResolvedValueOnce(false);
+
+    try {
+      (env as any).NODE_ENV = "production";
+      const { startServer } = await import("../src/index");
+      await expect(startServer()).rejects.toThrow("Production startup aborted");
+    } finally {
+      (env as any).NODE_ENV = prevEnv;
+      connectSpy.mockRestore();
+    }
+  });
+
+  // 12. Disconnected database fails closed on GET /documents
+  it("Requirement 12: GET /documents fails closed with 503 when database is disconnected", async () => {
+    const { setIsConnectedToMongo, isConnectedToMongo: prevConnected } = await import("../src/config/database");
+    try {
+      setIsConnectedToMongo(false);
+      const res = await request(app)
+        .get("/api/v1/documents")
+        .set("Authorization", `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(503);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe("SERVICE_UNAVAILABLE");
+    } finally {
+      setIsConnectedToMongo(prevConnected);
+    }
+  });
+
+  // 13. Failed upload persistence cleans up orphaned stored file
+  it("Requirement 13: Failed upload persistence cleans up orphaned stored file and returns 503", async () => {
+    const validPdfBuffer = Buffer.from("%PDF-1.7\nSample technical manual content for upload failure test");
+    const createSpy = vi.spyOn(DocumentModel, "create").mockRejectedValueOnce(new Error("Simulated MongoDB write failure"));
+    const deleteSpy = vi.spyOn(storageService, "deleteFile");
+
+    try {
+      const res = await request(app)
+        .post("/api/v1/documents/upload")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .attach("file", validPdfBuffer, "fail_upload_test.pdf");
+
+      expect(res.status).toBe(503);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe("DATABASE_PERSISTENCE_FAILED");
+      expect(deleteSpy).toHaveBeenCalled();
+    } finally {
+      createSpy.mockRestore();
+      deleteSpy.mockRestore();
+    }
   });
 });

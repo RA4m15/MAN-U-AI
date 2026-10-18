@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import { app } from "../src/app";
+import { connectDatabase } from "../src/config/database";
 
 describe("API Health & Public Endpoints", () => {
   it("GET /health returns healthy status and service version", async () => {
@@ -22,6 +23,10 @@ import jwt from "jsonwebtoken";
 import { env } from "../src/config/env";
 
 describe("Authentication & RBAC Protection", () => {
+  beforeAll(async () => {
+    await connectDatabase();
+  });
+
   it("rejects unauthenticated requests to protected route /api/v1/documents", async () => {
     const res = await request(app).get("/api/v1/documents");
     expect(res.status).toBe(401);

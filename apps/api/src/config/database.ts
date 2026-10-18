@@ -3,6 +3,10 @@ import { env } from "./env";
 
 export let isConnectedToMongo = false;
 
+export function setIsConnectedToMongo(connected: boolean): void {
+  isConnectedToMongo = connected;
+}
+
 /**
  * Sanitizes any MongoDB URI or error string to ensure credentials are never leaked.
  */

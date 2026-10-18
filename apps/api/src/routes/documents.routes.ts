@@ -86,56 +86,60 @@ export async function isUserAuthorizedForDocument(
 
 // GET /documents - List all documents permitted for current user
 documentsRouter.get("/", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  if (isConnectedToMongo) {
-    try {
-      let query: any = {};
-      if (req.user?.role !== "admin") {
-        const userId = req.user?.id;
-        const userOid = toMongoObjectId(userId);
-        const orConditions: any[] = [{ userId: userOid }];
-        if (req.user?.role) {
-          orConditions.push({ role: req.user.role });
-        }
-
-        const permittedDocs = await DocumentPermission.find({
-          $or: orConditions,
-          canRead: true,
-        }).select("documentId");
-
-        const permittedDocIds = permittedDocs.map((p) => p.documentId);
-        query = {
-          $or: [
-            { uploadedById: userOid },
-            { _id: { $in: permittedDocIds } },
-          ],
-        };
-      }
-
-      const docs = await DocumentModel.find(query).sort({ createdAt: -1 }).limit(100);
-      return res.json({
-        success: true,
-        data: docs.map((d) => ({
-          id: d._id.toString(),
-          title: d.title,
-          revision: d.revision,
-          filename: d.filename,
-          sizeBytes: d.sizeBytes,
-          status: d.status,
-          pageCount: d.pageCount,
-          tags: d.tags,
-          createdAt: d.createdAt.toISOString(),
-          updatedAt: d.updatedAt.toISOString(),
-        })),
-      });
-    } catch (err) {
-      console.warn("[Documents] DB fetch error:", err);
-    }
+  if (!isConnectedToMongo) {
+    return res.status(503).json({
+      success: false,
+      error: { code: "SERVICE_UNAVAILABLE", message: "Database connection unavailable for document listing" },
+    });
   }
 
-  return res.json({
-    success: true,
-    data: [],
-  });
+  try {
+    let query: any = {};
+    if (req.user?.role !== "admin") {
+      const userId = req.user?.id;
+      const userOid = toMongoObjectId(userId);
+      const orConditions: any[] = [{ userId: userOid }];
+      if (req.user?.role) {
+        orConditions.push({ role: req.user.role });
+      }
+
+      const permittedDocs = await DocumentPermission.find({
+        $or: orConditions,
+        canRead: true,
+      }).select("documentId");
+
+      const permittedDocIds = permittedDocs.map((p) => p.documentId);
+      query = {
+        $or: [
+          { uploadedById: userOid },
+          { _id: { $in: permittedDocIds } },
+        ],
+      };
+    }
+
+    const docs = await DocumentModel.find(query).sort({ createdAt: -1 }).limit(100);
+    return res.json({
+      success: true,
+      data: docs.map((d) => ({
+        id: d._id.toString(),
+        title: d.title,
+        revision: d.revision,
+        filename: d.filename,
+        sizeBytes: d.sizeBytes,
+        status: d.status,
+        pageCount: d.pageCount,
+        tags: d.tags,
+        createdAt: d.createdAt.toISOString(),
+        updatedAt: d.updatedAt.toISOString(),
+      })),
+    });
+  } catch (err) {
+    console.error("[Documents] DB fetch error:", err);
+    return res.status(500).json({
+      success: false,
+      error: { code: "SERVER_ERROR", message: "Failed to retrieve documents from database" },
+    });
+  }
 });
 
 // GET /documents/:id - Get single document details (authorized only)
@@ -271,12 +275,14 @@ documentsRouter.post(
       : [];
     const equipmentId = req.body.equipmentId || undefined;
 
+    let savedStoragePath: string | null = null;
     try {
       // 1. Save privately in storage service
       const { storagePath, sizeBytes } = await storageService.saveFile(req.file.originalname, req.file.buffer);
+      savedStoragePath = storagePath;
 
-      let docId = `doc-${Date.now()}`;
-      if (isConnectedToMongo) {
+      let docId: string;
+      try {
         const createdDoc = await DocumentModel.create({
           title,
           revision,
@@ -300,13 +306,26 @@ documentsRouter.post(
           details: { title, revision, sizeBytes },
         });
 
-
         emitAuditEvent({
           id: `aud-${Date.now()}`,
           action: "doc_upload",
           actorName: req.user?.name || "User",
           description: `Uploaded document: "${title}" (${revision})`,
           timestamp: new Date().toISOString(),
+        });
+      } catch (dbErr) {
+        // Safe partial-failure cleanup: storage succeeded but DB persistence failed
+        console.error("[Documents] Database persistence failed after file storage, cleaning up orphaned file:", dbErr);
+        if (savedStoragePath) {
+          try {
+            await storageService.deleteFile(savedStoragePath);
+          } catch (cleanErr) {
+            console.warn("[Documents] Failed to delete orphaned file after DB failure:", cleanErr);
+          }
+        }
+        return res.status(503).json({
+          success: false,
+          error: { code: "DATABASE_PERSISTENCE_FAILED", message: "Failed to persist document metadata to database" },
         });
       }
 
@@ -330,6 +349,13 @@ documentsRouter.post(
         },
       });
     } catch (err: unknown) {
+      if (savedStoragePath) {
+        try {
+          await storageService.deleteFile(savedStoragePath);
+        } catch (cleanErr) {
+          console.warn("[Documents] Failed to delete orphaned file after general error:", cleanErr);
+        }
+      }
       return res.status(500).json({
         success: false,
         error: { code: "UPLOAD_FAILED", message: "Failed to store or process document", details: String(err) },

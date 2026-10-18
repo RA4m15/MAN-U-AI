@@ -157,16 +157,24 @@ export function emitAuditEvent(event: any) {
   io.to("role:admin").emit("audit:new", event);
 }
 
-async function startServer() {
+export async function startServer(): Promise<http.Server> {
   const connected = await connectDatabase();
-  if (connected) {
+  if (!connected) {
+    if (env.NODE_ENV === "production") {
+      throw new Error("Production startup aborted: required MongoDB connection failed to connect or ping.");
+    }
+    console.warn("[WARN] MongoDB connection failed in development mode. Server starting in degraded/offline mode.");
+  } else {
     await seedDatabase();
   }
 
-  server.listen(env.PORT, "0.0.0.0", () => {
-    console.log(`[MAN-U-AI API] Server running on http://0.0.0.0:${env.PORT}`);
-    console.log(`[MAN-U-AI API] Health check at http://0.0.0.0:${env.PORT}/health`);
-    console.log(`[MAN-U-AI API] API v1 base: http://0.0.0.0:${env.PORT}/api/v1`);
+  return new Promise<http.Server>((resolve) => {
+    server.listen(env.PORT, "0.0.0.0", () => {
+      console.log(`[MAN-U-AI API] Server running on http://0.0.0.0:${env.PORT}`);
+      console.log(`[MAN-U-AI API] Health check at http://0.0.0.0:${env.PORT}/health`);
+      console.log(`[MAN-U-AI API] API v1 base: http://0.0.0.0:${env.PORT}/api/v1`);
+      resolve(server);
+    });
   });
 }
 

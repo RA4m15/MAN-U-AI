@@ -424,10 +424,10 @@ To complete the live deployment in the Render Dashboard:
    - Full automated test suite results (`pnpm --filter @man-u-ai/api test --run`):
      ```
      Test Files  9 passed (9)
-          Tests  64 passed (64)
-       Duration  6.71s
+          Tests  67 passed (67)
+       Duration  7.71s
      ```
-     - `test/final_hardening.test.ts` (11 tests) - PASSED
+     - `test/final_hardening.test.ts` (14 tests) - PASSED
      - `test/socket_events.test.ts` (10 tests) - PASSED
      - `test/production_corrections.test.ts` (7 tests) - PASSED
      - `test/security_hardening.test.ts` (9 tests) - PASSED
@@ -513,8 +513,10 @@ git diff --check
 ```
 
 ### Pre-Deployment Verification Checklist
-- [x] All 9 test files and 64 backend tests pass (`vitest`).
+- [x] All 9 test files and 67 backend tests pass (`vitest`).
 - [x] Shared package, API server, and Vite frontend builds succeed cleanly with 0 errors.
 - [x] Git diff hygiene (`git diff --check`) returns 0 whitespace or formatting errors.
 - [x] `.gitignore` verified: all `.env` files, credentials, local PDF uploads (`uploads/`), and database dumps are excluded from Git.
 - [x] All 5 Phases of production hardening implemented, tested, and verified.
+- [x] Local integration verified against MongoDB Atlas and live Gemini API.
+- [ ] **Live Render Remote Deployment Endpoints:** **BLOCKED** — Render API credentials (`RENDER_API_KEY`) and external deployment URL are not provisioned in this local environment. Live deployment tests must be executed after deploying the verified commit with configured environment variables.
