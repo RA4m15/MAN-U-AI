@@ -5,7 +5,43 @@ import { SUPPORTED_MODELS } from "./settings.service";
 export interface GenerationOptions {
   model?: string;
   temperature?: number;
+  topP?: number;
+  topK?: number;
   systemInstruction?: string;
+}
+
+/**
+ * Builds runtime generation configuration for the active Gemini model.
+ * Gemini 3.8 Flash enforces strict deterministic reasoning and rejects sampling parameters
+ * (temperature, top_p, generation top_k). For this model, sampling parameters are omitted entirely.
+ */
+export function buildModelGenerationConfig(
+  targetModel: string,
+  options?: GenerationOptions
+): Record<string, any> | undefined {
+  const config: Record<string, any> = {};
+
+  if (options?.systemInstruction) {
+    config.systemInstruction = options.systemInstruction;
+  }
+
+  // Gemini 3.8 Flash does not support sampling parameters (temperature, top_p, top_k)
+  if (targetModel === "gemini-3.8-flash") {
+    return Object.keys(config).length > 0 ? config : undefined;
+  }
+
+  // For models supporting temperature/sampling controls (gemini-3.6-flash, gemini-4-argon)
+  if (typeof options?.temperature === "number") {
+    config.temperature = options.temperature;
+  }
+  if (typeof options?.topP === "number") {
+    config.topP = options.topP;
+  }
+  if (typeof options?.topK === "number") {
+    config.topK = options.topK;
+  }
+
+  return Object.keys(config).length > 0 ? config : undefined;
 }
 
 export function generateDeterministicEmbedding(text: string, dimensions = 768): number[] {
@@ -106,14 +142,16 @@ export class GeminiService {
 
     if (this.isLiveClientConfigured()) {
       try {
-        const response = await this.ai!.models.generateContent({
+        const generationConfig = buildModelGenerationConfig(targetModel, options);
+        const payload: Record<string, any> = {
           model: targetModel,
           contents: prompt,
-          config: {
-            temperature: options?.temperature ?? 0.2,
-            systemInstruction: options?.systemInstruction,
-          },
-        });
+        };
+        if (generationConfig) {
+          payload.config = generationConfig;
+        }
+
+        const response = await (this.ai!.models.generateContent as any)(payload);
 
         const text = response.text;
         if (text && text.trim().length > 0) {

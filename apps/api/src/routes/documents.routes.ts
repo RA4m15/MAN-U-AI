@@ -11,6 +11,7 @@ import { isConnectedToMongo } from "../config/database";
 import { requireAuth, requireRole, AuthenticatedRequest } from "../middlewares/auth";
 import { uploadLimiter } from "../middlewares/rateLimiters";
 import { emitDocumentProgress, emitDocumentStatus, emitAuditEvent } from "../index";
+import { sanitizeError } from "./settings.routes";
 
 export const documentsRouter: Router = Router();
 
@@ -229,9 +230,20 @@ documentsRouter.get("/:id/file", requireAuth, async (req: AuthenticatedRequest, 
     res.setHeader("Content-Disposition", `inline; filename="${doc.filename}"`);
     try {
       const stream = await storageService.getFileStream(doc.storagePath, doc.storageProvider);
-      return stream.pipe(res);
+      (stream as any).on("error", (streamErr: unknown) => {
+        console.error(`[Documents] Stream transmission error for document ${id}:`, sanitizeError(streamErr));
+        if (!res.headersSent) {
+          res.status(502).json({
+            success: false,
+            error: { code: "STORAGE_STREAM_FAILED", message: "Failed to stream document from storage" },
+          });
+        } else {
+          res.destroy();
+        }
+      });
+      return (stream as any).pipe(res);
     } catch (streamErr: any) {
-      console.error(`[Documents] Error streaming document ${id}:`, streamErr);
+      console.error(`[Documents] Error streaming document ${id}:`, sanitizeError(streamErr));
       return res.status(404).json({
         success: false,
         error: { code: "NOT_FOUND", message: "File not found in storage" },

@@ -10,6 +10,41 @@ export const SUPPORTED_MODELS = [
 
 export type SupportedModel = (typeof SUPPORTED_MODELS)[number];
 
+export interface ModelCapabilities {
+  supportsTemperature: boolean;
+  supportsTopP: boolean;
+  supportsGenerationTopK: boolean;
+}
+
+export const MODEL_CAPABILITIES: Record<SupportedModel, ModelCapabilities> = {
+  "gemini-3.8-flash": {
+    supportsTemperature: false,
+    supportsTopP: false,
+    supportsGenerationTopK: false,
+  },
+  "gemini-3.6-flash": {
+    supportsTemperature: true,
+    supportsTopP: true,
+    supportsGenerationTopK: true,
+  },
+  "gemini-4-argon": {
+    supportsTemperature: true,
+    supportsTopP: true,
+    supportsGenerationTopK: true,
+  },
+};
+
+export function getModelCapabilities(model: string): ModelCapabilities {
+  if (model in MODEL_CAPABILITIES) {
+    return MODEL_CAPABILITIES[model as SupportedModel];
+  }
+  return {
+    supportsTemperature: false,
+    supportsTopP: false,
+    supportsGenerationTopK: false,
+  };
+}
+
 export interface FacilitySettingsData {
   facilityName: string;
   timezone: string;

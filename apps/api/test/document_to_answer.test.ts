@@ -7,7 +7,8 @@ import mongoose from "mongoose";
 import { app } from "../src/app";
 import { env } from "../src/config/env";
 import { pdfService } from "../src/services/pdf.service";
-import { DocumentModel, DocumentChunk } from "../src/models";
+import { DocumentModel, DocumentChunk, AuditEvent } from "../src/models";
+import { storageService } from "../src/services/storage.service";
 import { connectDatabase, isConnectedToMongo } from "../src/config/database";
 
 const engineerToken = jwt.sign(
@@ -27,8 +28,23 @@ describe("Genuine Document-to-Answer & Private Persistence Test (Requirement 3, 
 
   afterAll(async () => {
     if (uploadedDocId && isConnectedToMongo) {
+      try {
+        const doc = await DocumentModel.findById(uploadedDocId);
+        if (doc && doc.storagePath) {
+          await storageService.deleteFile(doc.storagePath, doc.storageProvider);
+        }
+      } catch {
+        // Non-fatal if asset was already deleted
+      }
       await DocumentModel.findByIdAndDelete(uploadedDocId);
       await DocumentChunk.deleteMany({ documentId: uploadedDocId });
+      await AuditEvent.deleteMany({ resourceId: uploadedDocId });
+
+      // Invariant: verify test records are completely removed
+      const remainingDoc = await DocumentModel.findById(uploadedDocId);
+      const remainingChunks = await DocumentChunk.countDocuments({ documentId: uploadedDocId });
+      expect(remainingDoc).toBeNull();
+      expect(remainingChunks).toBe(0);
     }
   });
 
@@ -180,13 +196,26 @@ describe("Genuine Document-to-Answer & Private Persistence Test (Requirement 3, 
     expect(res.body.error.code).toBe("UNAUTHORIZED");
   });
 
-  it("Step 7 (Requirement 6): Authorized users stream genuine original PDF binary from private storage", async () => {
+  it("Step 7 (Requirement 6): Authorized users stream genuine original PDF binary and prove byte-level fidelity", async () => {
+    // Inspect configured storage provider
+    const doc = await DocumentModel.findById(uploadedDocId);
+    expect(doc).not.toBeNull();
+    expect(["local", "cloudinary"]).toContain(doc?.storageProvider);
+    console.log(`[E2E PDF Test] Storage provider inspected: ${doc?.storageProvider} (Path: ${doc?.storagePath})`);
+
     const res = await request(app)
       .get(`/api/v1/documents/${uploadedDocId}/file`)
       .set("Authorization", `Bearer ${engineerToken}`);
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toContain("pdf");
-    expect(res.body.length).toBeGreaterThan(100);
+
+    const originalBytes = fs.readFileSync(pdfPath);
+    const downloadedBytes = Buffer.isBuffer(res.body) ? res.body : Buffer.from(res.body);
+
+    // Exact byte-level comparison: length and binary content match identically
+    expect(downloadedBytes.length).toBe(originalBytes.length);
+    expect(downloadedBytes.equals(originalBytes)).toBe(true);
+    console.log(`[E2E PDF Test] Byte fidelity verified: ${downloadedBytes.length} bytes match original PDF identically.`);
   });
 });

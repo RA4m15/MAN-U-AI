@@ -8,9 +8,11 @@ import {
   SUPPORTED_MODELS,
   DEFAULT_SETTINGS,
   FacilitySettingsData,
+  MODEL_CAPABILITIES,
+  getModelCapabilities,
 } from "../services/settings.service";
 
-export { SUPPORTED_MODELS, DEFAULT_SETTINGS };
+export { SUPPORTED_MODELS, DEFAULT_SETTINGS, MODEL_CAPABILITIES, getModelCapabilities };
 
 export const settingsRouter: Router = Router();
 
@@ -107,6 +109,8 @@ settingsRouter.get("/", requireAuth, async (req: Request, res: Response) => {
       data: {
         ...settings,
         supportedModels: SUPPORTED_MODELS,
+        modelCapabilities: MODEL_CAPABILITIES,
+        currentModelCapabilities: getModelCapabilities(settings.selectedModel),
       },
     });
   } catch (err) {
@@ -172,6 +176,8 @@ settingsRouter.put(
         data: {
           ...updated,
           supportedModels: SUPPORTED_MODELS,
+          modelCapabilities: MODEL_CAPABILITIES,
+          currentModelCapabilities: getModelCapabilities(updated.selectedModel),
         },
       });
     } catch (err: any) {

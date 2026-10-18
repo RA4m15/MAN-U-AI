@@ -16,6 +16,8 @@ import {
   StorageServiceFacade,
   LocalStorageService,
   CloudinaryStorageService,
+  validateCloudinaryStreamUrl,
+  isAllowedCloudinaryDeliveryHost,
 } from "../src/services/storage.service";
 
 describe("Cloudinary Persistent Storage Integration & Security Suite", () => {
@@ -357,5 +359,198 @@ describe("Cloudinary Persistent Storage Integration & Security Suite", () => {
         fs.unlinkSync(testLocalPath);
       }
     }
+  });
+
+  // ── 7. Cloudinary Hardened Download Streaming Security (Stage 4.1) ─────────────
+  describe("7. Hardened Cloudinary Download Streaming Security (Stage 4.1)", () => {
+    it("validates and allows approved Cloudinary delivery hostnames via HTTPS", () => {
+      const allowedUrls = [
+        "https://res.cloudinary.com/test-cloud/raw/upload/manuai/documents/sample.pdf",
+        "https://api.cloudinary.com/v1_1/test-cloud/resources/raw",
+        "https://res-1.cloudinary.com/test-cloud/image/upload/s--xyz--/sample.pdf",
+      ];
+
+      for (const url of allowedUrls) {
+        const parsed = validateCloudinaryStreamUrl(url);
+        expect(parsed.protocol).toBe("https:");
+        expect(isAllowedCloudinaryDeliveryHost(parsed.hostname)).toBe(true);
+      }
+    });
+
+    it("rejects plain HTTP URLs unconditionally", () => {
+      expect(() => {
+        validateCloudinaryStreamUrl("http://res.cloudinary.com/test-cloud/raw/upload/sample.pdf");
+      }).toThrow(/Insecure protocol 'http:' rejected/);
+    });
+
+    it("rejects localhost and loopback redirect targets", () => {
+      const localUrls = [
+        "https://localhost/etc/passwd",
+        "https://127.0.0.1:8080/secret",
+        "https://0.0.0.0/keys",
+      ];
+
+      for (const url of localUrls) {
+        expect(() => validateCloudinaryStreamUrl(url)).toThrow(/Access to private or local host/);
+      }
+    });
+
+    it("rejects private, internal, and cloud metadata IP ranges", () => {
+      const internalUrls = [
+        "https://169.254.169.254/latest/meta-data/iam/security-credentials",
+        "https://10.0.1.50:8443/internal/backup.pdf",
+        "https://192.168.1.1/router/config",
+        "https://172.16.0.5/secrets",
+      ];
+
+      for (const url of internalUrls) {
+        expect(() => validateCloudinaryStreamUrl(url)).toThrow(/Access to private or local host/);
+      }
+    });
+
+    it("rejects unrelated or unauthorized domains", () => {
+      const evilUrls = [
+        "https://evil-attacker.com/malicious.pdf",
+        "https://example.com/document.pdf",
+        "https://cloudinary.com/homepage", // apex domain is not a media host
+      ];
+
+      for (const url of evilUrls) {
+        expect(() => validateCloudinaryStreamUrl(url)).toThrow(/Untrusted redirect host/);
+      }
+    });
+
+    it("getFileStream safely rejects unauthorized redirect targets and drains response", async () => {
+      const cloudinaryAdapter = new CloudinaryStorageService();
+
+      const downloadUrlSpy = vi.spyOn(cloudinary.utils, "private_download_url").mockReturnValue(
+        "https://res.cloudinary.com/test-cloud/raw/upload/initial.pdf"
+      );
+
+      // Simulate a redirect to evil.com
+      const mockRedirectResponse: any = new PassThrough();
+      mockRedirectResponse.statusCode = 302;
+      mockRedirectResponse.headers = {
+        location: "https://evil.com/exfiltrated.pdf",
+      };
+
+      const httpsGetSpy = vi.spyOn(https, "get").mockImplementation(((options: any, callback: any) => {
+        callback(mockRedirectResponse);
+        return {
+          on: vi.fn().mockReturnThis(),
+          setTimeout: vi.fn().mockReturnThis(),
+          destroy: vi.fn(),
+        } as any;
+      }) as any);
+
+      try {
+        await expect(cloudinaryAdapter.getFileStream("manuai/documents/test.pdf")).rejects.toThrow(
+          /Untrusted redirect host 'evil.com' rejected/
+        );
+      } finally {
+        downloadUrlSpy.mockRestore();
+        httpsGetSpy.mockRestore();
+      }
+    });
+
+    it("getFileStream safely rejects plain HTTP redirects", async () => {
+      const cloudinaryAdapter = new CloudinaryStorageService();
+
+      const downloadUrlSpy = vi.spyOn(cloudinary.utils, "private_download_url").mockReturnValue(
+        "https://res.cloudinary.com/test-cloud/raw/upload/initial.pdf"
+      );
+
+      const mockRedirectResponse: any = new PassThrough();
+      mockRedirectResponse.statusCode = 302;
+      mockRedirectResponse.headers = {
+        location: "http://res.cloudinary.com/test-cloud/raw/upload/insecure.pdf",
+      };
+
+      const httpsGetSpy = vi.spyOn(https, "get").mockImplementation(((options: any, callback: any) => {
+        callback(mockRedirectResponse);
+        return {
+          on: vi.fn().mockReturnThis(),
+          setTimeout: vi.fn().mockReturnThis(),
+          destroy: vi.fn(),
+        } as any;
+      }) as any);
+
+      try {
+        await expect(cloudinaryAdapter.getFileStream("manuai/documents/test.pdf")).rejects.toThrow(
+          /Insecure protocol 'http:' rejected/
+        );
+      } finally {
+        downloadUrlSpy.mockRestore();
+        httpsGetSpy.mockRestore();
+      }
+    });
+
+    it("getFileStream handles connection timeout cleanly by destroying request", async () => {
+      const cloudinaryAdapter = new CloudinaryStorageService();
+
+      const downloadUrlSpy = vi.spyOn(cloudinary.utils, "private_download_url").mockReturnValue(
+        "https://res.cloudinary.com/test-cloud/raw/upload/initial.pdf"
+      );
+
+      let timeoutHandler: (() => void) | undefined;
+      const destroyMock = vi.fn();
+
+      const mockReq = {
+        on: vi.fn((event: string, handler: any) => {
+          if (event === "timeout") timeoutHandler = handler;
+          return mockReq;
+        }),
+        setTimeout: vi.fn().mockReturnThis(),
+        destroy: destroyMock,
+      };
+
+      const httpsGetSpy = vi.spyOn(https, "get").mockImplementation((() => {
+        return mockReq as any;
+      }) as any);
+
+      try {
+        const streamPromise = cloudinaryAdapter.getFileStream("manuai/documents/test.pdf");
+
+        // Trigger the registered timeout callback
+        expect(timeoutHandler).toBeDefined();
+        timeoutHandler!();
+
+        expect(destroyMock).toHaveBeenCalledWith(expect.any(Error));
+      } finally {
+        downloadUrlSpy.mockRestore();
+        httpsGetSpy.mockRestore();
+      }
+    });
+
+    it("getFileStream rejects non-200 responses and drains the socket response", async () => {
+      const cloudinaryAdapter = new CloudinaryStorageService();
+
+      const downloadUrlSpy = vi.spyOn(cloudinary.utils, "private_download_url").mockReturnValue(
+        "https://res.cloudinary.com/test-cloud/raw/upload/missing.pdf"
+      );
+
+      const mockNotFoundResponse: any = new PassThrough();
+      mockNotFoundResponse.statusCode = 404;
+      const resumeSpy = vi.spyOn(mockNotFoundResponse, "resume");
+
+      const httpsGetSpy = vi.spyOn(https, "get").mockImplementation(((options: any, callback: any) => {
+        callback(mockNotFoundResponse);
+        return {
+          on: vi.fn().mockReturnThis(),
+          setTimeout: vi.fn().mockReturnThis(),
+          destroy: vi.fn(),
+        } as any;
+      }) as any);
+
+      try {
+        await expect(cloudinaryAdapter.getFileStream("manuai/documents/missing.pdf")).rejects.toThrow(
+          /Failed to fetch file from Cloudinary \(HTTP 404\)/
+        );
+        expect(resumeSpy).toHaveBeenCalled();
+      } finally {
+        downloadUrlSpy.mockRestore();
+        httpsGetSpy.mockRestore();
+      }
+    });
   });
 });

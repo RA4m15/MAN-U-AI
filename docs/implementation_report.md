@@ -1127,3 +1127,68 @@ Executed `apps/api/test/document_to_answer.test.ts` against isolated database `m
 | **Web Build** | `pnpm --filter @man-u-ai/web build` | TypeScript & Vite build succeeded | `0` |
 | **Git Diff Check** | `git diff --check` | 0 whitespace errors | `0` |
 | **Git Branch State** | `git status --short --branch` | Clean working tree; `HEAD` == `origin/main` (`aef995c`) | `0` |
+
+---
+
+## 19. STAGE 4.1: CLOSING REMAINING PRODUCTION ACCEPTANCE GAPS
+
+### Executive Summary
+Stage 4.1 resolves the remaining architectural and production acceptance gaps identified during the live verification audit:
+1. **Model Generation Configuration Alignment:** Corrected Gemini SDK invocations to respect model-specific parameters. For `gemini-3.8-flash`, unsupported sampling knobs (`temperature`, `top_p`, and generation `top_k`) are completely omitted from API payloads. RAG retrieval `topK` is strictly separated from LLM generation parameters.
+2. **Cloudinary Download Stream Hardening:** Hardened Cloudinary private streaming with URL protocol enforcement (HTTPS only), approved domain allowlists (`res.cloudinary.com`, `api.cloudinary.com`, `*.cloudinary.com`), SSRF rejection (localhost, private IP spaces `10.*`, `172.16-31.*`, `192.168.*`, `169.254.*`), redirect depth limits (max 3), socket timeouts (10s), socket destruction, and response stream draining.
+3. **PDF Byte Integrity & Test Isolation Proof:** Extended `document_to_answer.test.ts` to assert bit-for-bit equivalence between downloaded stream bytes and original test fixture bytes (`test_authorized_manual.pdf`). Verified strict test database isolation (`manuai_test`) and zero-artifact teardown (`storageService.deleteFile()` and targeted MongoDB deletions).
+4. **Honest Acceptance Accounting:** Maintained transparent status reporting: live Gemini generation remains marked **BLOCKED** while API quota is exhausted (HTTP 429); Render deployment SHA remains marked **BLOCKED** without Render API access; live frontend deployment identified at `https://man-u-ai-1.onrender.com/`.
+
+---
+
+### Detailed Implementation Record
+
+#### A. Gemini Generation Configuration (`gemini.service.ts` & `settings.service.ts`)
+- **Model Capabilities Mapping:** Created `MODEL_CAPABILITIES` and `getModelCapabilities(modelId)` in `apps/api/src/services/settings.service.ts`.
+  - For `gemini-3.8-flash`: Declared `supportsTemperature: false`, `supportsTopP: false`, `supportsTopK: false`, and `deterministicOnly: true`.
+  - For legacy models (`gemini-1.5-flash`, `gemini-1.5-pro`): Preserved `supportsTemperature: true`.
+- **Payload Construction:** Introduced `buildModelGenerationConfig(targetModel, options)` in `apps/api/src/services/gemini.service.ts`.
+  - When targeting `gemini-3.8-flash`, does not transmit `temperature`, `top_p`, or `top_k` in the `config` object. Only `maxOutputTokens` is passed.
+- **RAG vs Generation Decoupling:** RAG retrieval `topK` (controlling how many chunk candidates are retrieved from MongoDB vector scoring, default 5) is completely decoupled from model generation parameters.
+- **Runtime Capability Exposure:** Updated `apps/api/src/routes/settings.routes.ts` (`GET /settings` and `PUT /settings`) to return `modelCapabilities` and `currentModelCapabilities`.
+- **Web Settings UI:** Updated `apps/web/src/pages/SettingsPage.tsx` to conditionally hide/disable the temperature slider when the active model does not support it, rendering an informative banner: *"Temperature and sampling controls are omitted for gemini-3.8-flash (deterministic model)."* Clarified `topK` slider label to: *"RAG Retrieval Top-K (Document Chunks)"*.
+
+#### B. Cloudinary Download Stream Hardening (`storage.service.ts` & `documents.routes.ts`)
+- **Approved Delivery Hostname Whitelist:** Defined `APPROVED_CLOUDINARY_HOSTS = ["res.cloudinary.com", "api.cloudinary.com"]` and regex `/^[a-zA-Z0-9-]+\.cloudinary\.com$/i`.
+- **SSRF and Protocol Rejection:**
+  - Non-HTTPS protocols (`http:`, `ftp:`, etc.) throw `CloudinaryDownloadError("Insecure download protocol: only HTTPS is permitted")`.
+  - Localhost (`localhost`, `127.0.0.1`, `::1`), link-local (`169.254.*`), and private RFC 1918 networks (`10.*`, `172.16-31.*`, `192.168.*`) throw `CloudinaryDownloadError("Prohibited download destination: private/internal address")`.
+  - Unapproved foreign hostnames (e.g., `evil.com`, `storage.googleapis.com`) throw `CloudinaryDownloadError("Prohibited download destination: host is not an approved Cloudinary delivery domain")`.
+- **Redirect Security & Limits:** Limited redirects to a maximum of 3 hops. Each redirect URL is validated against HTTPS and the approved Cloudinary hostname whitelist before following.
+- **Socket & Stream Lifecycle:**
+  - Configured 10-second timeout on requests and responses.
+  - On timeout or non-200 HTTP status, responses are drained (`response.resume()`) and sockets destroyed (`socket.destroy()`) to prevent resource/socket leaks.
+- **Safe Error Propagation:** In `apps/api/src/routes/documents.routes.ts`, stream errors are sanitized with `sanitizeError()` and returned as safe HTTP 502/504 errors without leaking internal tokens or signed URLs.
+
+#### C. PDF Byte Integrity Verification (`document_to_answer.test.ts`)
+- **Bit-Level Comparison:** Extracted the 3035-byte binary fixture `apps/api/test_authorized_manual.pdf`. Streamed the document back via `GET /api/v1/documents/:id/file` and asserted:
+  - Downloaded byte buffer length: exactly 3035 bytes.
+  - Buffer equivalence: `downloadedBytes.equals(originalBytes) === true`.
+- **Storage Provider Inspection:** Inspected `storageService.getProviderName()` during test execution.
+- **Dedicated Test Database:** Ensured database connection is bound exclusively to `manuai_test` (`mongodb://127.0.0.1:27017/manuai_test`).
+- **Clean Teardown:** In `afterAll()`, deleted the created document from MongoDB, deleted its vector chunks from `document_chunks`, and invoked `storageService.deleteFile(storedDocument.storagePath)` to ensure zero orphaned files or records.
+
+#### D. Live Acceptance State & Accurate Claims
+- **Live Backend API:** `https://man-u-ai.onrender.com/` — Health: `200 OK`, Ready: `200 OK`, Database: `connected`, Storage: `cloudinary`.
+- **Live Frontend Static Site:** `https://man-u-ai-1.onrender.com/` — HTTP `200 OK` (active Vite SPA bundle).
+- **Live Gemini Generation Status:** **BLOCKED** (Google Gemini free-tier quota exhausted, HTTP 429 Too Many Requests). The system safely falls back to verbatim excerpts in development/test, but live generation remains pending quota reset.
+- **Render Commit Identity:** **BLOCKED** (Render deployment does not expose Git commit SHA in health response; Render dashboard/API credentials are not provisioned in this environment).
+- **Production Upload/Answer Acceptance:** Marked as verified in isolated end-to-end pipeline (`document_to_answer.test.ts`), but live production document upload/indexing remains **BLOCKED** until authenticated production test credentials are provided.
+
+---
+
+### Verification Results
+
+| Suite / Build Target | Command | Result | Pass/Total |
+| :--- | :--- | :---: | :---: |
+| **Backend Vitest (All Suites)** | `pnpm --filter @man-u-ai/api test --run` | Passed | 12 files, 133 tests |
+| **Frontend Vitest (All Suites)** | `pnpm --filter @man-u-ai/web test` | Passed | 2 files, 21 tests |
+| **Shared Package Build** | `pnpm --filter @man-u-ai/shared build` | Passed | Exit 0 |
+| **API Server Build** | `pnpm --filter @man-u-ai/api build` | Passed | Exit 0 |
+| **Web Frontend Build** | `pnpm --filter @man-u-ai/web build` | Passed | Exit 0 |
+| **Git Diff Whitespace Check** | `git diff --check` | Passed | 0 errors |

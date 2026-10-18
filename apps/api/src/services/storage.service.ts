@@ -87,6 +87,77 @@ export class LocalStorageService implements IStorageAdapter {
   }
 }
 
+export const APPROVED_CLOUDINARY_HOSTS = new Set([
+  "res.cloudinary.com",
+  "api.cloudinary.com",
+]);
+
+export function isAllowedCloudinaryDeliveryHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().trim();
+
+  // Explicit allowed host check
+  if (APPROVED_CLOUDINARY_HOSTS.has(normalized)) {
+    return true;
+  }
+
+  // Check valid subdomain of cloudinary.com (e.g. res-1.cloudinary.com, sub.res.cloudinary.com)
+  if (normalized.endsWith(".cloudinary.com") && normalized !== "cloudinary.com") {
+    // Reject if subdomain contains private / internal keywords or IP fragments
+    if (
+      normalized.includes("localhost") ||
+      normalized.includes("127.0.0.1") ||
+      normalized.includes("169.254.") ||
+      normalized.includes("10.") ||
+      normalized.includes("192.168.")
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+export function validateCloudinaryStreamUrl(urlString: string): URL {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(urlString);
+  } catch {
+    throw new Error("Invalid Cloudinary download URL");
+  }
+
+  // 1. Strict HTTPS restriction - plain HTTP rejected
+  if (parsedUrl.protocol !== "https:") {
+    throw new Error(`Insecure protocol '${parsedUrl.protocol}' rejected; only HTTPS Cloudinary delivery URLs are permitted.`);
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase().trim();
+
+  // 2. Reject localhost and private / internal IP ranges
+  const isPrivateOrLocal =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "0.0.0.0" ||
+    hostname === "::1" ||
+    hostname.startsWith("10.") ||
+    hostname.startsWith("192.168.") ||
+    hostname.startsWith("169.254.") ||
+    /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname) ||
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".internal");
+
+  if (isPrivateOrLocal) {
+    throw new Error(`Access to private or local host '${hostname}' is prohibited.`);
+  }
+
+  // 3. Reject unrelated domains or unauthorized hosts
+  if (!isAllowedCloudinaryDeliveryHost(hostname)) {
+    throw new Error(`Untrusted redirect host '${hostname}' rejected. Only approved Cloudinary delivery domains are permitted.`);
+  }
+
+  return parsedUrl;
+}
+
 export class CloudinaryStorageService implements IStorageAdapter {
   constructor() {
     if (env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET) {
@@ -140,27 +211,84 @@ export class CloudinaryStorageService implements IStorageAdapter {
     });
 
     return new Promise((resolve, reject) => {
-      const fetchWithRedirects = (currentUrl: string, redirectsLeft = 3) => {
-        const parsedUrl = new URL(currentUrl);
-        const client = parsedUrl.protocol === "http:" ? http : https;
+      let activeRequest: http.ClientRequest | null = null;
+      let settled = false;
 
-        const request = client.get(currentUrl, (response) => {
+      const safeReject = (err: Error) => {
+        if (!settled) {
+          settled = true;
+          if (activeRequest) {
+            try {
+              activeRequest.destroy();
+            } catch {
+              // ignore
+            }
+          }
+          reject(err);
+        }
+      };
+
+      const fetchWithRedirects = (currentUrl: string, redirectsLeft = 3) => {
+        let parsedUrl: URL;
+        try {
+          parsedUrl = validateCloudinaryStreamUrl(currentUrl);
+        } catch (validationErr: any) {
+          return safeReject(validationErr);
+        }
+
+        const requestOptions: https.RequestOptions = {
+          protocol: parsedUrl.protocol,
+          hostname: parsedUrl.hostname,
+          port: parsedUrl.port || 443,
+          path: `${parsedUrl.pathname}${parsedUrl.search}`,
+          method: "GET",
+          headers: {
+            "User-Agent": "MAN-U-AI-StorageService/1.0",
+          },
+          timeout: 10000, // 10s connection & socket timeout
+        };
+
+        const request = https.get(requestOptions, (response) => {
+          // Handle redirects
           if (
             response.statusCode &&
             response.statusCode >= 300 &&
             response.statusCode < 400 &&
-            response.headers.location &&
-            redirectsLeft > 0
+            response.headers.location
           ) {
-            return fetchWithRedirects(response.headers.location, redirectsLeft - 1);
+            response.resume(); // drain response body to release socket
+            if (redirectsLeft <= 0) {
+              return safeReject(new Error("Too many redirects fetching Cloudinary asset"));
+            }
+            try {
+              // Resolve relative or absolute redirect location against current URL
+              const nextUrl = new URL(response.headers.location, currentUrl).href;
+              return fetchWithRedirects(nextUrl, redirectsLeft - 1);
+            } catch (urlErr: any) {
+              return safeReject(urlErr);
+            }
           }
+
           if (response.statusCode && (response.statusCode < 200 || response.statusCode >= 300)) {
-            return reject(new Error(`Failed to fetch file from Cloudinary (HTTP ${response.statusCode})`));
+            response.resume(); // drain response body to release socket
+            return safeReject(new Error(`Failed to fetch file from Cloudinary (HTTP ${response.statusCode})`));
           }
-          resolve(response);
+
+          if (!settled) {
+            settled = true;
+            resolve(response);
+          }
         });
 
-        request.on("error", (err) => reject(err));
+        activeRequest = request;
+
+        request.on("timeout", () => {
+          request.destroy(new Error("Cloudinary file stream connection timed out"));
+        });
+
+        request.on("error", (err) => {
+          safeReject(err);
+        });
       };
 
       fetchWithRedirects(downloadUrl);

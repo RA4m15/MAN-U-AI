@@ -410,30 +410,39 @@ export function SettingsPage() {
               </select>
             </div>
 
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <label className="text-2xs font-medium text-ink-subtle uppercase">
-                  Temperature: {temperature}
-                </label>
+            {selectedModel === "gemini-3.8-flash" ? (
+              <div className="p-3 rounded-lg bg-surface-2 border border-hairline text-2xs text-ink-subtle space-y-1">
+                <span className="font-semibold text-ink">Deterministic Generation Enforced:</span>
+                <p>
+                  Gemini 3.8 Flash operates with deterministic reasoning parameters. Sampling controls (temperature, top-p, generation top-k) are fixed by the model to guarantee strict adherence to technical equipment specifications.
+                </p>
               </div>
-              <input
-                type="range"
-                min="0.0"
-                max="0.8"
-                step="0.05"
-                value={temperature}
-                onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                className="w-full accent-primary"
-              />
-              <p className="text-2xs text-ink-tertiary mt-1">
-                Keep low (0.1 - 0.25) to guarantee strict adherence to technical equipment specifications.
-              </p>
-            </div>
+            ) : (
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-2xs font-medium text-ink-subtle uppercase">
+                    Generation Temperature: {temperature}
+                  </label>
+                </div>
+                <input
+                  type="range"
+                  min="0.0"
+                  max="0.8"
+                  step="0.05"
+                  value={temperature}
+                  onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                  className="w-full accent-primary"
+                />
+                <p className="text-2xs text-ink-tertiary mt-1">
+                  Keep low (0.1 - 0.25) to guarantee strict adherence to technical equipment specifications.
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-2xs font-medium text-ink-subtle uppercase mb-1">
-                  Top-K Retrieved Chunks: {topK}
+                  RAG Retrieval Top-K (Document Chunks): {topK}
                 </label>
                 <input
                   type="number"
@@ -443,6 +452,9 @@ export function SettingsPage() {
                   onChange={(e) => setTopK(parseInt(e.target.value) || 5)}
                   className="input font-mono text-xs"
                 />
+                <p className="text-2xs text-ink-tertiary mt-1">
+                  Max chunks retrieved from vector store (isolated from model generation configuration).
+                </p>
               </div>
 
               <div>

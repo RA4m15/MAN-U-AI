@@ -14,8 +14,8 @@ import {
 } from "../src/models";
 import { ragService } from "../src/services/rag.service";
 import { vectorService } from "../src/services/vector.service";
-import { geminiService } from "../src/services/gemini.service";
-import { settingsService, SUPPORTED_MODELS } from "../src/services/settings.service";
+import { geminiService, buildModelGenerationConfig } from "../src/services/gemini.service";
+import { settingsService, SUPPORTED_MODELS, MODEL_CAPABILITIES, getModelCapabilities } from "../src/services/settings.service";
 import { isConnectedToMongo, setIsConnectedToMongo, connectDatabase } from "../src/config/database";
 import { sanitizeError } from "../src/routes/settings.routes";
 
@@ -850,6 +850,119 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
         warnSpy.mockRestore();
         errorSpy.mockRestore();
       }
+    });
+  });
+
+  describe("8. Model-Specific Generation Configuration & Capability Controls (Stage 4.1)", () => {
+    it("buildModelGenerationConfig omits temperature, top_p, and generation top_k for Gemini 3.8 Flash", () => {
+      const config = buildModelGenerationConfig("gemini-3.8-flash", {
+        temperature: 0.7,
+        topP: 0.95,
+        topK: 10,
+        systemInstruction: "Strict engineering mode",
+      });
+
+      expect(config).toBeDefined();
+      expect(config?.systemInstruction).toBe("Strict engineering mode");
+      expect(config?.temperature).toBeUndefined();
+      expect(config?.topP).toBeUndefined();
+      expect(config?.topK).toBeUndefined();
+    });
+
+    it("buildModelGenerationConfig includes temperature and sampling parameters for other supported models", () => {
+      const config36 = buildModelGenerationConfig("gemini-3.6-flash", {
+        temperature: 0.15,
+        topP: 0.9,
+        topK: 8,
+        systemInstruction: "Guideline instructions",
+      });
+
+      expect(config36?.temperature).toBe(0.15);
+      expect(config36?.topP).toBe(0.9);
+      expect(config36?.topK).toBe(8);
+      expect(config36?.systemInstruction).toBe("Guideline instructions");
+
+      const configArgon = buildModelGenerationConfig("gemini-4-argon", {
+        temperature: 0.25,
+      });
+
+      expect(configArgon?.temperature).toBe(0.25);
+    });
+
+    it("geminiService.generateAnswer sends model-appropriate request config for gemini-3.8-flash", async () => {
+      const generateContentMock = vi.fn().mockResolvedValue({
+        text: "Deterministic response from Gemini 3.8 Flash.",
+      });
+
+      const originalAi = (geminiService as any).ai;
+      (geminiService as any).ai = {
+        models: {
+          generateContent: generateContentMock,
+        },
+      };
+
+      try {
+        const res = await geminiService.generateAnswer("How to align pump coupling?", {
+          model: "gemini-3.8-flash",
+          temperature: 0.2, // Should be omitted from SDK payload
+          systemInstruction: "You are an industrial engineer.",
+        });
+
+        expect(res).toBe("Deterministic response from Gemini 3.8 Flash.");
+        expect(generateContentMock).toHaveBeenCalled();
+        const callArgs = generateContentMock.mock.calls[0][0];
+
+        expect(callArgs.model).toBe("gemini-3.8-flash");
+        // Verify temperature was omitted for gemini-3.8-flash
+        expect(callArgs.config?.temperature).toBeUndefined();
+        expect(callArgs.config?.systemInstruction).toBe("You are an industrial engineer.");
+      } finally {
+        (geminiService as any).ai = originalAi;
+      }
+    });
+
+    it("geminiService.generateAnswer sends temperature for models that support it", async () => {
+      const generateContentMock = vi.fn().mockResolvedValue({
+        text: "Response with configurable temperature from Gemini 3.6 Flash.",
+      });
+
+      const originalAi = (geminiService as any).ai;
+      (geminiService as any).ai = {
+        models: {
+          generateContent: generateContentMock,
+        },
+      };
+
+      try {
+        await geminiService.generateAnswer("Inspect bearing clearance", {
+          model: "gemini-3.6-flash",
+          temperature: 0.1,
+        });
+
+        expect(generateContentMock).toHaveBeenCalled();
+        const callArgs = generateContentMock.mock.calls[0][0];
+
+        expect(callArgs.model).toBe("gemini-3.6-flash");
+        expect(callArgs.config?.temperature).toBe(0.1);
+      } finally {
+        (geminiService as any).ai = originalAi;
+      }
+    });
+
+    it("GET /settings exposes modelCapabilities and marks Gemini 3.8 Flash supportsTemperature as false", async () => {
+      const res = await request(app)
+        .get("/api/v1/settings")
+        .set("Authorization", `Bearer ${viewerToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.modelCapabilities).toBeDefined();
+      expect(res.body.data.modelCapabilities["gemini-3.8-flash"]).toEqual({
+        supportsTemperature: false,
+        supportsTopP: false,
+        supportsGenerationTopK: false,
+      });
+      expect(res.body.data.modelCapabilities["gemini-3.6-flash"].supportsTemperature).toBe(true);
     });
   });
 });
