@@ -414,18 +414,17 @@ To complete the live deployment in the Render Dashboard:
      - Candidate chunk evaluation is capped at `CANDIDATE_CHUNK_LIMIT = 500`.
      - High-performance cosine dot-product and keyword relevance scoring run in-memory within Node.js over permitted chunks.
 2. **Focused Security & Hardening Automated Test Results:**
-   - Added `apps/api/test/security_hardening.test.ts` (9 tests) and `apps/api/test/production_corrections.test.ts` (7 tests).
    - Full automated test suite results (`pnpm --filter @man-u-ai/api test`):
      ```
      Test Files  8 passed (8)
-          Tests  49 passed (49)
-       Duration  6.51s
+          Tests  53 passed (53)
+       Duration  6.67s
      ```
+     - `test/socket_events.test.ts` (10 tests) - PASSED
      - `test/production_corrections.test.ts` (7 tests) - PASSED
      - `test/security_hardening.test.ts` (9 tests) - PASSED
      - `test/document_to_answer.test.ts` (7 tests) - PASSED
      - `test/e2e_acceptance.test.ts` (11 tests) - PASSED
-     - `test/socket_events.test.ts` (6 tests) - PASSED
      - `test/health.test.ts` (4 tests) - PASSED
      - `test/rag.test.ts` (3 tests) - PASSED
      - `test/vector_persistence.test.ts` (2 tests) - PASSED

@@ -173,4 +173,166 @@ describe("Socket.IO Real-time Events & Authorization (Requirement 7)", () => {
       });
     });
   });
+
+  // ── Uploader Progress Delivery & Target Isolation Tests ─────────────────────
+  it("delivers progress updates to authorized document-room members", async () => {
+    const socket: Socket = Client(`http://localhost:${serverPort}`, {
+      auth: { token: adminToken },
+      transports: ["websocket"],
+    });
+
+    await new Promise<void>((resolve) => {
+      socket.on("connect", () => {
+        const testDocId = "doc-room-member-test";
+        socket.emit("subscribe:document", testDocId);
+
+        socket.on("subscription:confirmed", () => {
+          emitDocumentProgress(testDocId, 50, "Extracting text", "some-other-uploader");
+        });
+
+        socket.on("document:progress", (data: any) => {
+          if (data.documentId === testDocId) {
+            expect(data.progress).toBe(50);
+            expect(data.stage).toBe("Extracting text");
+            socket.disconnect();
+            resolve();
+          }
+        });
+      });
+    });
+  });
+
+  it("delivers progress updates to the uploader through their private user room without explicit room subscription", async () => {
+    const uploaderId = "usr-uploader-private-42";
+    const uploaderToken = jwt.sign(
+      { id: uploaderId, email: "uploader42@plant.io", name: "Uploader 42", role: "engineer" },
+      env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    const socket: Socket = Client(`http://localhost:${serverPort}`, {
+      auth: { token: uploaderToken },
+      transports: ["websocket"],
+    });
+
+    await new Promise<void>((resolve) => {
+      socket.on("connect", () => {
+        const targetDocId = "doc-unsubscribed-by-uploader-99";
+
+        // Listen for progress on the private user room (not in doc room)
+        socket.on("document:progress", (data: any) => {
+          if (data.documentId === targetDocId) {
+            expect(data.progress).toBe(75);
+            expect(data.stage).toBe("Vectorizing chunks");
+            socket.disconnect();
+            resolve();
+          }
+        });
+
+        setTimeout(() => {
+          emitDocumentProgress(targetDocId, 75, "Vectorizing chunks", uploaderId);
+        }, 50);
+      });
+    });
+  });
+
+  it("does not deliver private document progress to unauthorized third-party users", async () => {
+    const strangerToken = jwt.sign(
+      { id: "usr-stranger-99", email: "stranger@plant.io", name: "Stranger", role: "viewer" },
+      env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    const socket: Socket = Client(`http://localhost:${serverPort}`, {
+      auth: { token: strangerToken },
+      transports: ["websocket"],
+    });
+
+    let receivedLeakedProgress = false;
+
+    await new Promise<void>((resolve) => {
+      socket.on("connect", () => {
+        const secretDocId = "doc-secret-private-123";
+
+        socket.on("document:progress", (data: any) => {
+          if (data.documentId === secretDocId) {
+            receivedLeakedProgress = true;
+          }
+        });
+
+        // Emit to secret doc room and specific uploader (not the stranger)
+        emitDocumentProgress(secretDocId, 90, "Finalizing", "usr-legitimate-owner");
+
+        setTimeout(() => {
+          expect(receivedLeakedProgress).toBe(false);
+          socket.disconnect();
+          resolve();
+        }, 150);
+      });
+    });
+  });
+
+  it("delivers status events to document-room members and uploader room while isolating unauthorized users", async () => {
+    const ownerId = "usr-status-owner-88";
+    const ownerToken = jwt.sign(
+      { id: ownerId, email: "owner88@plant.io", name: "Owner 88", role: "engineer" },
+      env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    const outsiderToken = jwt.sign(
+      { id: "usr-outsider-00", email: "outsider@plant.io", name: "Outsider", role: "viewer" },
+      env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    const ownerSocket: Socket = Client(`http://localhost:${serverPort}`, {
+      auth: { token: ownerToken },
+      transports: ["websocket"],
+    });
+
+    const outsiderSocket: Socket = Client(`http://localhost:${serverPort}`, {
+      auth: { token: outsiderToken },
+      transports: ["websocket"],
+    });
+
+    let ownerReceivedStatus = false;
+    let outsiderReceivedStatus = false;
+    const testDocId = "doc-status-broadcast-test";
+
+    await new Promise<void>((resolve) => {
+      let connectedCount = 0;
+      const onBothConnected = () => {
+        connectedCount++;
+        if (connectedCount === 2) {
+          ownerSocket.on("document:status", (data: any) => {
+            if (data.documentId === testDocId) {
+              expect(data.status).toBe("indexed");
+              expect(data.pageCount).toBe(42);
+              ownerReceivedStatus = true;
+            }
+          });
+
+          outsiderSocket.on("document:status", (data: any) => {
+            if (data.documentId === testDocId) {
+              outsiderReceivedStatus = true;
+            }
+          });
+
+          emitDocumentStatus(testDocId, "indexed", 42, undefined, ownerId);
+
+          setTimeout(() => {
+            expect(ownerReceivedStatus).toBe(true);
+            expect(outsiderReceivedStatus).toBe(false);
+            ownerSocket.disconnect();
+            outsiderSocket.disconnect();
+            resolve();
+          }, 150);
+        }
+      };
+
+      ownerSocket.on("connect", onBothConnected);
+      outsiderSocket.on("connect", onBothConnected);
+    });
+  });
 });

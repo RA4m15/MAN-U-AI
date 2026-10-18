@@ -137,17 +137,17 @@ io.on("connection", (socket) => {
 
 export function emitDocumentProgress(documentId: string, progress: number, stage: string, uploaderId?: string) {
   // Emit exclusively to authorized clients in the document room and the uploader's private channel
-  const target = io.to(`doc:${documentId}`);
+  let target = io.to(`doc:${documentId}`);
   if (uploaderId) {
-    target.to(`user:${uploaderId}`);
+    target = target.to(`user:${uploaderId}`);
   }
   target.emit("document:progress", { documentId, progress, stage });
 }
 
 export function emitDocumentStatus(documentId: string, status: string, pageCount?: number, error?: string, uploaderId?: string) {
-  const target = io.to(`doc:${documentId}`);
+  let target = io.to(`doc:${documentId}`);
   if (uploaderId) {
-    target.to(`user:${uploaderId}`);
+    target = target.to(`user:${uploaderId}`);
   }
   target.emit("document:status", { documentId, status, pageCount, error });
 }
