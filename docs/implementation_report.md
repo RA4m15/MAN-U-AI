@@ -649,3 +649,65 @@ git diff --check
   - **Status:** PASSED (`tsc -b && vite build` exit code 0)
 - **Git Whitespace & Diff Check:** `git diff --check`
   - **Status:** PASSED (0 whitespace errors)
+
+---
+
+## 12. STAGE 2: ELIMINATION OF FRONTEND FALLBACK DATA AND TRUTHFUL DATABASE RENDERING
+
+**Verification Date:** October 19, 2026
+**Baseline Commit:** `eaf89bc`
+**Goal:** Ensure all operational data displayed by the frontend originates from authentic API and database responses, never substituting missing or failed data with fictional records, fabricated counts, or synthetic telemetry.
+
+### Inventory of Removed Fallback Data & Fictional Defaults
+
+1. **Equipment Registry (`apps/web/src/pages/EquipmentPage.tsx`):**
+   - **Removed `FALLBACK_EQUIPMENT`:** Deleted the 3 hardcoded equipment fixtures (`Centrifugal Slurry Pump P-102`, `Rotary Screw Air Compressor AC-300`, `Hydraulic Stamping Press HP-400`).
+   - **Removed Fictional Defaults:** Eliminated hardcoded fallback operating hours (`1200` hrs), fallback linked manual count (`1`), fallback manufacturer (`"OEM"`), fallback model (`"Standard Model"`), and random client-side serial number generator (`SN-${Math.floor(...)}`).
+   - **Removed Fabricated Timestamp Fallbacks (`apps/api/src/routes/equipment.routes.ts`):** Removed `new Date().toISOString()` fallbacks on missing `createdAt` and `updatedAt` across `GET /`, `GET /:id`, and `POST /` routes; missing timestamps are returned as `null` and displayed as `"Not recorded"`.
+   - **Truthful Telemetry Display:** Absent telemetry is explicitly reported as `"Not connected"` or `"No telemetry available"`. Sensor readings (temperature, vibration, health score) are only shown when live telemetry is actively connected.
+   - **Real Linked Documentation:** Displays authentic count from `documentIds`. Shows `"No linked manuals"` when empty.
+   - **State Handling:** Implemented distinct UI states for Loading (spinner), Error (with retry button), Empty database (with "Register First Unit" callout), and Populated records. Added `deleteMutation` to permit authentic deletion of records.
+
+2. **System Insights & Reliability Metrics (`apps/web/src/pages/InsightsPage.tsx`):**
+   - **Removed Hardcoded Default KPIs:** Removed fallback counts (`totalIndexedDocuments: 3`, `totalMonitoredEquipment: 3`).
+   - **Truthful Zero Rendering:** Displays genuine zero counts (`0`) when database collections are empty.
+   - **Visible Error State:** Sourced directly from `analyticsApi.insights()`; failure presents an explicit error banner with a retry query action instead of silently substituting hardcoded numbers.
+   - **Telemetry Hardware Notice:** Transparently labels sensor hardware status as `"Standby (Not connected)"`, stating that real-time sensor measurements require an industrial OPC-UA/MQTT gateway.
+
+3. **Operational Summaries (`apps/web/src/pages/SummariesPage.tsx`):**
+   - **Removed `FALLBACK_SUMMARY`:** Deleted the synthetic shift handoff report containing fabricated vibration parameters (4.8 mm/s) and fictional OSHA safety claims.
+   - **Database-Only Sourcing:** Summaries are loaded strictly from the `SummaryModel` collection via `analyticsApi.summaries()`.
+   - **Empty & Error States:** Empty summaries collection displays an honest empty state with a "Generate First Summary" action. Query failures display an error banner and retry action.
+   - **Persistence Verification:** Newly synthesized summaries are persisted to MongoDB before selection and display.
+
+4. **Activity & Audit Trail (`apps/web/src/pages/ActivityPage.tsx`):**
+   - **Removed `FALLBACK_LOGS`:** Deleted synthetic authentication audit fixture (`"Authenticated via Multi-Factor JWT session"`).
+   - **Database-Only Sourcing:** Audit records are loaded strictly from the `AuditEvent` collection via `analyticsApi.activity()`.
+   - **Empty & Error States:** Empty audit trail shows an honest empty state ("No Audit Events Logged"). Failed requests show an explicit error banner with a retry action.
+   - **Socket.IO Lifecycle Cleanliness:** Retained real-time invalidation via `audit:new` socket event, ensuring listeners are safely removed when unmounting to avoid duplicate subscriptions.
+
+5. **Settings & Access Control (`apps/web/src/pages/SettingsPage.tsx`):**
+   - **Removed `FALLBACK_USERS`:** Deleted the mock user directory (`Alex Mercer`, `Elena Rostova`).
+   - **Protected API Sourcing:** User accounts are fetched exclusively from `usersApi.list()`.
+   - **Access Denial Distinction:** Explicitly distinguishes an empty user directory from an HTTP 403 access denial (non-administrator role) or an HTTP 503 database outage.
+   - **Password Security:** Eliminated the prefilled default password (`"Industry2025!"`). User enrollment requires explicitly typing a password (min 8 characters).
+   - **Role Mutation & Deletion:** Role modifications and account revocations are wired directly to `usersApi.updateRole()` and `usersApi.delete()`.
+
+### Legitimate Demo / Test Fixtures Retained
+
+- Only isolated test fixtures in `apps/api/test/` and `apps/web/test/` remain. These fixtures run strictly in in-memory test processes and never leak into production code or frontend rendering.
+
+### Verification Test & Build Results
+
+- **Frontend Test Suite:** `pnpm --filter @man-u-ai/web test`
+  - **Status:** PASSED (1/1 test file, 12/12 tests passed)
+- **Full Backend Test Suite:** `pnpm --filter @man-u-ai/api test --run`
+  - **Status:** PASSED (11/11 test files, 88/88 tests passed)
+- **Shared Package Build:** `pnpm --filter @man-u-ai/shared build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **API Service Build:** `pnpm --filter @man-u-ai/api build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **Web Frontend Build:** `pnpm --filter @man-u-ai/web build`
+  - **Status:** PASSED (`tsc -b && vite build` exit code 0)
+- **Git Whitespace & Diff Check:** `git diff --check`
+  - **Status:** PASSED (0 whitespace errors)

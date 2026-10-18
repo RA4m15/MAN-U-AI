@@ -3,22 +3,16 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
-  TrendingUp,
-  AlertTriangle,
   CheckCircle2,
-  Clock,
   ShieldCheck,
   Bot,
   Cpu,
-  Layers,
-  ArrowUpRight,
-  ArrowDownRight,
-  Sparkles,
-  Zap,
   Radio,
   Database,
-  FileText,
   Loader2,
+  AlertCircle,
+  RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { analyticsApi } from "@/lib/api";
@@ -26,21 +20,26 @@ import { analyticsApi } from "@/lib/api";
 export function InsightsPage() {
   const [timeRange, setTimeRange] = useState("all");
 
-  const { data: resp, isLoading } = useQuery({
+  const {
+    data: resp,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["insights"],
     queryFn: () => analyticsApi.insights(),
   });
 
-  const insights = resp?.data?.data || {
-    totalIndexedDocuments: 3,
-    totalMonitoredEquipment: 3,
-    totalRAGInquiries: 0,
-    activeOpenIssues: 0,
-    dataRange: "Production MongoDB",
-    metrics: {
-      groundingPolicy: "Strict (Zero-Tolerance)",
-      unverifiedCitationsAllowed: 0,
-    },
+  const insights = resp?.data?.data;
+
+  const getErrorMessage = () => {
+    if (!error) return "Failed to retrieve analytics metrics from the database.";
+    const axiosErr = error as any;
+    if (axiosErr.response?.status === 503) {
+      return "Database connection unavailable for insights calculation.";
+    }
+    return axiosErr.response?.data?.error?.message || axiosErr.message || "Failed to load metrics from database.";
   };
 
   return (
@@ -79,78 +78,112 @@ export function InsightsPage() {
         </div>
       </div>
 
-      {/* Authoritative KPI Cards Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="card bg-surface-1 border border-hairline p-4 relative overflow-hidden">
-          <div className="flex items-center justify-between text-2xs text-ink-tertiary uppercase font-mono">
-            <span>Indexed Documents</span>
-            <span className="text-success flex items-center font-sans">
-              <CheckCircle2 size={12} /> Active
-            </span>
-          </div>
-          <p className="text-2xl font-bold text-ink mt-2">
-            {isLoading ? "..." : insights.totalIndexedDocuments}
-          </p>
-          <p className="text-2xs text-ink-subtle mt-1">Authorized technical manuals & SOPs</p>
+      {/* Loading State */}
+      {isLoading && (
+        <div className="card bg-surface-1 border border-hairline p-12 flex flex-col items-center justify-center text-center space-y-3">
+          <Loader2 size={24} className="animate-spin text-primary" />
+          <p className="text-xs text-ink-subtle">Aggregating system metrics from MongoDB...</p>
         </div>
+      )}
 
-        <div className="card bg-surface-1 border border-hairline p-4 relative overflow-hidden">
-          <div className="flex items-center justify-between text-2xs text-ink-tertiary uppercase font-mono">
-            <span>Registered Machinery</span>
-            <span className="text-primary flex items-center font-sans">
-              <Cpu size={12} /> Persisted
-            </span>
-          </div>
-          <p className="text-2xl font-bold text-ink mt-2">
-            {isLoading ? "..." : insights.totalMonitoredEquipment}
-          </p>
-          <p className="text-2xs text-ink-subtle mt-1">Equipment units in registry</p>
-        </div>
-
-        <div className="card bg-surface-1 border border-hairline p-4 relative overflow-hidden">
-          <div className="flex items-center justify-between text-2xs text-ink-tertiary uppercase font-mono">
-            <span>Industrial RAG Queries</span>
-            <span className="text-primary flex items-center font-sans">
-              <Bot size={12} /> Real-time
-            </span>
-          </div>
-          <p className="text-2xl font-bold text-ink mt-2">
-            {isLoading ? "..." : insights.totalRAGInquiries}
-          </p>
-          <p className="text-2xs text-ink-subtle mt-1">Total user questions processed</p>
-        </div>
-
-        <div className="card bg-surface-1 border border-hairline p-4 relative overflow-hidden">
-          <div className="flex items-center justify-between text-2xs text-ink-tertiary uppercase font-mono">
-            <span>Citation Grounding</span>
-            <span className="text-success flex items-center font-sans">
-              <ShieldCheck size={12} /> Policy
-            </span>
-          </div>
-          <p className="text-xl font-bold text-success mt-2">
-            STRICT
-          </p>
-          <p className="text-2xs text-ink-subtle mt-1">0 ungrounded claims permitted</p>
-        </div>
-      </div>
-
-      {/* Data Range and System Source Info Banner */}
-      <div className="card bg-surface-1 border border-hairline p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-surface-2 border border-hairline flex items-center justify-center text-primary">
-            <Database size={16} />
+      {/* Error State */}
+      {isError && (
+        <div className="card bg-surface-1 border border-danger/30 p-8 flex flex-col items-center justify-center text-center space-y-4">
+          <div className="p-3 rounded-full bg-danger/10 text-danger">
+            <AlertCircle size={28} />
           </div>
           <div>
-            <h4 className="font-semibold text-ink">Authoritative Data Scope</h4>
-            <p className="text-2xs text-ink-subtle">
-              Data source: <span className="font-mono text-primary">{insights.dataRange || "Production MongoDB"}</span>. All metrics reflect genuine database records.
+            <h3 className="text-sm font-bold text-ink">Failed to Load Insights</h3>
+            <p className="text-xs text-ink-subtle mt-1 max-w-md">{getErrorMessage()}</p>
+          </div>
+          <button
+            onClick={() => refetch()}
+            className="btn-secondary text-xs flex items-center gap-1.5"
+          >
+            <RefreshCw size={13} />
+            Retry Metrics Query
+          </button>
+        </div>
+      )}
+
+      {/* Authoritative KPI Cards Grid */}
+      {!isLoading && !isError && insights && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="card bg-surface-1 border border-hairline p-4 relative overflow-hidden">
+            <div className="flex items-center justify-between text-2xs text-ink-tertiary uppercase font-mono">
+              <span>Indexed Documents</span>
+              <span className="text-success flex items-center font-sans">
+                <CheckCircle2 size={12} /> Active
+              </span>
+            </div>
+            <p className="text-2xl font-bold text-ink mt-2">
+              {insights.totalIndexedDocuments ?? 0}
+            </p>
+            <p className="text-2xs text-ink-subtle mt-1">Authorized technical manuals & SOPs</p>
+          </div>
+
+          <div className="card bg-surface-1 border border-hairline p-4 relative overflow-hidden">
+            <div className="flex items-center justify-between text-2xs text-ink-tertiary uppercase font-mono">
+              <span>Registered Machinery</span>
+              <span className="text-primary flex items-center font-sans">
+                <Cpu size={12} /> Persisted
+              </span>
+            </div>
+            <p className="text-2xl font-bold text-ink mt-2">
+              {insights.totalMonitoredEquipment ?? 0}
+            </p>
+            <p className="text-2xs text-ink-subtle mt-1">Equipment units in registry</p>
+          </div>
+
+          <div className="card bg-surface-1 border border-hairline p-4 relative overflow-hidden">
+            <div className="flex items-center justify-between text-2xs text-ink-tertiary uppercase font-mono">
+              <span>Industrial RAG Queries</span>
+              <span className="text-primary flex items-center font-sans">
+                <Bot size={12} /> Real-time
+              </span>
+            </div>
+            <p className="text-2xl font-bold text-ink mt-2">
+              {insights.totalRAGInquiries ?? 0}
+            </p>
+            <p className="text-2xs text-ink-subtle mt-1">Total user questions processed</p>
+          </div>
+
+          <div className="card bg-surface-1 border border-hairline p-4 relative overflow-hidden">
+            <div className="flex items-center justify-between text-2xs text-ink-tertiary uppercase font-mono">
+              <span>Citation Grounding</span>
+              <span className="text-success flex items-center font-sans">
+                <ShieldCheck size={12} /> Policy
+              </span>
+            </div>
+            <p className="text-xl font-bold text-success mt-2">
+              {insights.metrics?.groundingPolicy || "STRICT"}
+            </p>
+            <p className="text-2xs text-ink-subtle mt-1">
+              {insights.metrics?.unverifiedCitationsAllowed ?? 0} ungrounded claims permitted
             </p>
           </div>
         </div>
-        <Link to="/activity" className="btn-secondary text-2xs">
-          Inspect Audit Trail →
-        </Link>
-      </div>
+      )}
+
+      {/* Data Range and System Source Info Banner */}
+      {!isLoading && !isError && (
+        <div className="card bg-surface-1 border border-hairline p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-surface-2 border border-hairline flex items-center justify-center text-primary">
+              <Database size={16} />
+            </div>
+            <div>
+              <h4 className="font-semibold text-ink">Authoritative Data Scope</h4>
+              <p className="text-2xs text-ink-subtle">
+                Data source: <span className="font-mono text-primary">Production MongoDB</span>. All metrics reflect genuine database records without synthetic counts or inferred trends.
+              </p>
+            </div>
+          </div>
+          <Link to="/activity" className="btn-secondary text-2xs">
+            Inspect Audit Trail →
+          </Link>
+        </div>
+      )}
 
       {/* Honest Predictive & Telemetry Status Notice */}
       <div className="card bg-surface-1 border border-hairline p-5 space-y-3">
@@ -164,10 +197,10 @@ export function InsightsPage() {
 
         <div className="p-4 rounded-xl bg-surface-2/60 border border-hairline text-xs space-y-2">
           <p className="text-ink font-medium">
-            Live Hardware Sensor Ingestion: Standby
+            Live Hardware Sensor Ingestion: Standby (Not connected)
           </p>
           <p className="text-ink-subtle text-xs leading-relaxed">
-            The industrial copilot is actively answering technical queries using vector-indexed manuals and SOPs. Real-time predictive failure detection (such as FFT vibration spectral spalling analysis and thermal runaway alerting) requires an active OPC-UA, MQTT, or Modbus hardware stream.
+            The industrial copilot actively answers technical queries using vector-indexed manuals and SOPs. Real-time predictive failure detection (such as FFT vibration spectral spalling analysis and thermal runaway alerting) requires an active OPC-UA, MQTT, or Modbus hardware stream.
           </p>
           <div className="pt-2 flex items-center justify-between text-2xs text-ink-tertiary border-t border-hairline">
             <span>Protocol: OPC-UA TCP (Configurable in Integrations)</span>
@@ -189,7 +222,7 @@ export function InsightsPage() {
             Every technical parameter, bolt torque specification, and fluid clearance returned by MAN-U-AI is cross-referenced with stored chunk embeddings. If sufficient evidence is not present in indexed manuals, the system explicitly returns an insufficient-evidence response rather than fabricating values.
           </p>
           <div className="pt-2 border-t border-hairline flex items-center justify-between text-2xs text-ink-tertiary">
-            <span>Model: Google Gemini 2.0 Flash</span>
+            <span>Model: Google Gemini Live Engine</span>
             <span className="text-success font-medium">Strict Verification Active</span>
           </div>
         </div>

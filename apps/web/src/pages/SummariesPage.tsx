@@ -11,12 +11,12 @@ import {
   CheckCircle2,
   AlertTriangle,
   ChevronRight,
-  Share2,
   Bot,
-  Layers,
   X,
   FileCheck,
   Loader2,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { analyticsApi } from "@/lib/api";
@@ -24,7 +24,7 @@ import { analyticsApi } from "@/lib/api";
 interface SummaryItem {
   id: string;
   title: string;
-  type: "shift_handoff" | "root_cause" | "weekly_preventive" | "safety_audit";
+  type: "shift_handoff" | "root_cause" | "weekly_preventive" | "safety_audit" | string;
   date: string;
   shift: string;
   author: string;
@@ -33,65 +33,45 @@ interface SummaryItem {
   fullMarkdown: string;
 }
 
-const FALLBACK_SUMMARY: SummaryItem = {
-  id: "sum-01",
-  title: "Shift Handoff Report: Line 1 & Line 3 Operations",
-  type: "shift_handoff",
-  date: "Today",
-  shift: "Current Active Window",
-  author: "Plant Personnel (AI Assisted)",
-  equipmentCovered: ["Centrifugal Slurry Pump P-102", "Hydraulic Press HP-400"],
-  keyHighlights: [
-    "Slurry Pump P-102 vibration velocity stabilized at 4.8 mm/s after mechanical seal flush line purge.",
-    "HP-400 LOTO safety procedure executed and verified per OSHA 1910.147.",
-    "Zero lost-time injuries or reportable environmental excursions logged during shift.",
-  ],
-  fullMarkdown: `# Shift Handoff Report — Industrial Operations
-
-## Executive Summary
-Production targets were sustained across Lines 1, 2, and 3. Primary operational interventions centered around mechanical seal inspection and hydraulic press alignment.
-
-## Equipment Interventions & Observations
-1. **Slurry Pump P-102:** Inspected mechanical seal gland stud torque (45 N·m cross-diagonal).
-2. **Hydraulic Press HP-400:** Complete Lockout/Tagout confirmed prior to manifold inspection.
-
-## Incoming Shift Recommendations
-- Continue monitoring P-102 seal temperature every 2 hours.
-- Verify air supply line pressure to pneumatic valve actuators.`,
-};
-
 export function SummariesPage() {
   const queryClient = useQueryClient();
-  const [selectedSummary, setSelectedSummary] = useState<SummaryItem>(FALLBACK_SUMMARY);
+  const [selectedSummaryId, setSelectedSummaryId] = useState<string | null>(null);
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Form for generating new summary
   const [summaryType, setSummaryType] = useState("shift_handoff");
-  const [focusArea, setFocusArea] = useState("Line 1 Slurry Pump & Hydraulic Press Cells");
+  const [focusArea, setFocusArea] = useState("");
 
-  const { data: resp, isLoading } = useQuery({
+  const {
+    data: resp,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["summaries"],
     queryFn: () => analyticsApi.summaries(),
   });
 
   const rawSummaries = resp?.data?.data;
-  const summaries: SummaryItem[] =
-    Array.isArray(rawSummaries) && rawSummaries.length > 0
-      ? rawSummaries.map((s: any) => ({
-          id: s.id || s._id,
-          title: s.title,
-          type: s.type || "shift_handoff",
-          date: s.createdAt ? new Date(s.createdAt).toLocaleDateString() : "Recent",
-          shift: s.shift || "Active Shift",
-          author: s.author || "MAN-U-AI Agent",
-          equipmentCovered: s.equipmentCovered || ["Plant Assets"],
-          keyHighlights: s.keyHighlights || ["Operational review completed."],
-          fullMarkdown: s.fullMarkdown || "# Summary Record",
-        }))
-      : [FALLBACK_SUMMARY];
+  const summaries: SummaryItem[] = Array.isArray(rawSummaries)
+    ? rawSummaries.map((s: any) => ({
+        id: String(s.id || s._id),
+        title: s.title || "Untitled Summary",
+        type: s.type || "shift_handoff",
+        date: s.createdAt ? new Date(s.createdAt).toLocaleDateString() : "Recent",
+        shift: s.shift || "Active Shift",
+        author: s.author || "MAN-U-AI Agent",
+        equipmentCovered: Array.isArray(s.equipmentCovered) ? s.equipmentCovered : [],
+        keyHighlights: Array.isArray(s.keyHighlights) ? s.keyHighlights : [],
+        fullMarkdown: s.fullMarkdown || s.summary || "# Operational Summary",
+      }))
+    : [];
 
-  const activeSelected = summaries.find((s) => s.id === selectedSummary.id) || summaries[0] || FALLBACK_SUMMARY;
+  const activeSelected =
+    summaries.find((s) => s.id === selectedSummaryId) || (summaries.length > 0 ? summaries[0] : null);
 
   const generateMutation = useMutation({
     mutationFn: (data: { summaryType: string; focusArea: string }) =>
@@ -99,32 +79,29 @@ export function SummariesPage() {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["summaries"] });
       queryClient.invalidateQueries({ queryKey: ["activity"] });
-      if (res?.data?.data) {
-        const created = res.data.data;
-        const newSum: SummaryItem = {
-          id: created.id,
-          title: created.title,
-          type: created.type,
-          date: "Just now",
-          shift: created.shift || "Active Shift",
-          author: created.author || "MAN-U-AI Engine",
-          equipmentCovered: created.equipmentCovered || [focusArea],
-          keyHighlights: created.keyHighlights || ["Summary generated from live records."],
-          fullMarkdown: created.fullMarkdown,
-        };
-        setSelectedSummary(newSum);
+      if (res?.data?.data?.id) {
+        setSelectedSummaryId(String(res.data.data.id));
       }
       setIsGenerateOpen(false);
+      setFocusArea("");
+      setErrorMessage(null);
+    },
+    onError: (err: any) => {
+      setErrorMessage(
+        err.response?.data?.error?.message || "Failed to generate operational summary. Ensure MongoDB is accessible."
+      );
     },
   });
 
   const handleCopy = () => {
+    if (!activeSelected) return;
     navigator.clipboard.writeText(activeSelected.fullMarkdown);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleDownloadMarkdown = () => {
+    if (!activeSelected) return;
     const blob = new Blob([activeSelected.fullMarkdown], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -137,92 +114,174 @@ export function SummariesPage() {
 
   const handleGenerateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!focusArea.trim()) return;
-    generateMutation.mutate({ summaryType, focusArea });
+    setErrorMessage(null);
+    generateMutation.mutate({
+      summaryType,
+      focusArea: focusArea.trim(),
+    });
+  };
+
+  const getErrorMessage = () => {
+    if (!error) return "Failed to retrieve summaries from the database.";
+    const axiosErr = error as any;
+    if (axiosErr.response?.status === 503) {
+      return "Database connection unavailable for summary retrieval.";
+    }
+    return axiosErr.response?.data?.error?.message || axiosErr.message || "Failed to load summaries from database.";
   };
 
   return (
-    <div className="flex flex-col h-full bg-canvas overflow-hidden">
+    <div className="flex flex-col h-full bg-canvas overflow-y-auto p-4 md:p-8 space-y-6">
       {/* Top Header */}
-      <div className="p-4 md:p-6 border-b border-hairline bg-surface-1 flex items-center justify-between flex-shrink-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <FileText className="text-primary w-5 h-5" />
             <h1 className="text-xl md:text-2xl font-bold tracking-tight text-ink">
-              Industrial AI Summaries
+              Operational Summaries
             </h1>
-            <span className="badge-primary text-2xs">Autonomous Synthesis</span>
+            {!isLoading && !isError && (
+              <span className="badge-primary text-2xs">{summaries.length} Saved</span>
+            )}
             <span className="badge-muted text-2xs font-mono">Persisted MongoDB</span>
           </div>
-          <p className="text-xs text-ink-subtle">
-            Shift handoff briefs, Root Cause Failure Analyses (RCFA), and weekly preventive maintenance rollups.
+          <p className="text-xs md:text-sm text-ink-subtle">
+            Generate and review shift handoffs, maintenance logs, and incident root cause summaries synthesized from authentic plant records.
           </p>
         </div>
 
         <button
-          onClick={() => setIsGenerateOpen(true)}
-          className="btn-primary text-xs flex items-center gap-1.5 shadow-glow-primary"
+          onClick={() => {
+            setErrorMessage(null);
+            setIsGenerateOpen(true);
+          }}
+          className="btn-primary self-start sm:self-auto flex items-center gap-2 text-xs"
         >
-          <Sparkles size={13} />
-          Generate Shift Summary
+          <Sparkles size={14} />
+          Generate Summary
         </button>
       </div>
 
-      {/* Main 2-Panel Layout */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Left List of Summaries */}
-        <aside className="w-80 md:w-96 border-r border-hairline bg-surface-1 flex flex-col flex-shrink-0 overflow-y-auto scrollbar-none p-3 space-y-2">
-          {isLoading && (
-            <div className="p-4 text-xs text-ink-subtle text-center flex items-center justify-center gap-2">
-              <Loader2 size={13} className="animate-spin text-primary" />
-              <span>Loading saved summaries...</span>
-            </div>
-          )}
-          {summaries.map((item) => (
-            <div
-              key={item.id}
-              onClick={() => setSelectedSummary(item)}
-              className={cn(
-                "p-3.5 rounded-xl border transition-all cursor-pointer",
-                activeSelected.id === item.id
-                  ? "bg-surface-2 border-primary/40 shadow-sm"
-                  : "bg-surface-1 border-hairline hover:border-hairline-strong"
-              )}
-            >
-              <div className="flex items-center justify-between text-2xs mb-1.5">
-                <span className="badge-muted text-2xs font-mono uppercase">
-                  {item.type.replace("_", " ")}
-                </span>
-                <span className="text-ink-tertiary">{item.date}</span>
-              </div>
-              <h3 className="text-xs font-semibold text-ink line-clamp-2 mb-2 leading-snug">
-                {item.title}
-              </h3>
-              <p className="text-2xs text-ink-subtle line-clamp-2">
-                {item.keyHighlights[0]}
-              </p>
-            </div>
-          ))}
-        </aside>
+      {/* Global Mutation Error Notice */}
+      {errorMessage && (
+        <div className="p-3 rounded-lg bg-danger/10 border border-danger/30 text-xs text-danger flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={15} />
+            <span>{errorMessage}</span>
+          </div>
+          <button onClick={() => setErrorMessage(null)} className="btn-icon p-1 text-danger hover:bg-danger/20">
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
-        {/* Right Summary Detail Viewer */}
-        <main className="flex-1 bg-canvas overflow-y-auto p-6 md:p-10">
-          <div className="max-w-3xl mx-auto space-y-6">
-            {/* Header info */}
+      {/* Loading State */}
+      {isLoading && (
+        <div className="card bg-surface-1 border border-hairline p-12 flex flex-col items-center justify-center text-center space-y-3">
+          <Loader2 size={24} className="animate-spin text-primary" />
+          <p className="text-xs text-ink-subtle">Loading persisted operational summaries from MongoDB...</p>
+        </div>
+      )}
+
+      {/* Error State */}
+      {isError && (
+        <div className="card bg-surface-1 border border-danger/30 p-8 flex flex-col items-center justify-center text-center space-y-4">
+          <div className="p-3 rounded-full bg-danger/10 text-danger">
+            <AlertCircle size={28} />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-ink">Failed to Load Summaries</h3>
+            <p className="text-xs text-ink-subtle mt-1 max-w-md">{getErrorMessage()}</p>
+          </div>
+          <button
+            onClick={() => refetch()}
+            className="btn-secondary text-xs flex items-center gap-1.5"
+          >
+            <RefreshCw size={13} />
+            Retry Query
+          </button>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!isLoading && !isError && summaries.length === 0 && (
+        <div className="card bg-surface-1 border border-hairline p-12 flex flex-col items-center justify-center text-center space-y-4">
+          <div className="p-4 rounded-full bg-surface-2 border border-hairline text-ink-tertiary">
+            <FileText size={32} />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-ink">No Operational Summaries Saved</h3>
+            <p className="text-xs text-ink-subtle mt-1 max-w-md">
+              There are currently no persisted shift handoff or maintenance summaries in the database. Generate your first summary from live plant records.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setErrorMessage(null);
+              setIsGenerateOpen(true);
+            }}
+            className="btn-primary text-xs flex items-center gap-2"
+          >
+            <Sparkles size={14} />
+            Generate First Summary
+          </button>
+        </div>
+      )}
+
+      {/* Main Split View: Left List / Right Detail */}
+      {!isLoading && !isError && summaries.length > 0 && activeSelected && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+          {/* Summary Cards Selector */}
+          <div className="space-y-3 lg:col-span-1">
+            <span className="text-2xs font-semibold uppercase text-ink-tertiary tracking-wider block">
+              Persisted Summaries ({summaries.length})
+            </span>
+            <div className="space-y-2">
+              {summaries.map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => setSelectedSummaryId(item.id)}
+                  className={cn(
+                    "p-3.5 rounded-xl border text-left transition-all cursor-pointer",
+                    activeSelected.id === item.id
+                      ? "bg-surface-2 border-primary shadow-sm"
+                      : "bg-surface-1 border-hairline hover:border-hairline-strong"
+                  )}
+                >
+                  <div className="flex items-center justify-between text-2xs text-ink-tertiary mb-1">
+                    <span className="uppercase font-mono">{item.type.replace(/_/g, " ")}</span>
+                    <span>{item.date}</span>
+                  </div>
+                  <h4 className="text-xs font-semibold text-ink line-clamp-2">{item.title}</h4>
+                  <div className="mt-2 flex items-center gap-2 text-2xs text-ink-subtle">
+                    <Clock size={11} />
+                    <span>{item.shift}</span>
+                    <span>·</span>
+                    <span className="truncate">{item.author}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Full Markdown Report View */}
+          <div className="card bg-surface-1 border border-hairline p-6 lg:col-span-2 space-y-5 rounded-2xl shadow-card">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-hairline">
               <div>
-                <span className="badge-primary text-2xs font-mono uppercase mb-2">
-                  {activeSelected.type.replace("_", " ")}
+                <span className="badge-primary text-2xs uppercase tracking-wider">
+                  {activeSelected.type.replace(/_/g, " ")}
                 </span>
-                <h2 className="text-lg md:text-xl font-bold text-ink tracking-tight mt-1">
-                  {activeSelected.title}
-                </h2>
-                <div className="flex items-center gap-3 text-2xs text-ink-subtle mt-1.5">
-                  <span className="flex items-center gap-1">
-                    <Clock size={11} /> {activeSelected.shift}
+                <h2 className="text-base font-bold text-ink mt-1.5">{activeSelected.title}</h2>
+                <div className="flex flex-wrap items-center gap-3 text-xs text-ink-subtle mt-1">
+                  <span className="flex items-center gap-1 font-mono text-2xs">
+                    <Calendar size={12} /> {activeSelected.date}
                   </span>
-                  <span>•</span>
-                  <span>Author: {activeSelected.author}</span>
+                  <span>·</span>
+                  <span className="flex items-center gap-1 text-2xs">
+                    <Clock size={12} /> {activeSelected.shift}
+                  </span>
+                  <span>·</span>
+                  <span className="text-2xs">Author: {activeSelected.author}</span>
                 </div>
               </div>
 
@@ -230,60 +289,65 @@ export function SummariesPage() {
                 <button
                   onClick={handleCopy}
                   className="btn-secondary text-xs flex items-center gap-1.5"
+                  title="Copy Markdown"
                 >
                   {copied ? <CheckCircle2 size={13} className="text-success" /> : <Copy size={13} />}
-                  <span>{copied ? "Copied" : "Copy MD"}</span>
+                  <span>{copied ? "Copied" : "Copy"}</span>
                 </button>
                 <button
                   onClick={handleDownloadMarkdown}
                   className="btn-secondary text-xs flex items-center gap-1.5"
+                  title="Export Markdown File"
                 >
                   <Download size={13} />
-                  <span>Download MD</span>
+                  <span>Download .md</span>
                 </button>
               </div>
             </div>
 
-            {/* Key Highlights Card */}
-            <div className="p-4 rounded-xl bg-surface-1 border border-hairline space-y-2">
-              <h4 className="text-2xs font-semibold text-ink-tertiary uppercase tracking-wider">
-                Key Industrial Highlights
-              </h4>
-              <ul className="space-y-1.5">
-                {activeSelected.keyHighlights.map((hl, i) => (
-                  <li key={i} className="flex items-start gap-2 text-xs text-ink">
-                    <CheckCircle2 size={13} className="text-primary flex-shrink-0 mt-0.5" />
-                    <span>{hl}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Full Markdown Report */}
-            <div className="p-6 rounded-xl bg-surface-1 border border-hairline">
-              <div className="prose prose-invert prose-xs max-w-none text-ink leading-relaxed whitespace-pre-wrap font-sans">
-                {activeSelected.fullMarkdown}
+            {/* Key Highlights */}
+            {activeSelected.keyHighlights.length > 0 && (
+              <div className="p-4 rounded-xl bg-surface-2 border border-hairline space-y-2">
+                <h4 className="text-2xs font-semibold uppercase text-ink-subtle tracking-wider flex items-center gap-1.5">
+                  <FileCheck size={13} className="text-primary" />
+                  Key Operational Highlights
+                </h4>
+                <ul className="space-y-1 text-xs text-ink">
+                  {activeSelected.keyHighlights.map((hl, idx) => (
+                    <li key={idx} className="flex items-start gap-2">
+                      <span className="text-primary mt-1">•</span>
+                      <span>{hl}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
+            )}
+
+            {/* Raw Markdown Output */}
+            <div className="prose prose-sm dark:prose-invert max-w-none text-xs text-ink-subtle space-y-3 leading-relaxed font-sans">
+              <pre className="whitespace-pre-wrap font-sans bg-transparent p-0 border-0 text-ink leading-relaxed">
+                {activeSelected.fullMarkdown}
+              </pre>
             </div>
           </div>
-        </main>
-      </div>
+        </div>
+      )}
 
-      {/* Generate Modal */}
+      {/* Generate Summary Modal */}
       {isGenerateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
           <div className="bg-surface-1 border border-hairline rounded-2xl w-full max-w-md p-6 shadow-2xl relative">
             <div className="flex items-center justify-between pb-3 border-b border-hairline mb-4">
               <div className="flex items-center gap-2">
                 <Sparkles size={16} className="text-primary" />
-                <h3 className="text-sm font-semibold text-ink">Generate Industrial Summary</h3>
+                <h3 className="text-sm font-semibold text-ink">Synthesize Operational Summary</h3>
               </div>
               <button onClick={() => setIsGenerateOpen(false)} className="btn-icon p-1">
                 <X size={15} />
               </button>
             </div>
 
-            <form onSubmit={handleGenerateSubmit} className="space-y-4 text-xs">
+            <form onSubmit={handleGenerateSubmit} className="space-y-3 text-xs">
               <div>
                 <label className="block text-2xs font-medium text-ink-subtle uppercase mb-1">
                   Summary Report Type
@@ -293,31 +357,30 @@ export function SummariesPage() {
                   onChange={(e) => setSummaryType(e.target.value)}
                   className="input text-xs"
                 >
-                  <option value="shift_handoff">Shift Handoff Brief</option>
-                  <option value="root_cause">Root Cause Failure Analysis (RCFA)</option>
-                  <option value="weekly_preventive">Weekly Preventive Maintenance Rollup</option>
-                  <option value="safety_audit">LOTO & Safety Compliance Audit</option>
+                  <option value="shift_handoff">Shift Handoff Report</option>
+                  <option value="root_cause">Incident / Root Cause Analysis</option>
+                  <option value="weekly_preventive">Weekly Preventive Overview</option>
+                  <option value="safety_audit">Industrial Safety Audit</option>
                 </select>
               </div>
 
               <div>
                 <label className="block text-2xs font-medium text-ink-subtle uppercase mb-1">
-                  Equipment / Focus Area
+                  Equipment or Facility Focus Area (Optional)
                 </label>
                 <input
                   type="text"
-                  required
-                  placeholder="e.g. Centrifugal Slurry Pump P-102 & Rotary Compressor"
+                  placeholder="e.g. Slurry Pump P-102 or Line 1 Cells"
                   value={focusArea}
                   onChange={(e) => setFocusArea(e.target.value)}
                   className="input text-xs"
                 />
                 <p className="text-2xs text-ink-tertiary mt-1">
-                  Synthesizes equipment manuals, active alarms, and maintenance logs into a structured brief.
+                  Filters authentic database records (audit logs, maintenance issues, equipment) used to generate the report.
                 </p>
               </div>
 
-              <div className="pt-2 flex justify-end gap-2">
+              <div className="pt-3 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setIsGenerateOpen(false)}
@@ -330,8 +393,17 @@ export function SummariesPage() {
                   disabled={generateMutation.isPending}
                   className="btn-primary text-xs flex items-center gap-1.5 shadow-glow-primary"
                 >
-                  {generateMutation.isPending && <Loader2 size={12} className="animate-spin" />}
-                  {generateMutation.isPending ? "Synthesizing Brief..." : "Generate Brief"}
+                  {generateMutation.isPending ? (
+                    <>
+                      <Loader2 size={12} className="animate-spin" />
+                      Synthesizing from Records...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={12} />
+                      Generate & Persist Summary
+                    </>
+                  )}
                 </button>
               </div>
             </form>

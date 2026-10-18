@@ -4,19 +4,18 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Settings2,
   Users,
-  Cpu,
   Database,
   Shield,
   Save,
   CheckCircle2,
   Plus,
   Trash2,
-  UserCheck,
-  Sliders,
   Sparkles,
-  Key,
-  AlertTriangle,
   Loader2,
+  AlertCircle,
+  Lock,
+  RefreshCw,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@man-u-ai/shared";
@@ -31,25 +30,6 @@ interface UserRecord {
   lastLogin: string;
 }
 
-const FALLBACK_USERS: UserRecord[] = [
-  {
-    id: "usr-01",
-    name: "Alex Mercer",
-    email: "alex.mercer@plant.io",
-    role: "engineer",
-    status: "active",
-    lastLogin: "Active Session",
-  },
-  {
-    id: "usr-02",
-    name: "Elena Rostova",
-    email: "admin@plant.io",
-    role: "admin",
-    status: "active",
-    lastLogin: "Active Session",
-  },
-];
-
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const currentTab = searchParams.get("tab") || "general";
@@ -57,8 +37,8 @@ export function SettingsPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  // Model parameters state
-  const [selectedModel, setSelectedModel] = useState("gemini-2.0-flash");
+  // Model parameters state (client-side preference preview for Stage 3)
+  const [selectedModel, setSelectedModel] = useState("gemini-3.8-flash");
   const [temperature, setTemperature] = useState(0.2);
   const [topK, setTopK] = useState(5);
   const [similarityThreshold, setSimilarityThreshold] = useState(0.75);
@@ -67,29 +47,41 @@ export function SettingsPage() {
   const [facilityName, setFacilityName] = useState("MAN-U-AI Heavy Operations Facility Alpha");
   const [timezone, setTimezone] = useState("UTC+05:30 (IST)");
 
-  // Form for adding new user
+  // Form for adding new user (NEVER prefill password)
   const [newUserName, setNewUserName] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserPassword, setNewUserPassword] = useState("Industry2025!");
+  const [newUserPassword, setNewUserPassword] = useState("");
   const [newUserRole, setNewUserRole] = useState<UserRole>("engineer");
 
-  const { data: resp, isLoading: usersLoading } = useQuery({
+  const {
+    data: resp,
+    isLoading: usersLoading,
+    isError: usersError,
+    error: usersErrorObj,
+    refetch: refetchUsers,
+  } = useQuery({
     queryKey: ["users"],
     queryFn: () => usersApi.list(),
   });
 
+  const isForbidden = (usersErrorObj as any)?.response?.status === 403;
+  const isDisconnected = (usersErrorObj as any)?.response?.status === 503;
+
   const rawUsers = resp?.data?.data;
-  const users: UserRecord[] =
-    Array.isArray(rawUsers) && rawUsers.length > 0
-      ? rawUsers.map((u: any) => ({
-          id: u.id || u._id,
-          name: u.name,
-          email: u.email,
-          role: u.role || "viewer",
-          status: "active",
-          lastLogin: u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "Active",
-        }))
-      : FALLBACK_USERS;
+  const users: UserRecord[] = Array.isArray(rawUsers)
+    ? rawUsers.map((u: any) => ({
+        id: String(u.id || u._id),
+        name: u.name || "Unnamed User",
+        email: u.email || "No email",
+        role: (u.role as UserRole) || "viewer",
+        status: "active",
+        lastLogin: u.lastLogin
+          ? new Date(u.lastLogin).toLocaleDateString()
+          : u.createdAt
+          ? new Date(u.createdAt).toLocaleDateString()
+          : "Not recorded",
+      }))
+    : [];
 
   const createUserMutation = useMutation({
     mutationFn: (data: { name: string; email: string; password?: string; role: string }) =>
@@ -98,10 +90,13 @@ export function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       setNewUserName("");
       setNewUserEmail("");
+      setNewUserPassword("");
       setErrorMessage(null);
     },
     onError: (err: any) => {
-      setErrorMessage(err.response?.data?.error?.message || "Failed to add user. Ensure you have admin permissions.");
+      setErrorMessage(
+        err.response?.data?.error?.message || "Failed to add user. Ensure you have administrator permissions."
+      );
     },
   });
 
@@ -113,7 +108,9 @@ export function SettingsPage() {
       setErrorMessage(null);
     },
     onError: (err: any) => {
-      setErrorMessage(err.response?.data?.error?.message || "Failed to update role. Admin permissions required.");
+      setErrorMessage(
+        err.response?.data?.error?.message || "Failed to update role. Admin permissions required."
+      );
     },
   });
 
@@ -125,7 +122,9 @@ export function SettingsPage() {
       setErrorMessage(null);
     },
     onError: (err: any) => {
-      setErrorMessage(err.response?.data?.error?.message || "Failed to delete user. Admin permissions required.");
+      setErrorMessage(
+        err.response?.data?.error?.message || "Failed to delete user. Admin permissions required."
+      );
     },
   });
 
@@ -136,22 +135,30 @@ export function SettingsPage() {
 
   const handleAddUser = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUserName || !newUserEmail) return;
+    if (!newUserName.trim() || !newUserEmail.trim() || !newUserPassword) {
+      setErrorMessage("Please supply name, email, and a secure password.");
+      return;
+    }
+    if (newUserPassword.length < 8) {
+      setErrorMessage("Password must be at least 8 characters long.");
+      return;
+    }
+    setErrorMessage(null);
     createUserMutation.mutate({
-      name: newUserName,
-      email: newUserEmail,
+      name: newUserName.trim(),
+      email: newUserEmail.trim(),
       password: newUserPassword,
       role: newUserRole,
     });
   };
 
-  const handleToggleUserRole = (id: string, newRole: UserRole) => {
-    updateRoleMutation.mutate({ id, role: newRole });
+  const handleToggleUserRole = (userId: string, newRole: UserRole) => {
+    updateRoleMutation.mutate({ id: userId, role: newRole });
   };
 
-  const handleRemoveUser = (id: string) => {
-    if (confirm("Revoke access for this user in the database?")) {
-      deleteUserMutation.mutate(id);
+  const handleRemoveUser = (userId: string) => {
+    if (window.confirm("Are you sure you want to revoke access and delete this user?")) {
+      deleteUserMutation.mutate(userId);
     }
   };
 
@@ -163,38 +170,38 @@ export function SettingsPage() {
           <div className="flex items-center gap-2 mb-1">
             <Settings2 className="text-primary w-5 h-5" />
             <h1 className="text-xl md:text-2xl font-bold tracking-tight text-ink">
-              System Settings & Access Control
+              System Settings & Configuration
             </h1>
-            <span className="badge-muted text-2xs font-mono">Role Enforcement</span>
+            <span className="badge-muted text-2xs font-mono">Platform Preferences</span>
           </div>
           <p className="text-xs md:text-sm text-ink-subtle">
-            Configure multimodal model hyperparameters, vector search thresholds, RBAC user permissions and security.
+            Manage operational facility parameters, vector retrieval thresholds, access permissions, and enrolled users.
           </p>
         </div>
 
         <button
           onClick={handleSave}
-          className="btn-primary self-start sm:self-auto flex items-center gap-2 text-xs shadow-glow-primary"
+          className="btn-primary self-start sm:self-auto flex items-center gap-2 text-xs"
         >
           {savedNotice ? <CheckCircle2 size={14} className="text-success" /> : <Save size={14} />}
-          <span>{savedNotice ? "Settings Applied" : "Save Changes"}</span>
+          <span>{savedNotice ? "Preferences Saved" : "Save Preferences"}</span>
         </button>
       </div>
 
-      {/* Error alert if any */}
+      {/* Global Error Notice */}
       {errorMessage && (
-        <div className="notice-danger flex items-center justify-between p-3 rounded-lg">
-          <div className="flex items-center gap-2 text-xs text-danger">
-            <AlertTriangle size={14} className="flex-shrink-0" />
+        <div className="p-3 rounded-lg bg-danger/10 border border-danger/30 text-xs text-danger flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={15} />
             <span>{errorMessage}</span>
           </div>
-          <button onClick={() => setErrorMessage(null)} className="text-danger hover:underline text-xs">
-            Dismiss
+          <button onClick={() => setErrorMessage(null)} className="btn-icon p-1 text-danger hover:bg-danger/20">
+            <X size={14} />
           </button>
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Settings Navigation Tabs */}
       <div className="flex items-center gap-1 border-b border-hairline overflow-x-auto pb-px">
         {[
           { key: "general", label: "General & Facility", icon: <Settings2 size={13} /> },
@@ -271,7 +278,7 @@ export function SettingsPage() {
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className="input text-xs"
               >
-                <option value="gemini-2.0-flash">Google Gemini 2.0 Flash (Default Industrial RAG)</option>
+                <option value="gemini-3.8-flash">Google Gemini Live Engine (gemini-3.8-flash)</option>
                 <option value="gemini-1.5-pro">Google Gemini 1.5 Pro (Deep Schematic Analysis)</option>
               </select>
             </div>
@@ -338,10 +345,10 @@ export function SettingsPage() {
             <h3 className="text-xs font-semibold text-ink uppercase tracking-wider mb-3">
               Enroll New Operator / Engineer
             </h3>
-            <form onSubmit={handleAddUser} className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+            <form onSubmit={handleAddUser} className="grid grid-cols-1 sm:grid-cols-5 gap-3 text-xs">
               <input
                 type="text"
-                placeholder="Full Name"
+                placeholder="Full Name *"
                 required
                 value={newUserName}
                 onChange={(e) => setNewUserName(e.target.value)}
@@ -349,10 +356,18 @@ export function SettingsPage() {
               />
               <input
                 type="email"
-                placeholder="work.email@plant.io"
+                placeholder="work.email@plant.io *"
                 required
                 value={newUserEmail}
                 onChange={(e) => setNewUserEmail(e.target.value)}
+                className="input text-xs"
+              />
+              <input
+                type="password"
+                placeholder="Password (min 8 chars) *"
+                required
+                value={newUserPassword}
+                onChange={(e) => setNewUserPassword(e.target.value)}
                 className="input text-xs"
               />
               <select
@@ -384,56 +399,112 @@ export function SettingsPage() {
                     <th className="py-3 px-4">User</th>
                     <th className="py-3 px-4">Enforced Role</th>
                     <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Enrolled Date</th>
+                    <th className="py-3 px-4">Enrolled / Last Active</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-hairline">
                   {usersLoading && (
                     <tr>
-                      <td colSpan={5} className="py-6 text-center text-ink-subtle">
-                        Loading users from database...
+                      <td colSpan={5} className="py-8 text-center text-ink-subtle">
+                        <div className="flex items-center justify-center gap-2">
+                          <Loader2 size={16} className="animate-spin text-primary" />
+                          <span>Loading users from database...</span>
+                        </div>
                       </td>
                     </tr>
                   )}
-                  {users.map((u) => (
-                    <tr key={u.id} className="hover:bg-surface-2/60 transition-colors">
-                      <td className="py-3 px-4">
-                        <div>
-                          <p className="font-semibold text-ink">{u.name}</p>
-                          <p className="text-2xs text-ink-tertiary">{u.email}</p>
+
+                  {usersError && isForbidden && (
+                    <tr>
+                      <td colSpan={5} className="py-8 px-4 text-center">
+                        <div className="max-w-md mx-auto space-y-2">
+                          <div className="inline-flex p-2.5 rounded-full bg-warning/10 text-warning mb-1">
+                            <Lock size={20} />
+                          </div>
+                          <p className="text-xs font-semibold text-ink">Access Restricted</p>
+                          <p className="text-2xs text-ink-subtle">
+                            Administrator privileges are required to view and manage personnel records. Your current account does not have admin access to the user registry.
+                          </p>
                         </div>
                       </td>
-                      <td className="py-3 px-4">
-                        <select
-                          value={u.role}
-                          onChange={(e) => handleToggleUserRole(u.id, e.target.value as UserRole)}
-                          className="input py-1 px-2 text-2xs font-medium w-36 bg-surface-2"
-                        >
-                          <option value="admin">Administrator</option>
-                          <option value="engineer">Engineer</option>
-                          <option value="viewer">Viewer</option>
-                        </select>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="badge-success text-2xs flex items-center gap-1 w-max">
-                          <CheckCircle2 size={10} /> Active
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-ink-tertiary text-2xs font-mono">
-                        {u.lastLogin}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          onClick={() => handleRemoveUser(u.id)}
-                          className="btn-icon p-1.5 text-ink-tertiary hover:text-danger"
-                          title="Revoke access"
-                        >
-                          <Trash2 size={13} />
-                        </button>
+                    </tr>
+                  )}
+
+                  {usersError && !isForbidden && (
+                    <tr>
+                      <td colSpan={5} className="py-8 px-4 text-center">
+                        <div className="max-w-md mx-auto space-y-3">
+                          <div className="inline-flex p-2.5 rounded-full bg-danger/10 text-danger">
+                            <AlertCircle size={20} />
+                          </div>
+                          <p className="text-xs font-semibold text-ink">
+                            {isDisconnected
+                              ? "Database connection unavailable for user registry."
+                              : "Failed to retrieve users from database."}
+                          </p>
+                          <button
+                            onClick={() => refetchUsers()}
+                            className="btn-secondary text-2xs flex items-center gap-1.5 mx-auto"
+                          >
+                            <RefreshCw size={12} />
+                            Retry Query
+                          </button>
+                        </div>
                       </td>
                     </tr>
-                  ))}
+                  )}
+
+                  {!usersLoading && !usersError && users.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-ink-subtle">
+                        No enrolled personnel found in database.
+                      </td>
+                    </tr>
+                  )}
+
+                  {!usersLoading &&
+                    !usersError &&
+                    users.map((u) => (
+                      <tr key={u.id} className="hover:bg-surface-2/60 transition-colors">
+                        <td className="py-3 px-4">
+                          <div>
+                            <p className="font-semibold text-ink">{u.name}</p>
+                            <p className="text-2xs text-ink-tertiary">{u.email}</p>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <select
+                            value={u.role}
+                            onChange={(e) => handleToggleUserRole(u.id, e.target.value as UserRole)}
+                            disabled={updateRoleMutation.isPending}
+                            className="input py-1 px-2 text-2xs font-medium w-36 bg-surface-2"
+                          >
+                            <option value="admin">Administrator</option>
+                            <option value="engineer">Engineer</option>
+                            <option value="viewer">Viewer</option>
+                          </select>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="badge-success text-2xs flex items-center gap-1 w-max">
+                            <CheckCircle2 size={10} /> Active
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-ink-tertiary text-2xs font-mono">
+                          {u.lastLogin}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={() => handleRemoveUser(u.id)}
+                            disabled={deleteUserMutation.isPending}
+                            className="btn-icon p-1.5 text-ink-tertiary hover:text-danger"
+                            title="Revoke access"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
@@ -441,50 +512,49 @@ export function SettingsPage() {
         </div>
       )}
 
-      {/* Tab: Vector Search */}
+      {/* Tab: Vector Search Store */}
       {currentTab === "vector" && (
         <div className="max-w-2xl space-y-4">
           <div className="card bg-surface-1 border border-hairline p-5 space-y-3">
             <h3 className="text-xs font-semibold text-ink uppercase tracking-wider">
-              Vector Search Adapter Configuration
+              Vector Storage Engine
             </h3>
-            <p className="text-xs text-ink-subtle">
-              Configured vector database adapter for high-dimensional cosine similarity indexing.
+            <p className="text-xs text-ink-subtle leading-relaxed">
+              Vector indexing runs on MongoDB Atlas Vector Search utilizing cosine distance on 768-dimensional embeddings generated by Google Gemini embedding-001.
             </p>
-            <div className="grid grid-cols-2 gap-3 pt-2 text-xs">
-              <div className="p-3 rounded-lg bg-surface-2 border border-hairline">
-                <span className="text-2xs text-ink-tertiary">Selected Store</span>
-                <p className="font-mono font-semibold text-ink mt-0.5">MongoDB Vector Index</p>
+            <div className="p-3 rounded-lg bg-surface-2 border border-hairline text-2xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-ink-tertiary">Embedding Model:</span>
+                <span className="font-mono text-ink">gemini-embedding-001</span>
               </div>
-              <div className="p-3 rounded-lg bg-surface-2 border border-hairline">
-                <span className="text-2xs text-ink-tertiary">Index Algorithm</span>
-                <p className="font-mono font-semibold text-ink mt-0.5">Cosine Similarity (70%) + Keyword (30%)</p>
+              <div className="flex justify-between">
+                <span className="text-ink-tertiary">Vector Dimensions:</span>
+                <span className="font-mono text-ink">768</span>
               </div>
-              <div className="p-3 rounded-lg bg-surface-2 border border-hairline">
-                <span className="text-2xs text-ink-tertiary">Embedding Dimensions</span>
-                <p className="font-mono font-semibold text-primary mt-0.5">768-dim (text-embedding-004)</p>
-              </div>
-              <div className="p-3 rounded-lg bg-surface-2 border border-hairline">
-                <span className="text-2xs text-ink-tertiary">Index Status</span>
-                <p className="font-mono font-semibold text-success mt-0.5">Active & Searchable</p>
+              <div className="flex justify-between">
+                <span className="text-ink-tertiary">Similarity Metric:</span>
+                <span className="font-mono text-ink">Cosine (Dot Product)</span>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Tab: Security */}
+      {/* Tab: Security & Encryption */}
       {currentTab === "security" && (
         <div className="max-w-2xl space-y-4">
-          <div className="card bg-surface-1 border border-hairline p-5 space-y-3 text-xs">
+          <div className="card bg-surface-1 border border-hairline p-5 space-y-3">
             <h3 className="text-xs font-semibold text-ink uppercase tracking-wider">
-              Cryptography & Role Isolation Protocols
+              Security Architecture
             </h3>
-            <div className="space-y-2 text-ink-subtle leading-relaxed">
-              <p>• All uploaded OEM manuals and technical drawings are stored privately in non-public encrypted storage.</p>
-              <p>• User passwords hashed with bcrypt 10 salt rounds.</p>
-              <p>• Multi-tenant role isolation prevents unauthorized access to restricted equipment documents.</p>
-              <p>• Strict RAG grounding prevents arbitrary tool execution or unverified machinery control.</p>
+            <div className="p-3 rounded-lg bg-surface-2 border border-hairline text-xs space-y-2">
+              <div className="flex items-center gap-2 text-success font-medium">
+                <Shield size={14} />
+                <span>JWT Role-Based Access Control (RBAC) Active</span>
+              </div>
+              <p className="text-2xs text-ink-subtle leading-relaxed">
+                Tokens are signed with HMAC SHA-256 and verified per-request. Passwords are encrypted with bcrypt (cost factor 10). Technical manuals and documents are restricted to authenticated plant operators and engineers.
+              </p>
             </div>
           </div>
         </div>

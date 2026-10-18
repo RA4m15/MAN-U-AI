@@ -29,8 +29,8 @@ equipmentRouter.get("/", requireAuth, async (req: Request, res: Response) => {
         serialNumber: eq.serialNumber,
         location: eq.location,
         documentIds: eq.documentIds,
-        createdAt: eq.createdAt ? eq.createdAt.toISOString() : new Date().toISOString(),
-        updatedAt: eq.updatedAt ? eq.updatedAt.toISOString() : new Date().toISOString(),
+        createdAt: eq.createdAt ? eq.createdAt.toISOString() : null,
+        updatedAt: eq.updatedAt ? eq.updatedAt.toISOString() : null,
       })),
     });
   } catch (err) {
@@ -80,7 +80,8 @@ equipmentRouter.get("/:id", requireAuth, async (req: Request, res: Response) => 
         serialNumber: eq.serialNumber,
         location: eq.location,
         documentIds: eq.documentIds,
-        createdAt: eq.createdAt ? eq.createdAt.toISOString() : new Date().toISOString(),
+        createdAt: eq.createdAt ? eq.createdAt.toISOString() : null,
+        updatedAt: eq.updatedAt ? eq.updatedAt.toISOString() : null,
       },
     });
   } catch (err) {
@@ -120,7 +121,7 @@ equipmentRouter.post(
         data: {
           id: created._id.toString(),
           ...parsed.data,
-          createdAt: created.createdAt?.toISOString() || new Date().toISOString(),
+          createdAt: created.createdAt ? created.createdAt.toISOString() : null,
         },
       });
     } catch (err) {
