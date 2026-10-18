@@ -942,10 +942,73 @@ git diff --check
    - **Query Failure Propagation:** Verified database query errors propagate immediately without caching false defaults.
    - **Response Sanitization:** Verified HTTP 500 error responses on `GET` and `PUT` omit internal database details.
 
+### Changed Files in Commit `e0f04bc` (Stage 3.1.1)
+
+The actual files modified in commit `e0f04bc` were:
+- `apps/api/src/services/settings.service.ts` (enforced strict initialization failure rejection and cache safety)
+- `apps/api/test/stage3_settings_and_integrations.test.ts` (added unit tests for failure semantics and HTTP error response sanitization)
+- `docs/implementation_report.md` (documented Stage 3.1.1 verification)
+
+*(Note: `apps/api/src/routes/settings.routes.ts` established safe client-facing HTTP error responses in Stage 3.1; Stage 3.1.1 verified this via automated regression tests in `stage3_settings_and_integrations.test.ts` without modifying the route file in that commit).*
+
 ### Verification Test & Build Results
 
 - **Backend Test Suite:** `pnpm --filter @man-u-ai/api test --run`
   - **Status:** PASSED (12/12 test files, 114/114 tests passed, 0 failures)
+- **Frontend Test Suite:** `pnpm --filter @man-u-ai/web test`
+  - **Status:** PASSED (2/2 test files, 21/21 tests passed, 0 failures)
+- **Shared Package Build:** `pnpm --filter @man-u-ai/shared build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **API Service Build:** `pnpm --filter @man-u-ai/api build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **Web Frontend Build:** `pnpm --filter @man-u-ai/web build`
+  - **Status:** PASSED (`tsc -b && vite build` exit code 0)
+- **Git Whitespace & Diff Check:** `git diff --check`
+  - **Status:** PASSED (0 whitespace errors)
+
+---
+
+## 17. STAGE 3.1.2: SECRET REDACTION REGULAR EXPRESSION FIX, ERROR CATEGORY LOGGING & SANITIZATION RE-VERIFICATION
+
+**Verification Date:** October 19, 2026
+**Baseline Commit:** `e0f04bc976e7283481de3bae1147a32992bcd985`
+**Goal:** Correct the secret-redaction regular expression to capture parameter names separately from their values and replace the entire value; support common variants (`api_key=`, `apiKey=`, `secret=`, `password=`, `token=`); prefer logging safe error categories/names; guarantee that full provider/database error messages are never logged unless safely sanitized; add regression tests with fake secret values, MongoDB connection strings, and signed Cloudinary URLs; and verify that zero secrets leak in log outputs.
+
+### Verified Architectural Implementations
+
+1. **Fixed Secret-Redaction Regular Expression (`apps/api/src/routes/settings.routes.ts` & `apps/api/src/routes/integrations.routes.ts`):**
+   - **Root Cause of Defect:** The prior regular expression `/(?:key|apiKey|api_key|secret|api_secret|password|token)=([a-zA-Z0-9_\-]+)/gi` used a non-capturing group `(?:...)` for the parameter name and a capturing group for the secret value. When replacing with `$1=[REDACTED]`, JavaScript `$1` matched the secret value instead of the key name, erroneously yielding `<secret_value>=[REDACTED]`.
+   - **Correction:** Updated regular expression to `/(api_key|apiKey|api_secret|secret|password|token|key)\s*=\s*["']?([^"'`\s&,;]+)["']?/gi` with replacement `$1=[REDACTED]`. Group 1 captures the parameter name, and the entire secret value is replaced by `[REDACTED]`.
+   - **Common Variants Covered:** `api_key=`, `apiKey=`, `secret=`, `api_secret=`, `password=`, `token=`, and `key=`.
+   - **Quoted Value Handling:** Correctly redacts unquoted, single-quoted (`'...'`), and double-quoted (`"..."`) secret values.
+
+2. **Full Sanitization for Connection Strings & Media URLs:**
+   - **MongoDB URIs:** `mongodb(?:\+srv)?:\/\/[^\s@]+@[^\s/]+` replaces credentials and hosts with `mongodb://[REDACTED_USER:PASS]@[REDACTED_HOST]`.
+   - **Cloudinary Signed & API URLs:** `https?:\/\/[^\s]+cloudinary\.com[^\s]*` completely redacts signed URLs, signature query parameters, and upload endpoints with `[REDACTED_CLOUDINARY_URL]`.
+   - **Cloudinary Connection Strings:** `cloudinary:\/\/[^\s@]+@[^\s/]+` replaces credentials with `cloudinary://[REDACTED_CREDENTIALS]@[REDACTED_CLOUD]`.
+
+3. **Safe Error Category Logging:**
+   - `sanitizeError()` prepends the safe error category name `[${errCategory}]` (e.g. `[MongoNetworkTimeoutError]`, `[Error]`) to ensure server-side logs provide diagnostic categorization without exposing raw, un-sanitized provider exception traces.
+   - Centralized `sanitizeError` in `settings.routes.ts` and reused directly in `integrations.routes.ts`.
+
+4. **Automated Regression Tests (`apps/api/test/stage3_settings_and_integrations.test.ts`):**
+   - **Common Secret Parameters:** Verified across 7 parameter variants (`apiKey`, `api_key`, `secret`, `api_secret`, `password`, `token`, `key`) that fake secrets are completely absent and replaced with `<param>=[REDACTED]`.
+   - **Quoted Secrets:** Verified double-quoted and single-quoted values are sanitized without leaking secret text.
+   - **MongoDB Connection Strings:** Verified connection strings containing fake usernames and passwords redact credentials completely.
+   - **Cloudinary Signed URLs & URIs:** Verified signed upload URLs, signatures, and `cloudinary://` URI credentials never appear in sanitized output.
+   - **Safe Category Logging:** Spied on `console.warn` and verified that simulated query errors log the safe error category `[MongoNetworkTimeoutError]` and redacted parameter `apiKey=[REDACTED]` while completely excluding the fake secret.
+
+### Changed Files in Stage 3.1.2
+
+- `apps/api/src/routes/settings.routes.ts` (fixed regex, added connection string and URL redaction, exported `sanitizeError`, sanitized audit log error)
+- `apps/api/src/routes/integrations.routes.ts` (imported centralized `sanitizeError` from `settings.routes.ts`)
+- `apps/api/test/stage3_settings_and_integrations.test.ts` (added Suite 7 regression tests asserting fake secrets, MongoDB URIs, and Cloudinary URLs are redacted)
+- `docs/implementation_report.md` (corrected Stage 3.1.1 changed-file list and documented Stage 3.1.2 implementation)
+
+### Verification Test & Build Results
+
+- **Backend Test Suite:** `pnpm --filter @man-u-ai/api test --run`
+  - **Status:** PASSED (12/12 test files, 119/119 tests passed, 0 failures)
 - **Frontend Test Suite:** `pnpm --filter @man-u-ai/web test`
   - **Status:** PASSED (2/2 test files, 21/21 tests passed, 0 failures)
 - **Shared Package Build:** `pnpm --filter @man-u-ai/shared build`

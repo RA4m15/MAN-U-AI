@@ -17,6 +17,7 @@ import { vectorService } from "../src/services/vector.service";
 import { geminiService } from "../src/services/gemini.service";
 import { settingsService, SUPPORTED_MODELS } from "../src/services/settings.service";
 import { isConnectedToMongo, setIsConnectedToMongo, connectDatabase } from "../src/config/database";
+import { sanitizeError } from "../src/routes/settings.routes";
 
 describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC & GenAI Migration", () => {
   let adminToken: string;
@@ -727,6 +728,128 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
       expect(rawPutBody).not.toContain("facilitysettings");
 
       updateSpy.mockRestore();
+    });
+  });
+
+  describe("7. Secret Redaction & Sanitization Verification (Stage 3.1.2)", () => {
+    it("redacts common secret parameters separately from parameter name and replaces entire value", () => {
+      const fakeSecrets = [
+        { param: "apiKey", value: "AIzaSyFakeSecret1234567890abcdef" },
+        { param: "api_key", value: "secretApiKey_987654321_zyx" },
+        { param: "secret", value: "UltraTopSecretKey_445566" },
+        { param: "api_secret", value: "CloudinarySecretValue_8899" },
+        { param: "password", value: "SuperSecretMongoPass!123#" },
+        { param: "token", value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.fake_token_payload" },
+        { param: "key", value: "genericKeyVal_999000" },
+      ];
+
+      for (const item of fakeSecrets) {
+        const rawErrorMsg = `Failed operation while calling provider with ${item.param}=${item.value}&otherParam=safeValue`;
+        const sanitized = sanitizeError(new Error(rawErrorMsg));
+
+        // Assert that the fake secret NEVER appears in the sanitized output
+        expect(sanitized).not.toContain(item.value);
+        // Assert that the parameter name is captured separately and replaced with [REDACTED]
+        expect(sanitized).toContain(`${item.param}=[REDACTED]`);
+        // Assert other safe parameters are preserved
+        expect(sanitized).toContain("otherParam=safeValue");
+      }
+    });
+
+    it("redacts quoted secret values cleanly without leaking secrets", () => {
+      const fakePassword = "QuotedPassWord!999";
+      const fakeApiKey = "QuotedApiKey_98765";
+
+      const err1 = new Error(`Connection failed with password="${fakePassword}"`);
+      const sanitized1 = sanitizeError(err1);
+      expect(sanitized1).not.toContain(fakePassword);
+      expect(sanitized1).toContain("password=[REDACTED]");
+
+      const err2 = new Error(`Auth header apiKey='${fakeApiKey}'`);
+      const sanitized2 = sanitizeError(err2);
+      expect(sanitized2).not.toContain(fakeApiKey);
+      expect(sanitized2).toContain("apiKey=[REDACTED]");
+    });
+
+    it("redacts MongoDB connection strings containing credentials", () => {
+      const fakeMongoUris = [
+        "mongodb+srv://admin_user:fakeMongoPassword123@cluster0.abc.mongodb.net/manuai?retryWrites=true&w=majority",
+        "mongodb://db_admin:P%40ssw%3Ard999@10.0.1.25:27017,10.0.1.26:27017/manuai_prod",
+      ];
+
+      for (const uri of fakeMongoUris) {
+        const error = new Error(`Connection pool timeout connecting to ${uri} after 10000ms`);
+        const sanitized = sanitizeError(error);
+
+        expect(sanitized).not.toContain("admin_user");
+        expect(sanitized).not.toContain("fakeMongoPassword123");
+        expect(sanitized).not.toContain("db_admin");
+        expect(sanitized).not.toContain("P%40ssw%3Ard999");
+        expect(sanitized).not.toContain("cluster0.abc.mongodb.net");
+        expect(sanitized).not.toContain("10.0.1.25:27017");
+        expect(sanitized).toContain("mongodb://[REDACTED_USER:PASS]@[REDACTED_HOST]");
+      }
+    });
+
+    it("redacts signed Cloudinary URLs and Cloudinary connection credentials", () => {
+      const signedUrl =
+        "https://res.cloudinary.com/fake_company/image/upload/s--fakeSignature12345--/v1612345678/manuai/documents/pump_manual.pdf";
+      const apiEndpoint =
+        "https://api.cloudinary.com/v1_1/fake_company/resources/raw?api_key=fake_cloud_key&signature=fake_cloud_sig&timestamp=1612345678";
+      const cloudinaryUri = "cloudinary://fake_key_111:fake_secret_222@fake_cloud_name";
+
+      const err1 = new Error(`Upload failed to signed url ${signedUrl}`);
+      const sanitized1 = sanitizeError(err1);
+      expect(sanitized1).not.toContain("fakeSignature12345");
+      expect(sanitized1).not.toContain("fake_company");
+      expect(sanitized1).toContain("[REDACTED_CLOUDINARY_URL]");
+
+      const err2 = new Error(`Cloudinary API probe failed: ${apiEndpoint}`);
+      const sanitized2 = sanitizeError(err2);
+      expect(sanitized2).not.toContain("fake_cloud_key");
+      expect(sanitized2).not.toContain("fake_cloud_sig");
+      expect(sanitized2).toContain("[REDACTED_CLOUDINARY_URL]");
+
+      const err3 = new Error(`Invalid CLOUDINARY_URL: ${cloudinaryUri}`);
+      const sanitized3 = sanitizeError(err3);
+      expect(sanitized3).not.toContain("fake_key_111");
+      expect(sanitized3).not.toContain("fake_secret_222");
+      expect(sanitized3).toContain("cloudinary://[REDACTED_CREDENTIALS]@[REDACTED_CLOUD]");
+    });
+
+    it("prepends safe error category/name and logs safely on route failures", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const fakeSecretKey = "AIzaSySecretLeakProbe123";
+      const customDbError = new Error(`MongoDB failed on query with apiKey=${fakeSecretKey}`);
+      customDbError.name = "MongoNetworkTimeoutError";
+
+      const getSettingsSpy = vi.spyOn(settingsService, "getEffectiveSettings").mockRejectedValueOnce(customDbError);
+
+      try {
+        const res = await request(app)
+          .get("/api/v1/settings")
+          .set("Authorization", `Bearer ${viewerToken}`);
+
+        expect(res.status).toBe(500);
+        expect(warnSpy).toHaveBeenCalled();
+        const loggedWarn = warnSpy.mock.calls.find((call) =>
+          call.some((arg) => typeof arg === "string" && arg.includes("[Settings] Failed to query authoritative settings"))
+        );
+        expect(loggedWarn).toBeDefined();
+        const loggedWarnString = loggedWarn!.join(" ");
+
+        // Safe category is present
+        expect(loggedWarnString).toContain("[MongoNetworkTimeoutError]");
+        // Secret is redacted
+        expect(loggedWarnString).toContain("apiKey=[REDACTED]");
+        expect(loggedWarnString).not.toContain(fakeSecretKey);
+      } finally {
+        getSettingsSpy.mockRestore();
+        warnSpy.mockRestore();
+        errorSpy.mockRestore();
+      }
     });
   });
 });

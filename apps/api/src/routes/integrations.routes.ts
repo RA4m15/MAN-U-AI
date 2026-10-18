@@ -8,6 +8,7 @@ import { GoogleGenAI } from "@google/genai";
 import { requireAuth, requireRole, AuthenticatedRequest } from "../middlewares/auth";
 import { isConnectedToMongo } from "../config/database";
 import { env } from "../config/env";
+import { sanitizeError } from "./settings.routes";
 
 export const integrationsRouter: Router = Router();
 
@@ -37,15 +38,6 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMsg: stri
   return Promise.race([promise, timeoutPromise]).finally(() => {
     if (timer) clearTimeout(timer);
   });
-}
-
-function sanitizeError(err: unknown): string {
-  if (!err) return "Unknown error";
-  let msg = err instanceof Error ? err.message : String(err);
-  msg = msg.replace(/mongodb(?:\+srv)?:\/\/[^\s@]+@[^\s/]+/gi, "mongodb://[REDACTED_USER:PASS]@[REDACTED_HOST]");
-  msg = msg.replace(/(?:key|apiKey|api_key|secret|api_secret|password|token)=([a-zA-Z0-9_\-]+)/gi, "$1=[REDACTED]");
-  msg = msg.replace(/https?:\/\/[^\s]+cloudinary\.com[^\s]*/gi, "[REDACTED_STORAGE_URL]");
-  return msg;
 }
 
 // GET /integrations/status - Current dynamic status of all ecosystem integrations

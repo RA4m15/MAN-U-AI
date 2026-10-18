@@ -54,12 +54,38 @@ const UpdateSettingsZodSchema = z.object({
     .optional(),
 });
 
-function sanitizeError(err: unknown): string {
+export function sanitizeError(err: unknown): string {
   if (!err) return "Unknown error";
-  let msg = err instanceof Error ? err.message : String(err);
+  const errCategory =
+    err instanceof Error
+      ? err.name
+      : typeof err === "object" && err !== null && "name" in err && typeof (err as any).name === "string"
+      ? (err as any).name
+      : "Error";
+  let msg: string;
+  if (err instanceof Error) {
+    msg = err.message;
+  } else if (typeof err === "string") {
+    msg = err;
+  } else {
+    try {
+      msg = JSON.stringify(err);
+    } catch {
+      msg = String(err);
+    }
+  }
+
+  // Redact MongoDB connection strings containing credentials
   msg = msg.replace(/mongodb(?:\+srv)?:\/\/[^\s@]+@[^\s/]+/gi, "mongodb://[REDACTED_USER:PASS]@[REDACTED_HOST]");
-  msg = msg.replace(/(?:key|apiKey|api_key|secret|api_secret|password|token)=([a-zA-Z0-9_\-]+)/gi, "$1=[REDACTED]");
-  return msg;
+
+  // Redact Cloudinary connection strings and signed/authenticated URLs
+  msg = msg.replace(/cloudinary:\/\/[^\s@]+@[^\s/]+/gi, "cloudinary://[REDACTED_CREDENTIALS]@[REDACTED_CLOUD]");
+  msg = msg.replace(/https?:\/\/[^\s]+cloudinary\.com[^\s]*/gi, "[REDACTED_CLOUDINARY_URL]");
+
+  // Redact sensitive parameter values while capturing parameter name in group 1 and replacing entire value
+  msg = msg.replace(/(api_key|apiKey|api_secret|secret|password|token|key)\s*=\s*["']?([^"'`\s&,;]+)["']?/gi, "$1=[REDACTED]");
+
+  return `[${errCategory}] ${msg}`;
 }
 
 // GET /settings - Retrieve current authoritative facility and AI configuration
@@ -138,7 +164,7 @@ settingsRouter.put(
           details: parsed.data,
         });
       } catch (auditErr) {
-        console.warn("[Settings] Non-fatal audit log warning:", auditErr);
+        console.warn("[Settings] Non-fatal audit log warning:", sanitizeError(auditErr));
       }
 
       return res.json({
