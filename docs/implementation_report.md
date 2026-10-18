@@ -914,3 +914,45 @@ git diff --check
   - **Google Gemini API:** Configured via `GEMINI_API_KEY`. Free tier limit is 20 requests/day for generation; tests mock SDK calls to prevent quota depletion.
   - **Cloudinary:** Configured via server-side credentials; live connection probe tests authenticated API ping.
   - **Unconfigured Industrial Connectors:** OPC-UA, Modbus TCP, SAP ERP, and IBM Maximo are unconfigured in this environment. They truthfully report `not_configured` or `not_implemented` and are blocked from claiming fake connection success.
+
+---
+
+## 16. STAGE 3.1.1: SETTINGS FAILURE SEMANTICS, CONCURRENT INITIALIZATION & SAFE ERROR RESPONSES
+
+**Verification Date:** October 19, 2026
+**Baseline Commit:** `17b71ca5fb51d25ed76e50944eebc4a68696436e`
+**Goal:** Harden `getEffectiveSettings()` failure semantics to throw explicit persistence errors upon initialization failure rather than returning in-memory defaults; preserve concurrent-initialization re-querying; guarantee in-memory cache is never populated unless settings are confirmed in MongoDB; sanitize server-side error logging; and ensure internal database details never leak in HTTP responses.
+
+### Verified Architectural Implementations
+
+1. **Strict Initialization Failure Semantics (`apps/api/src/services/settings.service.ts`):**
+   - In `getEffectiveSettings()`, when creating default settings fails and a subsequent retry lookup finds no saved document, the service rejects with an explicit error (`"Failed to initialize or retrieve persistent facility settings from database."`) rather than silently returning `DEFAULT_SETTINGS`.
+   - Preserved concurrent initialization handling: if another request successfully created the settings document during a collision, the retry lookup re-queries MongoDB and returns that persisted document.
+   - Cache safety invariant: the in-memory cache (`this.cache`) is updated strictly when settings are successfully read from or written to MongoDB. Under any query or persistence failure, `this.cache` remains `null`.
+
+2. **Safe, Sanitized Client Error Responses (`apps/api/src/routes/settings.routes.ts`):**
+   - Server-side error logging passes exceptions through `sanitizeError()`, redacting connection strings, database credentials, and secret tokens.
+   - Both `GET /settings` and `PUT /settings` return generic safe client error messages (`"Failed to retrieve facility settings from database."` / `"Failed to persist application settings to database."`).
+   - Verified that raw Mongoose errors, MongoDB error codes (e.g. `E11000 duplicate key`), collection names (`facilitysettings`), and raw ObjectIds never appear in HTTP response bodies.
+
+3. **Regression Tests (`apps/api/test/stage3_settings_and_integrations.test.ts`):**
+   - **Default Persistence:** Verified initial settings creation persists defaults directly to MongoDB and updates cache.
+   - **Concurrent Insert Collision:** Verified that when creation fails due to a concurrent write, the retry successfully retrieves and returns the concurrently created record.
+   - **Initialization Failure Rejection:** Verified that when creation fails and retry lookup finds no record, the service rejects explicitly and leaves `this.cache` as `null`.
+   - **Query Failure Propagation:** Verified database query errors propagate immediately without caching false defaults.
+   - **Response Sanitization:** Verified HTTP 500 error responses on `GET` and `PUT` omit internal database details.
+
+### Verification Test & Build Results
+
+- **Backend Test Suite:** `pnpm --filter @man-u-ai/api test --run`
+  - **Status:** PASSED (12/12 test files, 114/114 tests passed, 0 failures)
+- **Frontend Test Suite:** `pnpm --filter @man-u-ai/web test`
+  - **Status:** PASSED (2/2 test files, 21/21 tests passed, 0 failures)
+- **Shared Package Build:** `pnpm --filter @man-u-ai/shared build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **API Service Build:** `pnpm --filter @man-u-ai/api build`
+  - **Status:** PASSED (`tsc` exit code 0)
+- **Web Frontend Build:** `pnpm --filter @man-u-ai/web build`
+  - **Status:** PASSED (`tsc -b && vite build` exit code 0)
+- **Git Whitespace & Diff Check:** `git diff --check`
+  - **Status:** PASSED (0 whitespace errors)

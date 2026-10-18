@@ -585,4 +585,148 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
       clearTimeoutSpy.mockRestore();
     });
   });
+
+  describe("6. Settings Failure Semantics, Concurrent Initialization & Safe Error Responses (Stage 3.1.1)", () => {
+    it("initial settings creation succeeds and persists defaults into MongoDB", async () => {
+      await FacilitySettings.deleteMany({});
+      settingsService.clearCache();
+
+      const initial = await settingsService.getEffectiveSettings();
+      expect(initial).toBeDefined();
+      expect(initial.facilityName).toBe("MAN-U-AI Heavy Operations Facility Alpha");
+      expect(initial.selectedModel).toBe("gemini-3.8-flash");
+
+      // Verify defaults were actually persisted to database
+      const saved = await FacilitySettings.findOne().sort({ updatedAt: -1 });
+      expect(saved).not.toBeNull();
+      expect(saved?.facilityName).toBe("MAN-U-AI Heavy Operations Facility Alpha");
+    });
+
+    it("initial creation fails but concurrent request created settings; persisted settings are returned", async () => {
+      await FacilitySettings.deleteMany({});
+      settingsService.clearCache();
+
+      // Spy on FacilitySettings.create to simulate a concurrent insert collision
+      const createSpy = vi.spyOn(FacilitySettings, "create").mockImplementationOnce(async () => {
+        // Concurrently another request writes to MongoDB
+        await new FacilitySettings({
+          facilityName: "Concurrent High-Availability Facility",
+          timezone: "UTC",
+          selectedModel: "gemini-3.6-flash",
+          temperature: 0.1,
+          topK: 8,
+          similarityThreshold: 0.6,
+        }).save();
+        throw new Error("E11000 duplicate key error collection");
+      });
+
+      try {
+        const result = await settingsService.getEffectiveSettings();
+        expect(result).toBeDefined();
+        // Must return the settings written concurrently by the other request
+        expect(result.facilityName).toBe("Concurrent High-Availability Facility");
+        expect(result.selectedModel).toBe("gemini-3.6-flash");
+        expect(result.topK).toBe(8);
+      } finally {
+        createSpy.mockRestore();
+      }
+    });
+
+    it("initial creation fails and subsequent lookup also finds no record; service rejects instead of returning defaults", async () => {
+      await FacilitySettings.deleteMany({});
+      settingsService.clearCache();
+
+      // Simulate initial findOne returns null, create fails, and retry findOne returns null
+      const findOneSpy = vi.spyOn(FacilitySettings, "findOne");
+      // 1st call: sort().then() -> null
+      // 2nd call: retry sort().then() -> null
+      const mockQueryNull = {
+        sort: vi.fn().mockResolvedValue(null),
+      } as any;
+      findOneSpy.mockReturnValue(mockQueryNull);
+
+      const createSpy = vi.spyOn(FacilitySettings, "create").mockRejectedValueOnce(
+        new Error("Disk quota exceeded on write")
+      );
+
+      try {
+        await expect(settingsService.getEffectiveSettings()).rejects.toThrow(
+          "Failed to initialize or retrieve persistent facility settings from database."
+        );
+        // Verify in-memory cache was not populated with false defaults
+        expect((settingsService as any).cache).toBeNull();
+      } finally {
+        createSpy.mockRestore();
+        findOneSpy.mockRestore();
+      }
+    });
+
+    it("a database query failure propagates as an error without updating cache", async () => {
+      settingsService.clearCache();
+
+      const findOneSpy = vi.spyOn(FacilitySettings, "findOne").mockReturnValue({
+        sort: vi.fn().mockRejectedValue(new Error("MongoNetworkTimeoutError: connection lost")),
+      } as any);
+
+      try {
+        await expect(settingsService.getEffectiveSettings()).rejects.toThrow("MongoNetworkTimeoutError");
+        expect((settingsService as any).cache).toBeNull();
+      } finally {
+        findOneSpy.mockRestore();
+      }
+    });
+
+    it("internal database details do not appear in the HTTP response on GET or PUT failures", async () => {
+      // 1. Test GET /settings database query failure response sanitization
+      const getEffectiveSpy = vi.spyOn(settingsService, "getEffectiveSettings").mockRejectedValueOnce(
+        new Error(
+          "MongoServerError: E11000 duplicate key error collection: manuai.facilitysettings index: _id_ dup key: { _id: ObjectId('6ad4ee0bb277e637f9c22005') }"
+        )
+      );
+
+      const getRes = await request(app)
+        .get("/api/v1/settings")
+        .set("Authorization", `Bearer ${viewerToken}`);
+
+      expect(getRes.status).toBe(500);
+      expect(getRes.body.success).toBe(false);
+      expect(getRes.body.error.code).toBe("SETTINGS_QUERY_FAILED");
+      expect(getRes.body.error.message).toBe("Failed to retrieve facility settings from database.");
+
+      // Verify raw database message and internal identifiers are not leaked
+      const rawGetBody = JSON.stringify(getRes.body);
+      expect(rawGetBody).not.toContain("MongoServerError");
+      expect(rawGetBody).not.toContain("E11000");
+      expect(rawGetBody).not.toContain("duplicate key");
+      expect(rawGetBody).not.toContain("facilitysettings");
+      expect(rawGetBody).not.toContain("6ad4ee0bb277e637f9c22005");
+
+      getEffectiveSpy.mockRestore();
+
+      // 2. Test PUT /settings database persistence failure response sanitization
+      const updateSpy = vi.spyOn(settingsService, "updateSettings").mockRejectedValueOnce(
+        new Error(
+          "MongooseError: Connection closed on ac-l0nlhix-shard-00-00.90gymzr.mongodb.net:27017 at collection: manuai.facilitysettings"
+        )
+      );
+
+      const putRes = await request(app)
+        .put("/api/v1/settings")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ facilityName: "Updated Facility Name" });
+
+      expect(putRes.status).toBe(500);
+      expect(putRes.body.success).toBe(false);
+      expect(putRes.body.error.code).toBe("PERSISTENCE_FAILED");
+      expect(putRes.body.error.message).toBe("Failed to persist application settings to database.");
+
+      // Verify raw database internals are not leaked
+      const rawPutBody = JSON.stringify(putRes.body);
+      expect(rawPutBody).not.toContain("MongooseError");
+      expect(rawPutBody).not.toContain("ac-l0nlhix-shard");
+      expect(rawPutBody).not.toContain("facilitysettings");
+
+      updateSpy.mockRestore();
+    });
+  });
 });
