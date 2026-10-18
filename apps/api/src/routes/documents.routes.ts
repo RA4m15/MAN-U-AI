@@ -43,38 +43,44 @@ export async function isUserAuthorizedForDocument(
   role: string | undefined,
   docId: string
 ): Promise<{ authorized: boolean; doc?: any }> {
+  // Fail closed immediately if MongoDB is disconnected
   if (!isConnectedToMongo) {
-    return { authorized: true };
+    return { authorized: false, doc: null };
   }
   if (!mongoose.Types.ObjectId.isValid(docId)) {
+    return { authorized: false, doc: null };
+  }
+
+  try {
+    const doc = await DocumentModel.findById(docId);
+    if (!doc) {
+      return { authorized: false, doc: null };
+    }
+
+    if (role === "admin") {
+      return { authorized: true, doc };
+    }
+
+    const userOid = toMongoObjectId(userId);
+    if (doc.uploadedById && (doc.uploadedById.toString() === userId || doc.uploadedById.toString() === userOid.toString())) {
+      return { authorized: true, doc };
+    }
+
+    const permission = await DocumentPermission.findOne({
+      documentId: doc._id,
+      $or: [{ userId: userOid }, ...(role ? [{ role }] : [])],
+      canRead: true,
+    });
+
+    if (permission) {
+      return { authorized: true, doc };
+    }
+
+    return { authorized: false, doc };
+  } catch (err) {
+    console.error("[Documents] Database error checking document authorization (failing closed):", err);
     return { authorized: false };
   }
-
-  const doc = await DocumentModel.findById(docId);
-  if (!doc) {
-    return { authorized: false };
-  }
-
-  if (role === "admin") {
-    return { authorized: true, doc };
-  }
-
-  const userOid = toMongoObjectId(userId);
-  if (doc.uploadedById && (doc.uploadedById.toString() === userId || doc.uploadedById.toString() === userOid.toString())) {
-    return { authorized: true, doc };
-  }
-
-  const permission = await DocumentPermission.findOne({
-    documentId: doc._id,
-    $or: [{ userId: userOid }, ...(role ? [{ role }] : [])],
-    canRead: true,
-  });
-
-  if (permission) {
-    return { authorized: true, doc };
-  }
-
-  return { authorized: false, doc };
 }
 
 // GET /documents - List all documents permitted for current user

@@ -71,6 +71,21 @@ let ephemeralMemoryChunks: Array<{
   embedding: number[];
 }> = [];
 
+/**
+ * Vector Retrieval Architecture Notice:
+ * -------------------------------------------------------------
+ * This service implements MongoDB candidate chunk retrieval combined with
+ * in-process application-side cosine similarity and keyword boosting,
+ * rather than native Atlas Vector Search ($vectorSearch).
+ *
+ * Rationale & Operational Characteristics:
+ * - Compatible with standard MongoDB collections without requiring Atlas Vector Search index provisioning on free M0 tiers.
+ * - Chunks are queried from the MongoDB DocumentChunk collection filtered by user-permitted document IDs.
+ * - Candidate evaluation is capped at CANDIDATE_CHUNK_LIMIT (500 chunks).
+ * - Exact cosine similarity over 768-dimensional embeddings and keyword relevance are evaluated application-side.
+ */
+export const CANDIDATE_CHUNK_LIMIT = 500;
+
 export class VectorService {
   /**
    * Adds a document chunk into vector index.
@@ -113,6 +128,7 @@ export class VectorService {
 
   /**
    * Retrieves top-K semantically similar chunks with keyword-hybrid scoring.
+   * Uses MongoDB chunk retrieval with application-side cosine similarity.
    * In production mode, retrieval strictly queries real persisted MongoDB chunks.
    */
   async searchSimilar(
@@ -152,7 +168,7 @@ export class VectorService {
           queryFilter.documentId = { $in: filterDocIds };
         }
 
-        const mongoChunks = await DocumentChunk.find(queryFilter).limit(500).lean();
+        const mongoChunks = await DocumentChunk.find(queryFilter).limit(CANDIDATE_CHUNK_LIMIT).lean();
         if (mongoChunks.length > 0) {
           candidateChunks = mongoChunks.map((c) => ({
             id: c._id.toString(),

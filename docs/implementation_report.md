@@ -409,15 +409,19 @@ To complete the live deployment in the Render Dashboard:
 ### C. P1: Vector Retrieval Architecture & Test Verification
 1. **Retrieval Architecture Specification:**
    - Current implementation: High-precision hybrid search combining 768-dimensional cosine vector similarity with exact technical keyword overlap scoring across persisted MongoDB `DocumentChunk` documents.
-   - Native Atlas Vector Search: When deployed to an Atlas M10+ cluster with a defined Vector Search index, `$vectorSearch` aggregation pipeline stages are utilized. The system documents that local and M0 shared clusters execute indexed collection retrieval with application-level cosine scoring.
+   - Vector Retrieval Architecture & Candidate Limit:
+     - Operates via MongoDB chunk retrieval with application-side cosine similarity computation rather than native Atlas Vector Search ($vectorSearch).
+     - Candidate chunk evaluation is capped at `CANDIDATE_CHUNK_LIMIT = 500`.
+     - High-performance cosine dot-product and keyword relevance scoring run in-memory within Node.js over permitted chunks.
 2. **Focused Security & Hardening Automated Test Results:**
-   - Added `apps/api/test/security_hardening.test.ts` verifying all 9 requirement criteria.
+   - Added `apps/api/test/security_hardening.test.ts` (9 tests) and `apps/api/test/production_corrections.test.ts` (7 tests).
    - Full automated test suite results (`pnpm --filter @man-u-ai/api test`):
      ```
-     Test Files  7 passed (7)
-          Tests  42 passed (42)
-       Duration  6.39s
+     Test Files  8 passed (8)
+          Tests  49 passed (49)
+       Duration  6.51s
      ```
+     - `test/production_corrections.test.ts` (7 tests) - PASSED
      - `test/security_hardening.test.ts` (9 tests) - PASSED
      - `test/document_to_answer.test.ts` (7 tests) - PASSED
      - `test/e2e_acceptance.test.ts` (11 tests) - PASSED
@@ -429,3 +433,40 @@ To complete the live deployment in the Render Dashboard:
    - `@man-u-ai/shared`: TypeScript build clean (0 errors).
    - `@man-u-ai/api`: TypeScript build clean (0 errors).
    - `@man-u-ai/web`: Vite production bundle generated (0 errors, 474.59 kB JS, 33.90 kB CSS).
+
+---
+
+## 6. FINAL PRODUCTION CORRECTIONS & HARDENING AUDIT
+
+### Summary of Completed Corrections
+1. **Seed-Account Persistence & Credential Idempotency:**
+   - Removed hardcoded fallback password from `apps/api/src/config/seed.ts`.
+   - Automatic demo account creation is disabled in production unless `ALLOW_INITIAL_SEED=true` with a securely supplied `INITIAL_SEED_PASSWORD`.
+   - Idempotency verified: server restarts never overwrite or rotate existing user passwords.
+2. **Fail-Closed Document Authorization:**
+   - `isUserAuthorizedForDocument()` in `apps/api/src/routes/documents.routes.ts` fails closed (`{ authorized: false, doc: null }`) when MongoDB is disconnected or encounters an error.
+   - Document endpoints return HTTP 403 Forbidden for unauthorized requests and HTTP 404 for missing documents, preventing any accidental data leakage.
+3. **Explicit Production Embedding Failure:**
+   - In `apps/api/src/services/gemini.service.ts`, embedding generation throws explicit errors in production when the Gemini API is unconfigured or fails.
+   - Deterministic pseudo-embeddings are confined strictly to local development and offline unit tests, preventing vector index contamination.
+4. **Explicit Production CORS & Wildcard Rejection:**
+   - `env.ts` schema validation strictly rejects wildcard `*` origins in production.
+   - Express CORS middleware and Socket.IO use the same strict allowlist matching policy.
+5. **Architectural Transparency for Vector Retrieval:**
+   - Formally documented that the retrieval pipeline queries MongoDB `DocumentChunk` records (up to `CANDIDATE_CHUNK_LIMIT = 500`) and evaluates cosine similarity application-side in Node.js.
+   - Unit tests confirm mathematical cosine correctness and candidate limit enforcement.
+6. **Privacy-Preserving Public Health Endpoints:**
+   - Redacted internal database infrastructure details (`host`, `name`, `isAtlas`) from `/health` and `/health/ready`.
+   - Gemini engine status is truthfully reported as `key_configured` or `unconfigured` rather than falsely labeled `active` merely because an API key exists.
+
+### Real Operational Limitations
+- **Free-Tier Gemini API Quota:** The Google Gemini API free-tier project rate limit is 20 requests per day for generative synthesis. Under heavy load or after quota exhaustion, the live API returns HTTP 429 Too Many Requests. In production, requests fail truthfully; in offline dev/test modes, responses fall back gracefully to verbatim document excerpts.
+- **Atlas Vector Search vs. Application Similarity:** Standard free-tier Atlas M0 clusters do not support native `$vectorSearch` indexes. The system intentionally uses application-side vector scoring capped at 500 candidates. For corpora exceeding tens of thousands of chunks, upgrading to Atlas M10+ with native Vector Search index creation is recommended.
+- **Storage Encryption:** Private uploads are isolated in `./uploads` with strict auth-gated streaming. Disk encryption at rest relies on the hosting platform's filesystem encryption (e.g. Render Persistent Disk encryption).
+
+### Pre-Deployment Verification Checklist
+- [x] All 8 test files and 49 backend tests pass (`vitest`).
+- [x] Shared package, API server, and Vite frontend builds succeed cleanly with 0 errors.
+- [x] Git diff hygiene (`git diff --check`) returns 0 whitespace or formatting errors.
+- [x] `.gitignore` verified: all `.env` files, credentials, local PDF uploads (`uploads/`), and database dumps are excluded from Git.
+- [x] Working tree is clean and ready for commit.

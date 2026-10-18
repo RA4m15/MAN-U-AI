@@ -86,6 +86,17 @@ const envSchema = z.object({
         message: "Production environment cannot use 'memory' for VECTOR_STORE; must use persistent storage (e.g. 'mongodb').",
       });
     }
+    if (
+      !data.CORS_ORIGIN ||
+      data.CORS_ORIGIN === "*" ||
+      data.CORS_ORIGIN.split(",").some((o) => o.trim() === "*")
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["CORS_ORIGIN"],
+        message: "Production environment requires an explicit frontend origin allowlist and strictly forbids wildcard '*'.",
+      });
+    }
   }
 });
 

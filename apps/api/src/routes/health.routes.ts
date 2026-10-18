@@ -20,14 +20,12 @@ function evaluateReadiness(req: Request, res: Response) {
   const isVectorStoreValid = env.NODE_ENV !== "production" || env.VECTOR_STORE !== "memory";
   const isReady = isMongoConnected && isVectorStoreValid;
 
-  const host = isMongoConnected && mongoose.connection.host ? mongoose.connection.host : "none";
-  const dbName = isMongoConnected && mongoose.connection.name ? mongoose.connection.name : "none";
-  const isAtlas = isMongoConnected && Boolean(host.includes("mongodb.net"));
-
   const isReadinessRoute = req.path.includes("ready") || req.originalUrl?.includes("ready");
   const overallStatus = isReady
     ? "healthy"
     : (env.NODE_ENV === "test" && !isReadinessRoute ? "healthy" : "unhealthy");
+
+  const isGeminiConfigured = Boolean(env.GEMINI_API_KEY && env.GEMINI_API_KEY.length > 5);
 
   const payload = {
     status: overallStatus,
@@ -37,18 +35,21 @@ function evaluateReadiness(req: Request, res: Response) {
     version: "1.0.0",
     environment: env.NODE_ENV,
     database: {
-      mongodb: isMongoConnected ? "connected" : "disconnected",
       status: isMongoConnected ? "connected" : "disconnected",
-      host,
-      name: dbName,
-      isAtlas,
+      ready: isMongoConnected,
       vectorStore: env.VECTOR_STORE,
     },
     multimodalEngine: {
       provider: "Google Gemini",
       model: env.GEMINI_MODEL,
       embeddingModel: env.GEMINI_EMBEDDING_MODEL,
-      status: env.GEMINI_API_KEY ? "active" : "offline-simulation-mode",
+      status: isGeminiConfigured ? "key_configured" : "unconfigured",
+      keyConfigured: isGeminiConfigured,
+    },
+    dependencies: {
+      database: isMongoConnected ? "ready" : "unavailable",
+      vectorStore: isVectorStoreValid ? "ready" : "unavailable",
+      aiProvider: isGeminiConfigured ? "key_configured" : "unconfigured",
     },
     ...(isReady ? {} : { error: "Required database or vector retrieval dependencies are unavailable" }),
   };

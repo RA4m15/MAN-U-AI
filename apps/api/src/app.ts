@@ -41,8 +41,9 @@ export function isAllowedOrigin(origin: string | undefined): boolean {
     return devOrigins.includes(origin) || devOrigins.includes("*");
   }
 
-  // In production, strictly enforce the configured allowlist
-  return configuredOrigins.includes(origin) || configuredOrigins.includes("*");
+  // In production, strictly reject wildcard "*" and match only exact explicit origins
+  const explicitOrigins = configuredOrigins.filter((o) => o !== "*");
+  return explicitOrigins.includes(origin);
 }
 
 app.use(

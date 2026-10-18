@@ -1,18 +1,29 @@
 import bcrypt from "bcryptjs";
 import { User, Equipment, DocumentModel, DocumentChunk, AuditEvent } from "../models";
 import { generateDeterministicEmbedding } from "../services/gemini.service";
+import { env } from "./env";
 
 export async function seedDatabase() {
   try {
+    const isProduction = env.NODE_ENV === "production";
+    if (isProduction && process.env.ALLOW_INITIAL_SEED !== "true") {
+      console.log("[Seed] Production mode active: automatic demo account creation is disabled. Set ALLOW_INITIAL_SEED=true with INITIAL_SEED_PASSWORD to seed.");
+      return;
+    }
+
     const userCount = await User.countDocuments();
-    const seedPassword = process.env.INITIAL_SEED_PASSWORD || "Rotated-Industrial-2026-Secret!";
-    const passwordHash = await bcrypt.hash(seedPassword, 10);
+    const seedPassword = process.env.INITIAL_SEED_PASSWORD;
 
     let adminUser = await User.findOne({ email: "admin@plant.io" });
     let leadEngineer = await User.findOne({ email: "alex.mercer@plant.io" });
 
-    if (userCount === 0) {
-      console.log("[Seed] Seeding initial industrial personnel accounts with secure credentials...");
+    if (userCount > 0) {
+      console.log(`[Seed] User accounts already exist (${userCount} users). Preserving existing credentials (idempotent; no password overwrite).`);
+    } else if (!seedPassword) {
+      console.log("[Seed] Skipping initial personnel creation: INITIAL_SEED_PASSWORD environment variable is not provided.");
+    } else {
+      console.log("[Seed] Initializing personnel accounts with securely supplied INITIAL_SEED_PASSWORD...");
+      const passwordHash = await bcrypt.hash(seedPassword, 10);
 
       adminUser = await User.create({
         name: "Elena Rostova",
@@ -38,18 +49,16 @@ export async function seedDatabase() {
         orgId: "plant-alpha",
       });
 
-      console.log(`[Seed] Created 3 verified users: ${adminUser.email}, ${leadEngineer.email}, ${techUser.email}`);
-    } else {
-      // Rotate any previously exposed default credentials for seed users
-      await User.updateMany(
-        { email: { $in: ["admin@plant.io", "alex.mercer@plant.io", "marcus.v@plant.io"] } },
-        { passwordHash }
-      );
-      console.log("[Seed] Verified personnel accounts updated with rotated credential hashes.");
+      console.log(`[Seed] Created initial verified accounts: ${adminUser.email}, ${leadEngineer.email}, ${techUser.email}`);
     }
 
-      // Seed equipment if empty
-      const eqCount = await Equipment.countDocuments();
+    // In production, skip automatic demo equipment and document creation unless explicitly allowed
+    if (isProduction && process.env.ALLOW_INITIAL_SEED !== "true") {
+      return;
+    }
+
+    // Seed equipment if empty
+    const eqCount = await Equipment.countDocuments();
       let pumpId: string | null = null;
       if (eqCount === 0) {
         console.log("[Seed] Seeding equipment registry...");
@@ -183,4 +192,22 @@ export async function seedDatabase() {
   } catch (err) {
     console.warn("[Seed] Database seed notice:", err);
   }
+}
+
+if (require.main === module) {
+  const { connectDatabase } = require("./database");
+  connectDatabase()
+    .then(async (connected: boolean) => {
+      if (connected) {
+        await seedDatabase();
+        process.exit(0);
+      } else {
+        console.error("[Seed CLI] Failed to connect to MongoDB.");
+        process.exit(1);
+      }
+    })
+    .catch((err: unknown) => {
+      console.error("[Seed CLI] Error during database seeding:", err);
+      process.exit(1);
+    });
 }

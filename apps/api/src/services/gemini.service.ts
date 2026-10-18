@@ -44,6 +44,8 @@ export class GeminiService {
 
   /**
    * Generates a 768-dimensional embedding vector for text chunk.
+   * In production mode, failures throw an explicit error to prevent mixing
+   * deterministic fallback embeddings with real vector space embeddings.
    */
   async generateEmbedding(text: string): Promise<number[]> {
     if (this.client) {
@@ -54,13 +56,26 @@ export class GeminiService {
           outputDimensionality: 768,
         } as any);
         if (result.embedding?.values && result.embedding.values.length === 768) {
+          this.lastProvider = "live-gemini";
           return result.embedding.values;
         }
       } catch (err) {
-        console.warn("[GeminiService] Remote embedding notice (using fallback):", safeErrorMsg(err));
+        const msg = safeErrorMsg(err);
+        console.warn("[GeminiService] Remote embedding failure:", msg);
+        if (env.NODE_ENV === "production") {
+          throw new Error(`Live Gemini embedding generation failed in production: ${msg}`);
+        }
       }
     }
 
+    if (env.NODE_ENV === "production") {
+      throw new Error(
+        "Production environment requires a configured and operational live Gemini embedding client. Deterministic fallback embeddings are prohibited in production."
+      );
+    }
+
+    // Offline deterministic fallback is confined strictly to development/test environments
+    this.lastProvider = "deterministic-fallback";
     return generateDeterministicEmbedding(text, 768);
   }
 
