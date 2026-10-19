@@ -92,46 +92,72 @@ export class VectorService {
   /**
    * Adds a document chunk into vector index.
    */
-  async indexChunk(chunk: {
-    id?: string;
-    documentId: string;
-    documentTitle: string;
-    revision: string;
-    page: number;
-    section?: string;
-    text: string;
-    embedding: number[];
-  }): Promise<void> {
+  /**
+   * Adds a document chunk into vector index.
+   * In production, chunk persistence in MongoDB is mandatory before success.
+   * Ephemeral cache is populated only after persistence is confirmed.
+   */
+  async indexChunk(
+    chunk: {
+      id?: string;
+      documentId: string;
+      documentTitle: string;
+      revision: string;
+      page: number;
+      section?: string;
+      text: string;
+      embedding: number[];
+    },
+    options?: { requireDb?: boolean; allowMemoryFallback?: boolean }
+  ): Promise<void> {
     if (!chunk.embedding || chunk.embedding.length !== 768) {
       throw new Error(`Invalid embedding dimension: chunk requires 768-dimensional embedding, received ${chunk.embedding?.length || 0}`);
     }
 
-    const chunkId = chunk.id || `chk-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    ephemeralMemoryChunks.push({ ...chunk, id: chunkId });
+    const isProduction = env.NODE_ENV === "production";
+    const requireDb = isProduction || (options?.requireDb ?? !options?.allowMemoryFallback);
 
-    if (isConnectedToMongo) {
-      try {
-        const docOid =
-          mongoose.Types.ObjectId.isValid(chunk.documentId) && chunk.documentId.length === 24
-            ? new mongoose.Types.ObjectId(chunk.documentId)
-            : chunk.documentId;
-
-        await DocumentChunk.create({
-          documentId: docOid,
-          documentTitle: chunk.documentTitle,
-          revision: chunk.revision,
-          page: chunk.page,
-          section: chunk.section,
-          text: chunk.text,
-          embedding: chunk.embedding,
-          tokenCount: Math.ceil(chunk.text.length / 4),
-        });
-      } catch (err) {
-        // Critical: Remove failed chunk from in-memory cache so no unpersisted chunk lingers
-        ephemeralMemoryChunks = ephemeralMemoryChunks.filter((c) => c.id !== chunkId);
-        console.warn("[VectorService] Error inserting chunk to MongoDB:", err);
-        throw err;
+    if (!isConnectedToMongo) {
+      if (requireDb) {
+        throw new Error("Vector persistence unavailable: MongoDB database is disconnected");
       }
+      const devChunkId = chunk.id || `chk-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      ephemeralMemoryChunks.push({ ...chunk, id: devChunkId });
+      return;
+    }
+
+    const chunkId = chunk.id || `chk-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const docOid =
+      mongoose.Types.ObjectId.isValid(chunk.documentId) && chunk.documentId.length === 24
+        ? new mongoose.Types.ObjectId(chunk.documentId)
+        : chunk.documentId;
+
+    try {
+      const created = await DocumentChunk.create({
+        documentId: docOid,
+        documentTitle: chunk.documentTitle,
+        revision: chunk.revision,
+        page: chunk.page,
+        section: chunk.section,
+        text: chunk.text,
+        embedding: chunk.embedding,
+        tokenCount: Math.ceil(chunk.text.length / 4),
+      });
+
+      // Avoid inserting into in-memory cache until persistence is confirmed
+      if (!isProduction) {
+        ephemeralMemoryChunks.push({
+          ...chunk,
+          id: created?._id ? created._id.toString() : chunkId,
+        });
+      }
+    } catch (err) {
+      // Critical: Immediate cleanup on persistence failure
+      ephemeralMemoryChunks = ephemeralMemoryChunks.filter(
+        (c) => c.id !== chunkId && c.documentId !== chunk.documentId
+      );
+      console.warn("[VectorService] Error inserting chunk to MongoDB:", err);
+      throw err;
     }
   }
 
@@ -139,8 +165,12 @@ export class VectorService {
    * Document-scoped cleanup: removes all in-memory chunks for the given document ID
    * and deletes all persisted MongoDB chunks.
    * Consistently normalizes document IDs before comparison.
+   * If persistent deletion is required but MongoDB is unavailable, reports incomplete cleanup.
    */
-  async deleteDocumentChunks(documentId: string): Promise<void> {
+  async deleteDocumentChunks(
+    documentId: string,
+    options?: { requireDb?: boolean }
+  ): Promise<void> {
     if (!documentId) return;
 
     const targetIdStr = String(documentId).trim();
@@ -161,6 +191,9 @@ export class VectorService {
       return cDocId !== targetIdStr && cDocId !== targetOidStr;
     });
 
+    const isProduction = env.NODE_ENV === "production";
+    const requireDb = options?.requireDb ?? isProduction;
+
     // 2. Delete persisted MongoDB chunks if database is connected
     if (isConnectedToMongo) {
       try {
@@ -169,6 +202,10 @@ export class VectorService {
         console.warn(`[VectorService] Error deleting MongoDB chunks for document ${documentId}:`, err);
         throw err;
       }
+    } else if (requireDb) {
+      throw new Error(
+        `Incomplete document chunk cleanup: MongoDB is disconnected, persistent chunks for document ${documentId} could not be deleted`
+      );
     }
   }
 
@@ -198,7 +235,8 @@ export class VectorService {
     queryKeywords: string,
     topK = 5,
     minSimilarity = 0.5,
-    filterDocIds?: string[]
+    filterDocIds?: string[],
+    options?: { requireIndexed?: boolean }
   ): Promise<ScoredChunk[]> {
     if (!queryEmbedding || queryEmbedding.length !== 768) {
       throw new Error(`Embedding dimension mismatch: query dimension (${queryEmbedding?.length || 0}) is invalid; expected 768 dimensions`);
@@ -221,6 +259,7 @@ export class VectorService {
     }> = [];
 
     const isProduction = env.NODE_ENV === "production";
+    const requireIndexedStrict = isProduction || options?.requireIndexed;
 
     // 1. Fetch real persisted chunks from MongoDB
     if (isConnectedToMongo) {
@@ -272,22 +311,45 @@ export class VectorService {
       candidateChunks = devPool;
     }
 
-    // Safety check: Ensure documents in processing, failed, or needs_ocr state cannot supply chunks
+    // Strict status verification: In production (or when requireIndexed), only return chunks whose
+    // document record exists in MongoDB and whose status is exactly "indexed".
+    // If database verification fails, fail closed by returning [] instead of returning uncertain chunks.
     if (isConnectedToMongo && candidateChunks.length > 0) {
-      const candidateOids = candidateChunks
-        .map((c) => c.documentId)
-        .filter((id) => mongoose.Types.ObjectId.isValid(id) && id.length === 24)
-        .map((id) => new mongoose.Types.ObjectId(id));
+      try {
+        const candidateOids = candidateChunks
+          .map((c) => c.documentId)
+          .filter((id) => mongoose.Types.ObjectId.isValid(id) && id.length === 24)
+          .map((id) => new mongoose.Types.ObjectId(id));
 
-      if (candidateOids.length > 0) {
-        const unindexedDocs = await DocumentModel.find({
-          _id: { $in: candidateOids },
-          status: { $in: ["processing", "failed", "needs_ocr"] },
-        }).select("_id").lean();
+        if (candidateOids.length > 0) {
+          const indexedDocs = await DocumentModel.find({
+            _id: { $in: candidateOids },
+            status: "indexed",
+          }).select("_id").lean();
 
-        if (unindexedDocs.length > 0) {
-          const unindexedIdSet = new Set(unindexedDocs.map((d: any) => d._id.toString()));
-          candidateChunks = candidateChunks.filter((c) => !unindexedIdSet.has(c.documentId));
+          const indexedIdSet = new Set(indexedDocs.map((d: any) => d._id.toString()));
+
+          if (requireIndexedStrict) {
+            // Strictly require document record to exist and have status === "indexed"
+            candidateChunks = candidateChunks.filter((c) => indexedIdSet.has(c.documentId));
+          } else {
+            // In development/test mode, exclude unindexed documents (pending, processing, failed, needs_ocr)
+            const unindexedDocs = await DocumentModel.find({
+              _id: { $in: candidateOids },
+              status: { $in: ["pending", "processing", "failed", "needs_ocr"] },
+            }).select("_id").lean();
+
+            if (unindexedDocs.length > 0) {
+              const unindexedIdSet = new Set(unindexedDocs.map((d: any) => d._id.toString()));
+              candidateChunks = candidateChunks.filter((c) => !unindexedIdSet.has(c.documentId));
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[VectorService] Document status verification failed:", err);
+        if (requireIndexedStrict) {
+          // Fail closed: never return uncertain chunks if database status verification fails
+          return [];
         }
       }
     }

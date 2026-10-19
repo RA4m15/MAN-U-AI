@@ -30,7 +30,8 @@ import { DocumentModel, DocumentChunk } from "../src/models";
 import { vectorService } from "../src/services/vector.service";
 import { geminiService } from "../src/services/gemini.service";
 import { pdfService, isValidPdfSignature } from "../src/services/pdf.service";
-import { connectDatabase } from "../src/config/database";
+import { connectDatabase, setIsConnectedToMongo, isConnectedToMongo } from "../src/config/database";
+import { env } from "../src/config/env";
 import * as socketEvents from "../src/index";
 import { processDocumentAsync } from "../src/routes/documents.routes";
 
@@ -459,6 +460,313 @@ describe("Stage 5 — Task 1A: Partial-Index Cleanup & Safe Retrieval Suite", ()
       await DocumentModel.findByIdAndDelete(validDoc._id);
       await DocumentChunk.findByIdAndDelete(validChunk._id);
       await vectorService.deleteDocumentChunks(validDoc._id.toString());
+    }
+  });
+
+  // Case 11: When isConnectedToMongo is false, indexChunk() rejects and does not retain or expose chunk
+  it("Case 11: When isConnectedToMongo is false, indexChunk() rejects and does not retain or expose chunk", async () => {
+    const testDocId = new mongoose.Types.ObjectId().toString();
+    setIsConnectedToMongo(false);
+
+    try {
+      await expect(
+        vectorService.indexChunk({
+          documentId: testDocId,
+          documentTitle: "Disconnected Mongo Doc",
+          revision: "Rev 1.0",
+          page: 1,
+          text: "Unpersisted chunk text that must not be retained in cache or exposed.",
+          embedding: new Array(768).fill(0.01),
+        })
+      ).rejects.toThrow("Vector persistence unavailable: MongoDB database is disconnected");
+
+      // Verify that no chunk was retained in ephemeral memory
+      const memChunks = vectorService.getMemoryChunks(testDocId);
+      expect(memChunks).toHaveLength(0);
+
+      // Verify that searchSimilar in production will not expose this chunk
+      const originalEnv = env.NODE_ENV;
+      (env as any).NODE_ENV = "production";
+      try {
+        await expect(
+          vectorService.searchSimilar(new Array(768).fill(0.01), "Unpersisted chunk", 5, 0.1, [testDocId])
+        ).rejects.toThrow("Production vector search unavailable: MongoDB database is disconnected");
+      } finally {
+        (env as any).NODE_ENV = originalEnv;
+      }
+    } finally {
+      setIsConnectedToMongo(true);
+    }
+  });
+
+  // Case 12: Connection failure during multi-chunk ingestion followed by reconnection prevents reaching indexed
+  it("Case 12: Connection failure during multi-chunk ingestion followed by reconnection prevents reaching indexed", async () => {
+    const doc = await DocumentModel.create({
+      title: "Multi-Chunk Reconnect Fail Doc",
+      filename: "multi_reconnect.pdf",
+      storagePath: "mock/multi_reconnect.pdf",
+      fileType: "application/pdf",
+      mimeType: "application/pdf",
+      uploadedById: new mongoose.Types.ObjectId(),
+      sizeBytes: 200,
+      status: "processing",
+    });
+
+    vi.spyOn(pdfService, "extractAndChunk").mockResolvedValueOnce({
+      outcome: "digital_text_extracted",
+      chunks: [
+        { page: 1, text: "Chunk 1: Primary coolant loop inspection specifications.", section: "Sec 1" },
+        { page: 2, text: "Chunk 2: Secondary heat exchanger flange bolt torque.", section: "Sec 2" },
+      ],
+      pageCount: 2,
+      requiresOcr: false,
+      ocrPerformed: false,
+    });
+
+    vi.spyOn(geminiService, "generateEmbedding").mockResolvedValue(new Array(768).fill(0.01));
+    const statusSpy = vi.spyOn(socketEvents, "emitDocumentStatus");
+
+    const realIndexChunk = vectorService.indexChunk.bind(vectorService);
+    let indexCallCount = 0;
+    vi.spyOn(vectorService, "indexChunk").mockImplementation(async (chunk, opts) => {
+      indexCallCount++;
+      if (indexCallCount === 1) {
+        // Chunk 1 succeeds and is persisted
+        return realIndexChunk(chunk, opts);
+      }
+      // Chunk 2: connection drops mid-ingestion
+      setIsConnectedToMongo(false);
+      // Re-enable connection before status update
+      setIsConnectedToMongo(true);
+      throw new Error("Simulated database connection loss during multi-chunk ingestion");
+    });
+
+    try {
+      await processDocumentAsync(doc._id.toString(), doc.title, "Rev 1.0", validDummyPdf);
+
+      // Reconnect if not already
+      setIsConnectedToMongo(true);
+
+      // Invariant 1: Document must be "failed", NEVER "indexed"
+      const updated = await DocumentModel.findById(doc._id);
+      expect(updated?.status).toBe("failed");
+      expect(updated?.processingError).toContain("Simulated database connection loss");
+
+      // Invariant 2: No chunks remain persisted in MongoDB for this document
+      const dbChunks = await DocumentChunk.countDocuments({ documentId: doc._id });
+      expect(dbChunks).toBe(0);
+
+      // Invariant 3: Indexed status was never emitted
+      const indexedCalls = statusSpy.mock.calls.filter((c) => c[1] === "indexed");
+      expect(indexedCalls.length).toBe(0);
+
+      const failedCalls = statusSpy.mock.calls.filter((c) => c[1] === "failed");
+      expect(failedCalls.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      setIsConnectedToMongo(true);
+      await DocumentModel.findByIdAndDelete(doc._id);
+      await vectorService.deleteDocumentChunks(doc._id.toString());
+    }
+  });
+
+  // Case 13: Strict production retrieval: pending, processing, failed, needs_ocr, and orphaned documents cannot supply chunks; only existing indexed documents return chunks
+  it("Case 13: Strict production retrieval: pending, processing, failed, needs_ocr, and orphaned documents cannot supply chunks; only existing indexed documents return chunks", async () => {
+    const queryVector = new Array(768).fill(0.02);
+
+    const pendingDoc = await DocumentModel.create({
+      title: "Pending Document Hydraulic",
+      filename: "pending.pdf",
+      storagePath: "mock/pending.pdf",
+      fileType: "application/pdf",
+      mimeType: "application/pdf",
+      uploadedById: new mongoose.Types.ObjectId(),
+      sizeBytes: 100,
+      status: "pending",
+    });
+
+    const processingDoc = await DocumentModel.create({
+      title: "Processing Document Hydraulic",
+      filename: "processing.pdf",
+      storagePath: "mock/processing.pdf",
+      fileType: "application/pdf",
+      mimeType: "application/pdf",
+      uploadedById: new mongoose.Types.ObjectId(),
+      sizeBytes: 100,
+      status: "processing",
+    });
+
+    const failedDoc = await DocumentModel.create({
+      title: "Failed Document Hydraulic",
+      filename: "failed.pdf",
+      storagePath: "mock/failed.pdf",
+      fileType: "application/pdf",
+      mimeType: "application/pdf",
+      uploadedById: new mongoose.Types.ObjectId(),
+      sizeBytes: 100,
+      status: "failed",
+    });
+
+    const needsOcrDoc = await DocumentModel.create({
+      title: "Needs OCR Document Hydraulic",
+      filename: "needs_ocr.pdf",
+      storagePath: "mock/needs_ocr.pdf",
+      fileType: "application/pdf",
+      mimeType: "application/pdf",
+      uploadedById: new mongoose.Types.ObjectId(),
+      sizeBytes: 100,
+      status: "needs_ocr",
+    });
+
+    const indexedDoc = await DocumentModel.create({
+      title: "Indexed Valid Document Hydraulic",
+      filename: "indexed.pdf",
+      storagePath: "mock/indexed.pdf",
+      fileType: "application/pdf",
+      mimeType: "application/pdf",
+      uploadedById: new mongoose.Types.ObjectId(),
+      sizeBytes: 100,
+      status: "indexed",
+    });
+
+    const orphanedDocId = new mongoose.Types.ObjectId();
+
+    // Create chunks for each in DocumentChunk
+    const docs = [
+      { docId: pendingDoc._id, title: pendingDoc.title, text: "Chunk from pending document hydraulic." },
+      { docId: processingDoc._id, title: processingDoc.title, text: "Chunk from processing document hydraulic." },
+      { docId: failedDoc._id, title: failedDoc.title, text: "Chunk from failed document hydraulic." },
+      { docId: needsOcrDoc._id, title: needsOcrDoc.title, text: "Chunk from needs_ocr document hydraulic." },
+      { docId: indexedDoc._id, title: indexedDoc.title, text: "Chunk from indexed valid document hydraulic." },
+      { docId: orphanedDocId, title: "Orphaned Document Hydraulic", text: "Chunk from orphaned document hydraulic." },
+    ];
+
+    const createdChunks: any[] = [];
+    for (const d of docs) {
+      const chk = await DocumentChunk.create({
+        documentId: d.docId,
+        documentTitle: d.title,
+        revision: "Rev 1.0",
+        page: 1,
+        text: d.text,
+        embedding: queryVector,
+        tokenCount: 10,
+      });
+      createdChunks.push(chk);
+    }
+
+    const originalEnv = env.NODE_ENV;
+    (env as any).NODE_ENV = "production";
+
+    try {
+      // 1. Explicit filterDocIds path: verify unindexed documents and orphaned chunks return 0 results
+      const pendingRes = await vectorService.searchSimilar(queryVector, "hydraulic", 5, 0.1, [pendingDoc._id.toString()]);
+      expect(pendingRes).toHaveLength(0);
+
+      const processingRes = await vectorService.searchSimilar(queryVector, "hydraulic", 5, 0.1, [processingDoc._id.toString()]);
+      expect(processingRes).toHaveLength(0);
+
+      const failedRes = await vectorService.searchSimilar(queryVector, "hydraulic", 5, 0.1, [failedDoc._id.toString()]);
+      expect(failedRes).toHaveLength(0);
+
+      const needsOcrRes = await vectorService.searchSimilar(queryVector, "hydraulic", 5, 0.1, [needsOcrDoc._id.toString()]);
+      expect(needsOcrRes).toHaveLength(0);
+
+      const orphanedRes = await vectorService.searchSimilar(queryVector, "hydraulic", 5, 0.1, [orphanedDocId.toString()]);
+      expect(orphanedRes).toHaveLength(0);
+
+      // 2. Explicit filterDocIds path for indexed document: returns valid chunk
+      const indexedRes = await vectorService.searchSimilar(queryVector, "hydraulic", 5, 0.1, [indexedDoc._id.toString()]);
+      expect(indexedRes.length).toBeGreaterThanOrEqual(1);
+      expect(indexedRes[0].chunk.documentId).toBe(indexedDoc._id.toString());
+      expect(indexedRes[0].chunk.text).toContain("indexed valid document");
+
+      // 3. Broad retrieval path (filterDocIds omitted): only indexed document chunk is returned
+      const broadRes = await vectorService.searchSimilar(queryVector, "hydraulic", 10, 0.1);
+      const returnedDocIds = broadRes.map((r) => r.chunk.documentId);
+      expect(returnedDocIds).toContain(indexedDoc._id.toString());
+      expect(returnedDocIds).not.toContain(pendingDoc._id.toString());
+      expect(returnedDocIds).not.toContain(processingDoc._id.toString());
+      expect(returnedDocIds).not.toContain(failedDoc._id.toString());
+      expect(returnedDocIds).not.toContain(needsOcrDoc._id.toString());
+      expect(returnedDocIds).not.toContain(orphanedDocId.toString());
+    } finally {
+      (env as any).NODE_ENV = originalEnv;
+      await DocumentModel.findByIdAndDelete(pendingDoc._id);
+      await DocumentModel.findByIdAndDelete(processingDoc._id);
+      await DocumentModel.findByIdAndDelete(failedDoc._id);
+      await DocumentModel.findByIdAndDelete(needsOcrDoc._id);
+      await DocumentModel.findByIdAndDelete(indexedDoc._id);
+      for (const chk of createdChunks) {
+        await DocumentChunk.findByIdAndDelete(chk._id);
+      }
+    }
+  });
+
+  // Case 14: In production, if database status verification fails, retrieval fails closed
+  it("Case 14: In production, if database status verification fails, retrieval fails closed", async () => {
+    const validDoc = await DocumentModel.create({
+      title: "Fail-Closed Test Document",
+      filename: "fail_closed.pdf",
+      storagePath: "mock/fail_closed.pdf",
+      fileType: "application/pdf",
+      mimeType: "application/pdf",
+      uploadedById: new mongoose.Types.ObjectId(),
+      sizeBytes: 100,
+      status: "indexed",
+    });
+
+    const queryVector = new Array(768).fill(0.03);
+    const chunk = await DocumentChunk.create({
+      documentId: validDoc._id,
+      documentTitle: validDoc.title,
+      revision: "Rev 1.0",
+      page: 1,
+      text: "Valid text for fail-closed verification test.",
+      embedding: queryVector,
+      tokenCount: 10,
+    });
+
+    const originalEnv = env.NODE_ENV;
+    (env as any).NODE_ENV = "production";
+
+    // Spy on DocumentModel.find to simulate database error during verification
+    const findSpy = vi.spyOn(DocumentModel, "find").mockImplementation((filter: any) => {
+      if (filter && filter.status === "indexed") {
+        throw new Error("Simulated database timeout during status verification");
+      }
+      return {
+        select: vi.fn().mockReturnValue({
+          lean: vi.fn().mockRejectedValue(new Error("Simulated database timeout during status verification")),
+        }),
+      } as any;
+    });
+
+    try {
+      const results = await vectorService.searchSimilar(queryVector, "fail closed", 5, 0.1, [validDoc._id.toString()]);
+      // Invariant: Fail closed returns [] instead of returning uncertain chunks
+      expect(results).toEqual([]);
+    } finally {
+      (env as any).NODE_ENV = originalEnv;
+      findSpy.mockRestore();
+      await DocumentModel.findByIdAndDelete(validDoc._id);
+      await DocumentChunk.findByIdAndDelete(chunk._id);
+    }
+  });
+
+  // Case 15: deleteDocumentChunks reports incomplete persistent cleanup when MongoDB is disconnected
+  it("Case 15: deleteDocumentChunks reports incomplete persistent cleanup when MongoDB is disconnected", async () => {
+    const testDocId = new mongoose.Types.ObjectId().toString();
+    setIsConnectedToMongo(false);
+
+    try {
+      await expect(
+        vectorService.deleteDocumentChunks(testDocId, { requireDb: true })
+      ).rejects.toThrow("Incomplete document chunk cleanup: MongoDB is disconnected");
+
+      // Verify that in-memory cache was cleared despite the persistent cleanup failure
+      expect(vectorService.getMemoryChunks(testDocId)).toHaveLength(0);
+    } finally {
+      setIsConnectedToMongo(true);
     }
   });
 });
