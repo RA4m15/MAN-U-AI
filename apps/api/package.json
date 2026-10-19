@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "seed": "tsx src/config/seed.ts",
+    "provision-user": "tsx src/scripts/provision-user.ts",
     "test": "vitest run"
   },
   "dependencies": {

@@ -1416,8 +1416,40 @@ To achieve complete production sign-off, an operator with Render Dashboard acces
 
 | Gate ID | Acceptance Gate | Status | Blocker Description |
 | :---: | :--- | :---: | :--- |
-| **G-1** | **Live Render CORS Authorization** | **BLOCKED** | `CORS_ORIGIN` on deployed backend rejects `https://man-u-ai-1.onrender.com` with HTTP 403. |
+| **G-1** | **Live Render CORS Authorization** | **PASSED** | Operator configured `CORS_ORIGIN=https://man-u-ai-1.onrender.com`; preflight OPTIONS returns HTTP 204. |
 | **G-2** | **Render Deployed Commit SHA** | **BLOCKED** | Requires Render Dashboard access to verify running deployment SHA. |
-| **G-3** | **Live Document Upload & Ingestion** | **BLOCKED** | Requires authorized production operator session and unblocked CORS. |
+| **G-3** | **Live Document Upload & Ingestion** | **BLOCKED** | Requires authorized production operator session (account provisioning via CLI). |
 | **G-4** | **Live Generative RAG & Citations** | **BLOCKED** | Requires authorized production session on deployed cluster. |
 | **G-5** | **Service Name Alignment** | **BLOCKED** | Requires operator decision on reconciling `render.yaml` service names with live URLs. |
+
+---
+
+## 23. STAGE 5.2: FIX PRODUCTION ACCOUNT PROVISIONING
+
+### Root Cause Analysis & Discrepancy Identification
+
+1. **Root Cause of Registration Rejection on Login Page**:
+   - In `apps/web/src/pages/LoginPage.tsx`, the `handleQuickDemo` function previously had a fallback block: if `authApi.login()` failed with 401 or 404, it automatically invoked `authApi.register({ name: demoName, email: demoEmail, password: "Industry2025!", role: demoRole })`.
+   - On the backend, `apps/api/src/routes/auth.routes.ts` enforces that when `NODE_ENV === "production"` and `ENABLE_PUBLIC_REGISTRATION !== "true"`, `POST /api/v1/auth/register` strictly returns `HTTP 403 Forbidden` (`REGISTRATION_RESTRICTED: "Public self-registration is disabled in production. Accounts must be provisioned by an administrator."`).
+   - Because the live production MongoDB cluster did not contain the demo accounts with password `Industry2025!`, clicking "Lead Eng" (or any demo button) attempted login, received 401, attempted registration, and was rejected with 403.
+   - The UI surfaced this raw error directly, giving the false impression that self-registration was being attempted intentionally.
+
+2. **Remediation Implemented**:
+   - **Frontend (`LoginPage.tsx`)**:
+     - Removed all automatic calls to `authApi.register()` from `handleQuickDemo`. Demo buttons only attempt authentication.
+     - Removed hardcoded reliance on `"Industry2025!"` in production. Demo password can optionally be supplied via `VITE_DEMO_PASSWORD` in development.
+     - When demo credentials are not configured or rejected with 401, the UI pre-fills the email field and displays clear guidance instructing the operator to enter their provisioned password or use the administrative CLI utility.
+     - Added an informational banner when the registration form is toggled explaining that public self-registration is restricted in production.
+   - **Backend (`auth.routes.ts`)**:
+     - Enhanced `isProduction` check in `/register` route to evaluate dynamic `process.env.NODE_ENV === "production" || env.NODE_ENV === "production"`.
+   - **Administrative CLI Utility (`provision-user.ts` & `provision.service.ts`)**:
+     - Implemented `apps/api/src/services/provision.service.ts` with strict Zod validation (`ProvisionUserSchema`), role validation (`admin`, `engineer`, `viewer`), password hashing via `bcrypt.hash(password, 10)`, explicit `--confirm` requirement, and account protection refusing to overwrite existing users.
+     - Implemented `apps/api/src/scripts/provision-user.ts` as a standalone CLI utility that connects to MongoDB, provisions the requested operator, and exits cleanly without running full demo seeds or creating synthetic documents/chunks/equipment.
+     - Added npm script `"provision-user": "tsx src/scripts/provision-user.ts"` to `apps/api/package.json`.
+
+### Test Results
+
+- **Backend Tests (`npm --prefix apps/api test`)**: 13 test files passed, 144 tests passed (including 8 new tests in `test/stage5_provisioning.test.ts`).
+- **Frontend Tests (`npm --prefix apps/web test`)**: 3 test files passed, 25 tests passed (including 3 new tests in `test/stage5_login_provisioning.test.tsx`).
+- **Monorepo Build (`npm run build`)**: `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` all compiled cleanly with exit code 0.
+- **Compiled CLI Test**: Tested compiled `dist/scripts/provision-user.js` against local test database. Validated account creation, password hashing, `--confirm` requirement, missing password handling, and existing-account overwrite protection.

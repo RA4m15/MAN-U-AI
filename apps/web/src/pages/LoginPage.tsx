@@ -52,35 +52,39 @@ export function LoginPage() {
   const handleQuickDemo = async (demoRole: UserRole, demoName: string, demoEmail: string) => {
     setIsLoading(true);
     setError(null);
+    setEmail(demoEmail);
+
     try {
-      // 1. Attempt genuine login with seeded demo password
-      try {
-        const res = await authApi.login(demoEmail, "Industry2025!");
-        if (res.data?.success && res.data.data) {
-          login(res.data.data.token, res.data.data.user);
-          navigate("/");
-          return;
-        }
-      } catch (loginErr: any) {
-        // If not yet registered, register real user on backend
-        if (loginErr.response?.status === 401 || loginErr.response?.status === 404) {
-          const regRes = await authApi.register({
-            name: demoName,
-            email: demoEmail,
-            password: "Industry2025!",
-            role: demoRole,
-          });
-          if (regRes.data?.success && regRes.data.data) {
-            login(regRes.data.data.token, regRes.data.data.user);
-            navigate("/");
-            return;
-          }
-        }
-        throw loginErr;
+      // In development or local environments, an optional demo password can be provided via VITE_DEMO_PASSWORD.
+      // In production, no hardcoded password is used.
+      const demoPassword = import.meta.env.VITE_DEMO_PASSWORD || (import.meta.env.DEV ? "Industry2025!" : "");
+
+      if (!demoPassword) {
+        setError(
+          `Demo account selected (${demoEmail}). Production demo credentials are not configured. Please enter the password provisioned for this account, or provision an operator account using the administrative CLI utility.`
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      // Quick Demo must only attempt authentication, never automatic registration
+      const res = await authApi.login(demoEmail, demoPassword);
+      if (res.data?.success && res.data.data) {
+        login(res.data.data.token, res.data.data.user);
+        navigate("/");
+        return;
+      } else {
+        throw new Error(res.data?.error?.message || "Authentication failed");
       }
     } catch (err: any) {
-      const msg = err.response?.data?.error?.message || err.message || "Backend login failed. Ensure API server is active.";
-      setError(msg);
+      if (err.response?.status === 401 || err.response?.status === 400) {
+        setError(
+          `Authentication failed for ${demoEmail}. The account is either not provisioned or credentials are invalid. In production, accounts must be provisioned securely via the administrative CLI utility.`
+        );
+      } else {
+        const msg = err.response?.data?.error?.message || err.message || "Backend login failed. Ensure API server is active.";
+        setError(msg);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -149,6 +153,11 @@ export function LoginPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {isRegister && (
+            <div className="p-2.5 rounded-lg bg-surface-2 border border-hairline text-2xs text-ink-subtle">
+              <span className="font-semibold text-primary">Notice:</span> Public self-registration is restricted in production environments. Accounts must be provisioned by an administrator.
+            </div>
+          )}
           {isRegister && (
             <div>
               <label className="block text-2xs font-medium text-ink-subtle mb-1 uppercase tracking-wider">

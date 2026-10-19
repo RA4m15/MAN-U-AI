@@ -11,7 +11,7 @@ import { authLimiter } from "../middlewares/rateLimiters";
 export const authRouter: Router = Router();
 
 authRouter.post("/register", authLimiter, async (req: Request, res: Response) => {
-  const isProduction = env.NODE_ENV === "production";
+  const isProduction = process.env.NODE_ENV === "production" || env.NODE_ENV === "production";
 
   // In production, public registration is restricted unless explicitly enabled
   if (isProduction && process.env.ENABLE_PUBLIC_REGISTRATION !== "true") {
