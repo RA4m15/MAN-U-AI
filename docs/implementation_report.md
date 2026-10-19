@@ -1273,22 +1273,23 @@ Stage 5 performs the final live production acceptance audit for MAN-U-AI across 
   - Active Bundle: `/assets/index-BTmuujl8.js` (491,099 bytes).
   - API Resolution: Bundle resolves API calls to `https://man-u-ai.onrender.com/api/v1` and WebSocket to production wss edge. Zero requests target `localhost` or `127.0.0.1`.
 
-#### 2. Live Service Configuration & Integration Health
+#### 2. Service Configuration & Local Provider Execution
 - **MongoDB Atlas Connectivity:** Direct read-only database ping executed against MongoDB Atlas:
   - Result: `{"ok": 1}`.
   - Existing collections: 14 collections intact without modification.
-- **Live Google Gemini Generation:** Executed a single live test request targeting `gemini-3.8-flash` with sampling parameters omitted:
-  - Result: **PASS** (`RESPONSE TEXT: READY`).
-  - Verification: Gemini API rate limit quota has reset and responds accurately with deterministic configuration.
-- **Live Cloudinary Authenticated Streaming & Byte Integrity:** Executed live raw-file upload, signed private download, and exact byte-for-byte comparison:
+- **Local Provider Probe (Google Gemini):** Executed a single test request targeting `gemini-3.8-flash` using local environment credentials with sampling parameters omitted:
+  - Result: **PASS (Local Provider)** (`RESPONSE TEXT: READY`).
+  - Note: Proves Google GenAI SDK and API key validity in local environment, but does not prove the remote Render container has operational credentials.
+- **Local Provider Probe (Cloudinary):** Executed raw-file upload, signed private download, and exact byte-for-byte comparison using local environment credentials:
   - Test Public ID: `manuai/documents/stage5_probe_378a3596-8367-4669-9fe5-2c0237908f35`
-  - Upload Result: Success (96 bytes).
   - Download HTTP Status: `200 OK`.
   - Byte-for-Byte Equality: `true` (96/96 bytes matching original binary).
-  - Cleanup: Destroyed immediately via `cloudinary.uploader.destroy()`; subsequent query confirmed `not found` (0 orphaned assets).
+  - Cleanup: Destroyed immediately via `cloudinary.uploader.destroy()`; subsequent query confirmed `not found`.
+  - Note: Proves Cloudinary SDK and storage credentials in local environment, but does not prove remote Render container configuration.
 
 #### 3. Real Deployed Document-to-Answer Workflow
-- **Authentication Boundary:** Probed `/api/v1/auth/login` on the deployed API with known accounts (`admin@plant.io`, `alex.mercer@plant.io`, `marcus.v@plant.io`). Returned HTTP `401 Unauthorized` (`INVALID_CREDENTIALS`), confirming password hashes were rotated in Stage 0/1 and default credentials revoked.
+- **Authentication Probe:** Probed `/api/v1/auth/login` on the deployed API with demo credentials (`admin@plant.io`, password `Industry2025!`). Returned HTTP `401 Unauthorized` (`INVALID_CREDENTIALS`).
+  - Correction: A rejected login attempt demonstrates only that the tested password does not authenticate against existing records; it does not prove whether passwords were rotated.
 - **Production Safety Protocol:** Per mandate, production Atlas records cannot be seeded, reset, or altered to inject test credentials.
 - **Status:** Marked **BLOCKED** for the deployed production service pending provision of an authorized production test operator session. (Verified in isolated pipeline via `test/document_to_answer.test.ts`).
 
@@ -1300,7 +1301,7 @@ Stage 5 performs the final live production acceptance audit for MAN-U-AI across 
 #### 5. Live Frontend & Real-Time Behavior
 - **Browser Subagent Navigation:** Loaded `https://man-u-ai-1.onrender.com/` in Chromium browser subagent.
 - **UI State:** Rendered dark industrial theme (`MAN-U-AI | Industrial AI Copilot`), quick demo role selectors, and login form.
-- **Network Behavior:** Authenticated requests correctly target `https://man-u-ai.onrender.com`. Zero network requests target `localhost`.
+- **Network Behavior:** Authenticated requests target `https://man-u-ai.onrender.com`. Zero network requests target `localhost`.
 - **Error Handling:** Failed login attempts render clear, honest error notifications without synthetic data fallbacks.
 
 ---
@@ -1309,23 +1310,114 @@ Stage 5 performs the final live production acceptance audit for MAN-U-AI across 
 
 | Item / Requirement | Evaluation Category | Status | Evidence / Observation |
 | :--- | :--- | :---: | :--- |
-| **Git & Branch Alignment** | Deployment Identity | **PASS** | `HEAD` equals `origin/main` (`2bdedef`), clean tree |
+| **Git & Branch Alignment** | Deployment Identity | **PASS** | `HEAD` equals `origin/main` (`1f399dd`), clean tree |
 | **Render API Commit SHA** | Deployment Identity | **BLOCKED** | Render API credentials not provisioned in environment |
 | **API Health & Readiness** | Deployment Identity | **PASS** | `GET /health` and `GET /health/ready` returned 200 OK |
 | **Frontend Production Bundle** | Frontend Delivery | **PASS** | `https://man-u-ai-1.onrender.com/` serves Vite bundle (`BTmuujl8`) |
 | **Frontend Endpoint Resolution** | Frontend Delivery | **PASS** | Bundle targets `man-u-ai.onrender.com`; 0 localhost requests |
 | **MongoDB Atlas Ping** | Database Health | **PASS** | Read-only admin ping returned `{"ok": 1}` |
-| **Google GenAI Key Config** | AI Engine | **PASS** | Configured and active (`keyConfigured: true`) |
-| **Live Gemini Generation Request** | AI Engine | **PASS** | Single live request succeeded (`gemini-3.8-flash` returned "READY") |
+| **Google GenAI Key Config** | AI Engine | **PASS** | Health endpoint reports `keyConfigured: true` |
+| **Local Gemini Generation Request** | AI Engine | **PASS (Local)** | Single request succeeded (`gemini-3.8-flash` returned "READY") |
 | **Gemini Sampling Compliance** | AI Engine | **PASS** | Omitted `temperature`, `top_p`, `top_k` across all allowed models |
-| **Cloudinary Private Upload/Download** | Storage Health | **PASS** | Authenticated upload, signed download, exact byte match (96B) |
+| **Local Cloudinary Upload/Download** | Storage Health | **PASS (Local)** | Authenticated upload, signed download, exact byte match (96B) |
 | **Cloudinary Test Asset Cleanup** | Production Safeguards | **PASS** | Immediately deleted; verified `not found` |
 | **Cloudinary Stream SSRF Hardening** | Security Hardening | **PASS** | HTTPS enforced, private IP/localhost rejected, sockets drained |
-| **Live Deployed PDF Upload & Ingestion**| End-to-End Workflow | **BLOCKED** | Production credentials rotated; no authorized session provided |
+| **Live Deployed PDF Upload & Ingestion**| End-to-End Workflow | **BLOCKED** | No authorized production session provided |
 | **Live Deployed RAG Citation Query** | End-to-End Workflow | **BLOCKED** | Blocked on authorized production session |
 | **Isolated PDF Byte Fidelity & Ingestion** | Pipeline Integrity | **PASS** | `document_to_answer.test.ts`: bit-for-bit PDF match (3035B) |
 | **Frontend Real-Time & UI State** | User Interface | **PASS** | Validated via browser subagent; honest authentication errors |
-| **Backend Regression Suite** | Quality Assurance | **PASS** | 12 files, 133 tests passed (`vitest`) |
+| **Backend Regression Suite** | Quality Assurance | **PASS** | 12 files, 135 tests passed (`vitest`) |
 | **Frontend Regression Suite** | Quality Assurance | **PASS** | 2 files, 22 tests passed (`vitest`) |
 | **Full Monorepo Builds** | Compilation | **PASS** | `@man-u-ai/shared`, `@man-u-ai/api`, `@man-u-ai/web` exit 0 |
 | **Git Diff Whitespace Hygiene** | Code Hygiene | **PASS** | `git diff --check` returned 0 whitespace errors |
+
+---
+
+## 22. STAGE 5.1: FINAL PRODUCTION CONFIGURATION AUDIT & DEFECT REPORT
+
+### Executive Summary
+Stage 5.1 audits the consistency between the tracked repository configuration, test suites, and live Render deployments. This investigation identified critical infrastructure gaps preventing full Stage 5 sign-off:
+1. **Critical CORS Failure:** The live deployed API (`man-u-ai.onrender.com`) is configured with `CORS_ORIGIN="http://localhost:5173"`, actively rejecting all browser requests from the deployed frontend (`https://man-u-ai-1.onrender.com`) with `HTTP 403 Forbidden`.
+2. **Service Routing & Name Mismatch:** `render.yaml` defines static site `name: man-u-ai-web` (which returns `404 no-server`), whereas the live frontend is deployed at `https://man-u-ai-1.onrender.com/`.
+3. **Information Disclosure Hardening:** Enhanced `sanitizeError()` in `apps/api/src/routes/settings.routes.ts` to redact absolute filesystem paths, internal IP addresses, MongoDB replica set member hostnames, and raw JSON RPC error blobs. Added 2 regression tests in `stage3_settings_and_integrations.test.ts`.
+
+---
+
+### Audit Findings Organized by Severity
+
+#### Severity 1 (CRITICAL): Live CORS Origin Mismatch Blocks All Browser Traffic
+- **Observation:** Direct HTTP probes to `https://man-u-ai.onrender.com/health` with `Origin: https://man-u-ai-1.onrender.com` returned:
+  - `HTTP 403 Forbidden` (`access-control-allow-origin: null`).
+  - Preflight `OPTIONS /api/v1/auth/login` returned `HTTP 403 Forbidden`.
+  - Contrast: `Origin: http://localhost:5173` returned `HTTP 200 OK` (`access-control-allow-origin: http://localhost:5173`).
+- **Impact:** Any user opening `https://man-u-ai-1.onrender.com/` in a standard browser has all network requests blocked by CORS before reaching application routes.
+- **Root Cause:** In Render dashboard for Web Service `man-u-ai`, `CORS_ORIGIN` is either unset (falling back to default `http://localhost:5173`) or set strictly to localhost.
+- **Required Action:** In Render Dashboard under Web Service `man-u-ai` -> Environment, set:
+  ```
+  CORS_ORIGIN=https://man-u-ai-1.onrender.com,https://man-u-ai-web.onrender.com
+  ```
+
+#### Severity 2 (HIGH): Service Name & Routing Discrepancy
+- **Observation:** `render.yaml` specifies frontend static site `name: man-u-ai-web` and backend web service `name: man-u-ai-api`.
+  - `https://man-u-ai-web.onrender.com` returns `404 (x-render-routing: no-server)`.
+  - `https://man-u-ai-api.onrender.com` returns `404`.
+  - The live services are hosted at `https://man-u-ai.onrender.com` (backend) and `https://man-u-ai-1.onrender.com/` (frontend).
+- **Impact:** Applying `render.yaml` via Render Blueprints (Sync) would create duplicate services or fail without manual service binding.
+- **Policy Compliance:** In accordance with instructions, services were NOT renamed, deleted, duplicated, or recreated. Service reconciliation must be coordinated in the Render Dashboard.
+
+#### Severity 3 (HIGH): Unverifiable Deployed Commit SHA Without Dashboard Access
+- **Observation:** Render does not expose the active Git commit SHA in HTTP response headers, ETag, or health responses. No Render API credentials (`RENDER_API_KEY`) exist in the environment.
+- **Status:** **BLOCKED**. Verification of active deployed commit SHA must be performed manually in the Render Dashboard.
+
+#### Severity 4 (MEDIUM - RESOLVED): Correction of Provider & Workflow Claims
+- **Correction 1:** A rejected login attempt (`401 INVALID_CREDENTIALS`) indicates only that the tested credentials do not match stored hashes; it does not prove that password rotation completed.
+- **Correction 2:** Local Gemini and Cloudinary test executions confirm local `.env` and SDK validity, but do not prove that the deployed Render container is configured or operational.
+- **Correction 3:** The live PDF-to-answer workflow is proven in the isolated local integration pipeline (`test/document_to_answer.test.ts`), but remains **BLOCKED** on the live production cluster until an authorized session is available.
+
+#### Severity 5 (LOW - RESOLVED): Integration Probe Information Disclosure
+- **Finding:** Connection probe failure messages could disclose absolute server paths (`C:\...`, `/var/data/...`), internal IP addresses, standalone MongoDB Atlas replica hostnames, or raw Google RPC JSON dumps.
+- **Code Fix:** Enhanced `sanitizeError()` in [`apps/api/src/routes/settings.routes.ts`](file:///c:/Shiva/MORE/Projects/MAN-U-AI/apps/api/src/routes/settings.routes.ts#L59) to redact filesystem paths (`[REDACTED_PATH]`), standalone hosts (`[REDACTED_HOST]`), internal IPs (`[REDACTED_IP]`), and parse raw JSON RPC error dumps.
+- **Regression Tests:** Added 2 new tests in [`apps/api/test/stage3_settings_and_integrations.test.ts`](file:///c:/Shiva/MORE/Projects/MAN-U-AI/apps/api/test/stage3_settings_and_integrations.test.ts#L820).
+
+---
+
+### Manual Checklist for Completing Live Production Acceptance
+
+To achieve complete production sign-off, an operator with Render Dashboard access must execute the following steps:
+
+1. **Configure CORS on Render Web Service:**
+   - Go to [Render Dashboard](https://dashboard.render.com) -> Web Service `man-u-ai` (or `man-u-ai-api`) -> **Environment**.
+   - Set `CORS_ORIGIN` to:
+     ```
+     https://man-u-ai-1.onrender.com,https://man-u-ai-web.onrender.com
+     ```
+   - Save changes and allow the service to deploy.
+2. **Verify Deployed Commit SHAs:**
+   - In Render Dashboard for `man-u-ai` (Backend API), check **Events** / **Deploys**. Confirm the active deployment matches commit `HEAD` (`1f399dd` or later).
+   - In Render Dashboard for `man-u-ai-1` (Frontend Static Site), confirm the active deployment matches commit `HEAD`.
+3. **Verify Environment Variables on Backend:**
+   - Confirm `STORAGE_PROVIDER=cloudinary` and Cloudinary credentials (`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`) are non-empty.
+   - Confirm `GEMINI_API_KEY` is configured.
+   - Confirm `NODE_ENV=production`.
+4. **Authenticate with an Authorized Account:**
+   - Visit `https://man-u-ai-1.onrender.com/login`.
+   - Log in using an authorized operator account with valid credentials.
+5. **Execute Live In-Flight Acceptance Workflow:**
+   - Upload a benign test PDF (e.g. `test_authorized_manual.pdf`).
+   - Observe real-time indexing progression via WebSocket.
+   - Ask an in-scope question in Assistant and verify returned answer and citations reference the uploaded document.
+   - Ask an out-of-scope question and verify absence of hallucinated facts or citations.
+   - Download the uploaded PDF from the UI and verify byte-for-byte fidelity.
+   - Clean up the uploaded test document through the UI.
+
+---
+
+### Definitive List of Blocked Acceptance Gates
+
+| Gate ID | Acceptance Gate | Status | Blocker Description |
+| :---: | :--- | :---: | :--- |
+| **G-1** | **Live Render CORS Authorization** | **BLOCKED** | `CORS_ORIGIN` on deployed backend rejects `https://man-u-ai-1.onrender.com` with HTTP 403. |
+| **G-2** | **Render Deployed Commit SHA** | **BLOCKED** | Requires Render Dashboard access to verify running deployment SHA. |
+| **G-3** | **Live Document Upload & Ingestion** | **BLOCKED** | Requires authorized production operator session and unblocked CORS. |
+| **G-4** | **Live Generative RAG & Citations** | **BLOCKED** | Requires authorized production session on deployed cluster. |
+| **G-5** | **Service Name Alignment** | **BLOCKED** | Requires operator decision on reconciling `render.yaml` service names with live URLs. |

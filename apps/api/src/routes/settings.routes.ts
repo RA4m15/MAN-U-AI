@@ -77,6 +77,18 @@ export function sanitizeError(err: unknown): string {
     }
   }
 
+  // If error message is a raw JSON/RPC error payload, extract message property cleanly
+  if (msg.trim().startsWith("{") && msg.includes('"message"')) {
+    try {
+      const parsed = JSON.parse(msg.trim());
+      if (parsed.error?.message && typeof parsed.error.message === "string") {
+        msg = parsed.error.message;
+      }
+    } catch {
+      // not valid JSON, proceed with normal string redaction
+    }
+  }
+
   // Redact MongoDB connection strings containing credentials
   msg = msg.replace(/mongodb(?:\+srv)?:\/\/[^\s@]+@[^\s/]+/gi, "mongodb://[REDACTED_USER:PASS]@[REDACTED_HOST]");
 
@@ -86,6 +98,15 @@ export function sanitizeError(err: unknown): string {
 
   // Redact sensitive parameter values while capturing parameter name in group 1 and replacing entire value
   msg = msg.replace(/(api_key|apiKey|api_secret|secret|password|token|key)\s*=\s*["']?([^"'`\s&,;]+)["']?/gi, "$1=[REDACTED]");
+
+  // Redact absolute filesystem paths (Windows C:\... and Unix /var/..., /home/..., /app/...)
+  msg = msg.replace(/(?:[a-zA-Z]:\\[a-zA-Z0-9_\-\.\\]+|\/(?:var|home|usr|etc|tmp|app|srv|opt)\/[a-zA-Z0-9_\-\.\/]+)/gi, "[REDACTED_PATH]");
+
+  // Redact standalone MongoDB Atlas cluster and shard hostnames
+  msg = msg.replace(/[a-zA-Z0-9_\-\.]+\.mongodb\.net(?::\d+)?/gi, "[REDACTED_HOST]");
+
+  // Redact internal IPv4 addresses
+  msg = msg.replace(/\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?::\d+)?\b/g, "[REDACTED_IP]");
 
   return `[${errCategory}] ${msg}`;
 }

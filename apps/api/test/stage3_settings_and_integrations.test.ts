@@ -817,6 +817,41 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
       expect(sanitized3).toContain("cloudinary://[REDACTED_CREDENTIALS]@[REDACTED_CLOUD]");
     });
 
+    it("redacts absolute filesystem paths, internal IPs, and standalone shard hostnames", () => {
+      const pathErr = new Error("ENOENT: cannot create directory at /var/data/uploads/documents/private or C:\\Users\\Administrator\\data");
+      const sanitizedPath = sanitizeError(pathErr);
+      expect(sanitizedPath).not.toContain("/var/data/uploads/documents/private");
+      expect(sanitizedPath).not.toContain("C:\\Users\\Administrator\\data");
+      expect(sanitizedPath).toContain("[REDACTED_PATH]");
+
+      const ipErr = new Error("Failed to connect to internal PLC at 192.168.1.150:502 or replica member 10.0.4.12:27017");
+      const sanitizedIp = sanitizeError(ipErr);
+      expect(sanitizedIp).not.toContain("192.168.1.150:502");
+      expect(sanitizedIp).not.toContain("10.0.4.12:27017");
+      expect(sanitizedIp).toContain("[REDACTED_IP]");
+
+      const hostErr = new Error("Replica set member cluster0-shard-00-01.abcde.mongodb.net:27017 unreachable");
+      const sanitizedHost = sanitizeError(hostErr);
+      expect(sanitizedHost).not.toContain("cluster0-shard-00-01.abcde.mongodb.net");
+      expect(sanitizedHost).toContain("[REDACTED_HOST]");
+    });
+
+    it("extracts clean message from raw JSON RPC error dumps without leaking RPC details", () => {
+      const rawRpcError = JSON.stringify({
+        error: {
+          code: 429,
+          message: "You exceeded your current quota for model gemini-3.8-flash",
+          status: "RESOURCE_EXHAUSTED",
+          details: [{ project: "internal-google-project-12345", quotaId: "DailyQuotaPerUser" }],
+        },
+      });
+
+      const sanitizedRpc = sanitizeError(new Error(rawRpcError));
+      expect(sanitizedRpc).toContain("You exceeded your current quota for model gemini-3.8-flash");
+      expect(sanitizedRpc).not.toContain("internal-google-project-12345");
+      expect(sanitizedRpc).not.toContain("DailyQuotaPerUser");
+    });
+
     it("prepends safe error category/name and logs safely on route failures", async () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
