@@ -42,8 +42,15 @@ export function LoginPage() {
         }
       }
     } catch (err: any) {
-      const msg = err.response?.data?.error?.message || err.message || "Authentication failed. Please verify credentials.";
-      setError(msg);
+      if (err.response?.data?.error?.message) {
+        setError(err.response.data.error.message);
+      } else if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
+        setError(
+          "Authentication request timed out after 30 seconds. The backend service may be cold starting or database connection is unreachable. Please retry in a moment."
+        );
+      } else {
+        setError(err.message || "Authentication failed. Please verify credentials.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -81,8 +88,14 @@ export function LoginPage() {
         setError(
           `Authentication failed for ${demoEmail}. The account is either not provisioned or credentials are invalid. In production, accounts must be provisioned securely via the administrative CLI utility.`
         );
+      } else if (err.response?.data?.error?.message) {
+        setError(err.response.data.error.message);
+      } else if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
+        setError(
+          "Backend authentication request timed out after 30 seconds. The API service may be cold starting. Please retry in a moment."
+        );
       } else {
-        const msg = err.response?.data?.error?.message || err.message || "Backend login failed. Ensure API server is active.";
+        const msg = err.message || "Backend login failed. Ensure API server is active.";
         setError(msg);
       }
     } finally {

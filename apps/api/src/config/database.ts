@@ -69,10 +69,13 @@ export async function connectDatabase(overrideUri?: string): Promise<boolean> {
       connectTimeoutMS: 10000,
     });
 
-    // Real database ping to confirm cluster connectivity
+    // Real database ping to confirm cluster connectivity with bounded 5s timeout
     const adminDb = mongoose.connection.db?.admin();
     if (adminDb) {
-      await adminDb.ping();
+      await Promise.race([
+        adminDb.ping(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Database ping timed out")), 5000)),
+      ]);
     }
 
     isConnectedToMongo = true;

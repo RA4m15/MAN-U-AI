@@ -53,7 +53,7 @@ authRouter.post("/register", authLimiter, async (req: Request, res: Response) =>
   }
 
   try {
-    const existing = await User.findOne({ email });
+    const existing = await User.findOne({ email }).maxTimeMS(8000).exec();
     if (existing) {
       return res.status(409).json({
         success: false,
@@ -85,7 +85,23 @@ authRouter.post("/register", authLimiter, async (req: Request, res: Response) =>
       },
     });
   } catch (err: unknown) {
-    console.error("[Auth] Registration failure:", err);
+    const isTimeout =
+      (err instanceof Error && (err.message === "AUTH_QUERY_TIMEOUT" || (err as any).name === "MongoServerError" && (err as any).codeName === "MaxTimeMSExpired")) ||
+      String(err).includes("buffering timed out") ||
+      String(err).includes("timed out");
+
+    if (isTimeout) {
+      console.error("[Auth] Database operation timed out during registration");
+      return res.status(504).json({
+        success: false,
+        error: {
+          code: "AUTH_TIMEOUT",
+          message: "Registration service timed out waiting for database. Please try again.",
+        },
+      });
+    }
+
+    console.error("[Auth] Registration failure:", err instanceof Error ? err.message : "Internal error");
     return res.status(500).json({
       success: false,
       error: {
@@ -115,7 +131,12 @@ authRouter.post("/login", authLimiter, async (req: Request, res: Response) => {
   }
 
   try {
-    const user = await User.findOne({ email });
+    const userPromise = User.findOne({ email }).maxTimeMS(8000).exec();
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("AUTH_QUERY_TIMEOUT")), 10000)
+    );
+
+    const user = await Promise.race([userPromise, timeoutPromise]);
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -151,7 +172,23 @@ authRouter.post("/login", authLimiter, async (req: Request, res: Response) => {
       },
     });
   } catch (err: unknown) {
-    console.error("[Auth] Login failure:", err);
+    const isTimeout =
+      (err instanceof Error && (err.message === "AUTH_QUERY_TIMEOUT" || (err as any).name === "MongoServerError" && (err as any).codeName === "MaxTimeMSExpired")) ||
+      String(err).includes("buffering timed out") ||
+      String(err).includes("timed out");
+
+    if (isTimeout) {
+      console.error("[Auth] Database operation timed out during login");
+      return res.status(504).json({
+        success: false,
+        error: {
+          code: "AUTH_TIMEOUT",
+          message: "Authentication service timed out waiting for database verification. Please try again.",
+        },
+      });
+    }
+
+    console.error("[Auth] Login failure:", err instanceof Error ? err.message : "Internal error");
     return res.status(500).json({
       success: false,
       error: {

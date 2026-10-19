@@ -18,6 +18,43 @@ import { integrationsRouter } from "./routes/integrations.routes";
 
 export const app = express();
 
+// Enable trust proxy for Render reverse proxy and accurate IP detection
+app.set("trust proxy", 1);
+
+// Response timing diagnostic header
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const start = Date.now();
+  const originalWriteHead = res.writeHead;
+  res.writeHead = function (...args: any[]) {
+    if (!res.headersSent) {
+      res.setHeader("X-Response-Time", `${Date.now() - start}ms`);
+    }
+    return (originalWriteHead as any).apply(this, args);
+  };
+  next();
+});
+
+// Server-side request timeout guard (25 seconds)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  // Allow test overrides if specified
+  const timeoutMs = Number(process.env.TEST_REQUEST_TIMEOUT_MS) || 25_000;
+  const timer = setTimeout(() => {
+    if (!res.headersSent) {
+      res.status(504).json({
+        success: false,
+        error: {
+          code: "REQUEST_TIMEOUT",
+          message: "The request exceeded the server response deadline. Please retry.",
+        },
+      });
+    }
+  }, timeoutMs);
+
+  res.on("finish", () => clearTimeout(timer));
+  res.on("close", () => clearTimeout(timer));
+  next();
+});
+
 // Security and compression middleware
 app.use(
   helmet({
