@@ -2160,3 +2160,48 @@ Inspection of the backend pipeline, source code, and live provider responses rev
 - **Web Frontend Tests (`npm --prefix apps/web test`)**: **5/5 test files passed, 30/30 tests passed**.
 - **Monorepo Build (`pnpm run build`)**: Compiled `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` with exit code 0.
 - **Git Diff Hygiene (`git diff --check`)**: Clean, 0 whitespace errors.
+
+---
+
+## 34. Stage 5.6: Fix Gemini Quota Failures, Zero-Quota Filtering, and Sanitized Public Error Handling
+
+### 34.1 Production Failure Diagnosis & Empirical Quota Audit
+On the live Assistant interface (`https://man-u-ai-1.onrender.com/chat`), submitting the technical query *"What are the components of lathe machine?"* produced an oversized red error banner containing raw nested Google API error JSON with:
+1. `429 RESOURCE_EXHAUSTED` with nested Google RPC `QuotaFailure` violations.
+2. A provider retry delay of approximately 14 hours (`50768s`).
+3. An internal quota error indicating Free Tier request and token limits of `0` for `gemini-4-argon`.
+4. Raw unformatted error JSON rendered directly on the browser screen.
+
+Direct investigation of the live environment and empirical probing of the Google GenAI API endpoint with project credentials established the exact root causes:
+- **`gemini-3.6-flash` & `gemini-3.8-flash` Quota Exhaustion:** The project's Google Cloud project operates under the Free Tier (`GenerateRequestsPerDayPerProjectPerModel-FreeTier` limit: 20 per day). Both models reached their 20 request/day quota, with upstream retry delays of ~14 hours (`50768s`).
+- **`gemini-4-argon` Zero Quota:** Under the Free Tier, `gemini-4-argon` is allocated a quota limit of **0** (`limit: 0` for both requests and input tokens). Attempting failover to `gemini-4-argon` will ALWAYS return 429 RESOURCE_EXHAUSTED.
+- **Uncontrolled Fallback Array:** The prior failover implementation in `gemini.service.ts` blindly looped over all models without checking whether candidates had zero quota or were in active cooldown. When all models failed, the service attached `safeErrorMsg(lastError)` (which contained the entire raw Google API JSON string) to the thrown exception message.
+- **Unsanitized Client Error Propagation:** `apps/api/src/utils/errorReporting.ts` forwarded the raw message to `details`, and `apps/web/src/pages/AssistantPage.tsx` concatenated `${errData.message} (${errData.details})`, resulting in the massive raw error JSON banner in the UI.
+
+### 34.2 Remediation & Architectural Changes
+1. **Model Quota Tracker (`apps/api/src/services/gemini.service.ts`):**
+   - Implemented `analyzeProviderError`: Parses Google GenAI error payloads, extracting violation metrics, zero-quota status (`limit: 0`), 429 status, and `retryDelaySeconds`.
+   - Implemented `ModelQuotaTracker`: Tracks per-model cooldown and zero-quota state. Models flagged with `limit: 0` (such as `gemini-4-argon` on Free Tier) are permanently disabled/filtered out of candidate failover. Models with daily quota limits respect cooldowns, preventing futile repeated upstream calls.
+   - Fast Failure / Short-Circuit: If all candidates are in cooldown, the service fails promptly (< 1s) with HTTP 503 instead of sleeping or making redundant HTTP roundtrips.
+2. **Dynamic Candidate Resolution & Official Gemini Preview Integration:**
+   - Added `gemini-3-flash-preview` to `SUPPORTED_MODELS` and `MODEL_CAPABILITIES` in `apps/api/src/services/settings.service.ts`. Empirical testing confirmed `gemini-3-flash-preview` is active, has available quota, and reliably answers industrial technical queries with page grounding.
+   - Added `GEMINI_FALLBACK_MODELS` to `env.ts` (`gemini-3-flash-preview,gemini-3.8-flash`) and `render.yaml`.
+   - Caller-specified model priority: When `options.model` or `modelOverride` is explicitly requested by a user or test, that model is attempted first without being skipped.
+3. **Scrubbed Public Error Contract (`apps/api/src/utils/errorReporting.ts` & `chat.routes.ts`):**
+   - Replaced raw provider JSON in error responses with safe, short human-readable messages:
+     - Quota Exhaustion (429): *"AI generation is temporarily unavailable because the configured model quota has been reached. Check the Gemini API project's quota and billing settings, or try again later."*
+     - Model Unavailable / Zero Quota: *"The requested AI model is currently unavailable or not accessible with the current project credentials. Please verify model configuration."*
+     - Provider Outage (503): *"The AI generation service is temporarily unavailable due to high upstream demand. Please try again shortly."*
+   - Scrubbed all responses to ensure raw JSON braces, API keys, Google RPC violations, or stack traces are NEVER returned to the client.
+   - Added request correlation ID (`requestId`) and safe optional `retryAfter` (only if <= 300s).
+4. **Resilient Frontend Alert (`apps/web/src/pages/AssistantPage.tsx`):**
+   - Replaced duplicate `${errData.message} (${errData.details})` concatenation with sanitized, single-source alert rendering.
+   - Formatted clean message with `(Request ID: req-xxxxxx)` for operator support.
+   - Guaranteed that failed attempts never persist oversized error payloads into conversation history.
+
+### 34.3 Verification & Test Execution
+- **API Test Suite (`npm --prefix apps/api test`):** **16/16 test files passed, 203/203 tests passed** (including 5 new Stage 5.6 regression tests).
+- **Web Test Suite (`npm --prefix apps/web test`):** **5/5 test files passed, 30/30 tests passed**.
+- **Monorepo Build (`pnpm run build`):** Clean exit code 0.
+- **Git Commit:** `1c30d60` pushed to `origin/main`.
+
