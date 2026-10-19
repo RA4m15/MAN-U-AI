@@ -303,6 +303,45 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
 
     it("parseAndSanitizeMongoTarget throws when URI is missing or empty", () => {
       expect(() => parseAndSanitizeMongoTarget("")).toThrow(/Target database URI is required/);
+      expect(() => parseAndSanitizeMongoTarget("   ")).toThrow(/Target database URI is empty/);
+    });
+
+    it("parseAndSanitizeMongoTarget rejects invalid schemes and control character glitched inputs like ^V", () => {
+      // Literal ^V string
+      expect(() => parseAndSanitizeMongoTarget("^V")).toThrow(/Unsupported MongoDB URI scheme/);
+      // Raw control character \x16 (Synchronous Idle / Ctrl+V)
+      expect(() => parseAndSanitizeMongoTarget("\x16")).toThrow(/Target database URI is empty/);
+      // HTTPS instead of mongodb
+      expect(() => parseAndSanitizeMongoTarget("https://cluster0.abcde.mongodb.net/manuai")).toThrow(/Unsupported MongoDB URI scheme/);
+    });
+
+    it("parseAndSanitizeMongoTarget strips wrapping quotes and leading/trailing control characters", () => {
+      // Wrapped in double quotes
+      const doubleQuoted = parseAndSanitizeMongoTarget('"mongodb+srv://cluster0.abcde.mongodb.net/manuai"');
+      expect(doubleQuoted.host).toBe("cluster0.abcde.mongodb.net");
+      expect(doubleQuoted.database).toBe("manuai");
+
+      // Wrapped in single quotes
+      const singleQuoted = parseAndSanitizeMongoTarget("'mongodb+srv://cluster0.abcde.mongodb.net/manuai'");
+      expect(singleQuoted.host).toBe("cluster0.abcde.mongodb.net");
+      expect(singleQuoted.database).toBe("manuai");
+
+      // Leading control characters with valid URI
+      const ctrlCharUri = parseAndSanitizeMongoTarget("\x16mongodb+srv://cluster0.abcde.mongodb.net/manuai\r\n");
+      expect(ctrlCharUri.host).toBe("cluster0.abcde.mongodb.net");
+      expect(ctrlCharUri.database).toBe("manuai");
+    });
+
+    it("parseAndSanitizeMongoTarget requires an explicit database in URI path and fails closed if missing", () => {
+      // Atlas URI without database path before query parameters
+      expect(() =>
+        parseAndSanitizeMongoTarget("mongodb+srv://user:pass@cluster0.abcde.mongodb.net/?retryWrites=true")
+      ).toThrow(/Database name is missing from URI path.*specify '\/manuai'/);
+
+      // Atlas URI without trailing slash or database
+      expect(() =>
+        parseAndSanitizeMongoTarget("mongodb+srv://user:pass@cluster0.abcde.mongodb.net")
+      ).toThrow(/Database name is missing from URI path.*specify '\/manuai'/);
     });
 
     it("promptMaskedPassword masks interactive input with asterisks and restores terminal raw mode", async () => {

@@ -19,21 +19,53 @@ export function sanitizeMongoMessage(msg: string): string {
 
 /**
  * Parses and sanitizes a MongoDB URI into host and database components.
- * Normalizes hostnames to detect all loopback and local addresses across uppercase,
- * IPv4 subnet (127.0.0.0/8), and IPv6 variants.
+ * Strips accidental quotes or control characters, validates protocol schemes,
+ * verifies database presence, and normalizes hostnames to detect all loopback variants.
  */
 export function parseAndSanitizeMongoTarget(uri: string): SanitizedTargetInfo {
-  if (!uri || typeof uri !== "string" || !uri.trim()) {
-    throw new Error("Target database URI is required. Supply TARGET_MONGODB_URI or MONGODB_URI in the environment, or pass --uri=<connection-string>.");
+  if (!uri || typeof uri !== "string") {
+    throw new Error(
+      "Target database URI is required. Supply TARGET_MONGODB_URI or MONGODB_URI in the environment, or pass --uri=<connection-string>."
+    );
   }
 
-  const match = uri.trim().match(/^mongodb(?:\+srv)?:\/\/(?:[^@]+@)?([^/?#]+)(?:\/([^?#]*))?/i);
+  // Strip leading/trailing control characters, whitespace, and wrapping quotes
+  let cleanedUri = uri.replace(/^[\s\x00-\x1F\x7F]+|[\s\x00-\x1F\x7F]+$/g, "");
+  if (
+    (cleanedUri.startsWith('"') && cleanedUri.endsWith('"')) ||
+    (cleanedUri.startsWith("'") && cleanedUri.endsWith("'"))
+  ) {
+    cleanedUri = cleanedUri.slice(1, -1).trim();
+  }
+
+  if (!cleanedUri) {
+    throw new Error(
+      "Target database URI is empty. Supply TARGET_MONGODB_URI or MONGODB_URI in the environment, or pass --uri=<connection-string>."
+    );
+  }
+
+  if (!cleanedUri.startsWith("mongodb://") && !cleanedUri.startsWith("mongodb+srv://")) {
+    throw new Error(
+      "Unsupported MongoDB URI scheme: Connection string must begin with 'mongodb://' or 'mongodb+srv://'."
+    );
+  }
+
+  const match = cleanedUri.match(/^mongodb(?:\+srv)?:\/\/(?:[^@]+@)?([^/?#]+)(?:\/([^?#]*))?/i);
   if (!match) {
-    throw new Error("Invalid MongoDB URI format.");
+    throw new Error("Invalid MongoDB URI format: Unable to parse host and database path.");
   }
 
   const rawHost = match[1].trim();
-  const database = match[2]?.trim() || "admin";
+  if (!rawHost || rawHost.includes("@")) {
+    throw new Error("Invalid MongoDB URI: Hostname is invalid or missing.");
+  }
+
+  const database = (match[2] || "").trim();
+  if (!database) {
+    throw new Error(
+      "Invalid MongoDB URI: Database name is missing from URI path. For production, specify '/manuai' before query parameters (e.g. mongodb+srv://<user>:<password>@cluster.mongodb.net/manuai?retryWrites=true)."
+    );
+  }
 
   // Normalize host: lowercase and strip IPv6 bracket enclosing or port numbers for address check
   const normalizedHost = rawHost.toLowerCase();
@@ -230,11 +262,18 @@ export async function provisionUserCli(options: ProvisionUserCliOptions): Promis
   const role = roleArg.toLowerCase() as "admin" | "engineer" | "viewer";
 
   // C. Fail-closed on database selection (NO default localhost fallback)
-  const rawUri = (args.uri as string) || envVars.TARGET_MONGODB_URI || envVars.MONGODB_URI || "";
+  let rawUri = (args.uri as string) || envVars.TARGET_MONGODB_URI || envVars.MONGODB_URI || "";
   if (!rawUri) {
-    throw new Error(
-      "Target database URI is required. Supply TARGET_MONGODB_URI or MONGODB_URI in the environment, or pass --uri=<connection-string>."
-    );
+    const anyInput = input as any;
+    const isTTY = !!anyInput.isTTY && typeof anyInput.setRawMode === "function";
+    if (isTTY) {
+      output.write("[Provision] Target MongoDB URI not found in environment variables.\n");
+      rawUri = await promptMaskedPassword("Enter target MongoDB URI (masked): ", input, output);
+    } else {
+      throw new Error(
+        "Target database URI is required. Supply TARGET_MONGODB_URI or MONGODB_URI in the environment, or pass --uri=<connection-string>."
+      );
+    }
   }
 
   const target = parseAndSanitizeMongoTarget(rawUri);

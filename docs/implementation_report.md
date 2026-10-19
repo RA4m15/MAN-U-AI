@@ -1533,3 +1533,91 @@ To provision the initial production operator account from your local workstation
 - **Backend Automated Tests (`npm --prefix apps/api test`)**: 13 test files passed, 159 tests passed (24 focused tests in `test/stage5_provisioning.test.ts`).
 - **Frontend Automated Tests (`npm --prefix apps/web test`)**: 3 test files passed, 25 tests passed.
 - **Monorepo Build (`npm run build`)**: `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` all compiled cleanly with exit code 0.
+
+---
+
+## 26. STAGE 5.2.3: FIX MONGODB URI INPUT AND SAFE ACCOUNT PROVISIONING
+
+### Root Cause Analysis of PowerShell URI Validation Failure
+
+When attempting to input the MongoDB Atlas URI in Windows PowerShell via:
+```powershell
+$env:TARGET_MONGODB_URI = Read-Host "Paste your NEW MongoDB Atlas URI"
+```
+the operator encountered:
+```
+URI is stored
+Starts with mongodb:// : False
+Starts with mongodb+srv:// : False
+Validation failed: Unsupported MongoDB URI scheme
+```
+
+Two distinct root causes produced this failure:
+1. **Windows PowerShell `Read-Host` Control Character Artifact (`0x16` / `^V`)**:
+   - In traditional Windows PowerShell consoles (powershell.exe), pressing the keyboard shortcut `Ctrl+V` inside `Read-Host` does not paste from the clipboard; instead, it transmits the raw ASCII control character **Synchronous Idle** (`0x16`, visual representation `^V`).
+   - Consequently, `$env:TARGET_MONGODB_URI` stored `"` (literal control character `\x16`), resulting in `.StartsWith('mongodb://')` and `.StartsWith('mongodb+srv://')` evaluating to `False`.
+   - In PowerShell, pasting clipboard content into a console prompt requires either Right-Clicking the console window, using Windows Terminal, or reading directly from clipboard via `Get-Clipboard`.
+2. **Missing Database Path in MongoDB Atlas Default Connection String**:
+   - MongoDB Atlas provides connection strings formatted as `mongodb+srv://<user>:<password>@cluster0.abcde.mongodb.net/?retryWrites=true`.
+   - The connection string lacks a database name in the path component before the query parameters (`?retryWrites=true`).
+   - When parsed, the database name defaulted to `"admin"` rather than `"manuai"`, violating the mandatory `--target-db=manuai` database constraint.
+
+### Hardening & Remediations Applied
+
+1. **`parseAndSanitizeMongoTarget` URI Parser Hardening (`apps/api/src/scripts/provision-user.ts`)**:
+   - **Control Character & Whitespace Stripping**: Cleans leading and trailing ASCII control characters (`[\x00-\x1F\x7F]`) and whitespace.
+   - **Wrapping Quote Stripping**: Automatically detects and strips surrounding single quotes (`'...'`) or double quotes (`"..."`).
+   - **Strict Scheme Validation**: Fails closed if the URI does not explicitly begin with `mongodb://` or `mongodb+srv://`.
+   - **Explicit Database Path Requirement**: Requires a non-empty database name in the URI path before query parameters. If missing (e.g. `cluster.mongodb.net/?retryWrites=true` or `cluster.mongodb.net`), fails closed with a clear message:
+     `Invalid MongoDB URI: Database name is missing from URI path. For production, specify '/manuai' before query parameters (e.g. mongodb+srv://<user>:<password>@cluster.mongodb.net/manuai?retryWrites=true).`
+   - **Host Validation & Sanitization**: Verifies that the host does not contain credentials or unparsed `@` symbols, normalizes the hostname, and preserves loopback detection for all IPv4/IPv6 variants.
+
+2. **Interactive TTY URI Prompting**:
+   - If `TARGET_MONGODB_URI` is not present in the environment variables, the CLI in an interactive TTY now securely prompts the operator:
+     `Enter target MongoDB URI (masked): `
+     using masked asterisks (`*`), avoiding command-line argument exposure and shell history tracking.
+   - In non-interactive mode, the CLI strictly fails closed unless `TARGET_MONGODB_URI` or `MONGODB_URI` is supplied in the environment.
+
+3. **Preservation of Mandatory Security Flags**:
+   - Mandatory `--role=<admin|engineer|viewer>`.
+   - Mandatory `--target-db=<dbname>`.
+   - Mandatory `--confirm`.
+   - Overwrite protection for existing accounts remains active.
+
+4. **Credential Rotation Advisory**:
+   - > [!CAUTION]
+     > Any database or API credentials previously entered in terminal prompts, screenshots, or chat logs MUST be treated as compromised. Operators must rotate the MongoDB Atlas database user password and update the corresponding `MONGODB_URI` in the Render Web Service environment variables prior to live acceptance testing.
+
+### Verified Test Results
+
+- **Backend Automated Tests (`npm --prefix apps/api test`)**: 13 test files passed, 162/162 tests passed (including 27 tests in `test/stage5_provisioning.test.ts`).
+- **Frontend Automated Tests (`npm --prefix apps/web test`)**: 3 test files passed, 25/25 tests passed.
+- **Monorepo Build (`npm run build`)**: `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` all compiled cleanly with exit code 0.
+- **Git Diff Whitespace Hygiene**: `git diff --check` passed with 0 errors.
+
+### Safe PowerShell Operator Workflow
+
+To provision the authorized operator account safely on Windows PowerShell:
+
+1. **Copy the Clean Connection String to Clipboard**:
+   - Ensure the MongoDB Atlas connection string contains `/manuai` before query parameters:
+     ```
+     mongodb+srv://<db-user>:<db-password>@<cluster-host>/manuai?retryWrites=true&w=majority
+     ```
+   - Copy this string to your clipboard (`Ctrl+C`).
+2. **Transfer from Clipboard to Environment Variable (No Plaintext on Screen or History)**:
+   In PowerShell, execute:
+   ```powershell
+   $env:TARGET_MONGODB_URI = (Get-Clipboard -Raw).Trim()
+   ```
+   *(Note: This reads directly from memory, avoids the `Read-Host` `Ctrl+V` control character artifact, does not echo secrets to the terminal, and does not save the URI to PowerShell command history).*
+3. **Execute the Safe Provisioning CLI**:
+   ```powershell
+   npm --prefix apps/api run provision-user -- --email="operator@plant.io" --role=admin --name="Plant Administrator" --target-db=manuai --confirm
+   ```
+4. **Enter Operator Password at Masked Prompt**:
+   - When prompted: `Enter operator password (masked): `, type the password.
+5. **Clean Up Environment Variable**:
+   ```powershell
+   Remove-Item Env:\TARGET_MONGODB_URI
+   ```
