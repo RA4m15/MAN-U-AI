@@ -18,6 +18,21 @@ export function sanitizeMongoMessage(msg: string): string {
 }
 
 /**
+ * Strips leading/trailing control characters, whitespace, and surrounding single or double quotes.
+ */
+export function cleanMongoUri(uri: string): string {
+  if (!uri || typeof uri !== "string") return "";
+  let cleaned = uri.replace(/^[\s\x00-\x1F\x7F]+|[\s\x00-\x1F\x7F]+$/g, "");
+  if (
+    (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+    (cleaned.startsWith("'") && cleaned.endsWith("'"))
+  ) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  return cleaned.replace(/^[\s\x00-\x1F\x7F]+|[\s\x00-\x1F\x7F]+$/g, "");
+}
+
+/**
  * Parses and sanitizes a MongoDB URI into host and database components.
  * Strips accidental quotes or control characters, validates protocol schemes,
  * verifies database presence, and normalizes hostnames to detect all loopback variants.
@@ -29,14 +44,7 @@ export function parseAndSanitizeMongoTarget(uri: string): SanitizedTargetInfo {
     );
   }
 
-  // Strip leading/trailing control characters, whitespace, and wrapping quotes
-  let cleanedUri = uri.replace(/^[\s\x00-\x1F\x7F]+|[\s\x00-\x1F\x7F]+$/g, "");
-  if (
-    (cleanedUri.startsWith('"') && cleanedUri.endsWith('"')) ||
-    (cleanedUri.startsWith("'") && cleanedUri.endsWith("'"))
-  ) {
-    cleanedUri = cleanedUri.slice(1, -1).trim();
-  }
+  const cleanedUri = cleanMongoUri(uri);
 
   if (!cleanedUri) {
     throw new Error(
@@ -50,51 +58,63 @@ export function parseAndSanitizeMongoTarget(uri: string): SanitizedTargetInfo {
     );
   }
 
-  const match = cleanedUri.match(/^mongodb(?:\+srv)?:\/\/(?:[^@]+@)?([^/?#]+)(?:\/([^?#]*))?/i);
+  const match = cleanedUri.match(/^mongodb(?:\+srv)?:\/\/(?:([^/@]+)@)?([^/?#]+)(?:\/([^?#]*))?(?:\?.*)?$/i);
   if (!match) {
+    if (cleanedUri.match(/^mongodb(?:\+srv)?:\/\/\//i)) {
+      throw new Error("Invalid MongoDB URI: Hostname is invalid or missing.");
+    }
     throw new Error("Invalid MongoDB URI format: Unable to parse host and database path.");
   }
 
-  const rawHost = match[1].trim();
-  if (!rawHost || rawHost.includes("@")) {
+  const rawHost = (match[2] || "").trim();
+  if (!rawHost || rawHost.includes("@") || /\s/.test(rawHost)) {
     throw new Error("Invalid MongoDB URI: Hostname is invalid or missing.");
   }
 
-  const database = (match[2] || "").trim();
+  const database = (match[3] || "").trim();
   if (!database) {
     throw new Error(
       "Invalid MongoDB URI: Database name is missing from URI path. For production, specify '/manuai' before query parameters (e.g. mongodb+srv://<user>:<password>@cluster.mongodb.net/manuai?retryWrites=true)."
     );
   }
 
-  // Normalize host: lowercase and strip IPv6 bracket enclosing or port numbers for address check
-  const normalizedHost = rawHost.toLowerCase();
-
-  // Strip port for IP/hostname matching (e.g. "localhost:27017" -> "localhost", "[::1]:27017" -> "::1")
-  let hostWithoutPort = normalizedHost;
-  if (normalizedHost.startsWith("[")) {
-    const closingBracket = normalizedHost.indexOf("]");
-    if (closingBracket !== -1) {
-      hostWithoutPort = normalizedHost.slice(1, closingBracket);
-    }
-  } else if ((normalizedHost.match(/:/g) || []).length === 1) {
-    // Exactly one colon: host with port, e.g. "localhost:27017" or "127.0.0.1:27017"
-    hostWithoutPort = normalizedHost.split(":")[0];
+  if (/\s/.test(database)) {
+    throw new Error("Invalid MongoDB URI: Database name contains invalid whitespace characters.");
   }
 
-  // Check IPv4 loopback (127.0.0.0/8), 0.0.0.0, localhost, and IPv6 loopback variants
-  const isIpv4Loopback = /^127\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}$/.test(hostWithoutPort);
-  const isIpv6Loopback =
-    hostWithoutPort === "::1" ||
-    hostWithoutPort === "0:0:0:0:0:0:0:1" ||
-    hostWithoutPort === "::" ||
-    hostWithoutPort === "0:0:0:0:0:0:0:0";
-  const isLocalhostDomain =
-    hostWithoutPort === "localhost" ||
-    hostWithoutPort === "0.0.0.0" ||
-    hostWithoutPort.endsWith(".localhost");
+  // Check for local host across all hosts (e.g. comma-separated replica sets)
+  const hostTokens = rawHost.split(",").map((h) => h.trim());
+  let isLocal = false;
 
-  const isLocal = isIpv4Loopback || isIpv6Loopback || isLocalhostDomain;
+  for (const token of hostTokens) {
+    const normalizedHost = token.toLowerCase();
+    let hostWithoutPort = normalizedHost;
+
+    if (normalizedHost.startsWith("[")) {
+      const closingBracket = normalizedHost.indexOf("]");
+      if (closingBracket !== -1) {
+        hostWithoutPort = normalizedHost.slice(1, closingBracket);
+      }
+    } else if ((normalizedHost.match(/:/g) || []).length === 1) {
+      hostWithoutPort = normalizedHost.split(":")[0];
+    }
+
+    const isIpv4Loopback = /^127\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}$/.test(hostWithoutPort);
+    const isIpv6Loopback =
+      hostWithoutPort === "::1" ||
+      hostWithoutPort === "0:0:0:0:0:0:0:1" ||
+      hostWithoutPort === "::" ||
+      hostWithoutPort === "0:0:0:0:0:0:0:0";
+    const isLocalhostDomain =
+      hostWithoutPort === "localhost" ||
+      hostWithoutPort === "0.0.0.0" ||
+      hostWithoutPort.endsWith(".localhost");
+
+    if (isIpv4Loopback || isIpv6Loopback || isLocalhostDomain) {
+      isLocal = true;
+      break;
+    }
+  }
 
   return { host: rawHost, database, isLocal };
 }
@@ -110,8 +130,6 @@ export async function promptMaskedPassword(
   output: NodeJS.WritableStream = process.stdout
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    output.write(prompt);
-
     const anyInput = input as any;
     const isTTY = !!anyInput.isTTY && typeof anyInput.setRawMode === "function";
 
@@ -189,6 +207,7 @@ export async function promptMaskedPassword(
       ttyInput.setRawMode(true);
       ttyInput.resume();
       ttyInput.on("data", onData);
+      output.write(prompt);
     } catch (err) {
       cleanup();
       reject(err);
@@ -261,27 +280,79 @@ export async function provisionUserCli(options: ProvisionUserCliOptions): Promis
   }
   const role = roleArg.toLowerCase() as "admin" | "engineer" | "viewer";
 
-  // C. Fail-closed on database selection (NO default localhost fallback)
+  // C. Target database resolution, validation, and safe recovery
+  const anyInput = input as any;
+  const isTTY = !!anyInput.isTTY && typeof anyInput.setRawMode === "function";
+
   let rawUri = (args.uri as string) || envVars.TARGET_MONGODB_URI || envVars.MONGODB_URI || "";
-  if (!rawUri) {
-    const anyInput = input as any;
-    const isTTY = !!anyInput.isTTY && typeof anyInput.setRawMode === "function";
-    if (isTTY) {
-      output.write("[Provision] Target MongoDB URI not found in environment variables.\n");
-      rawUri = await promptMaskedPassword("Enter target MongoDB URI (masked): ", input, output);
-    } else {
-      throw new Error(
-        "Target database URI is required. Supply TARGET_MONGODB_URI or MONGODB_URI in the environment, or pass --uri=<connection-string>."
-      );
+  let target: SanitizedTargetInfo | null = null;
+  let uriValidationError: string | null = null;
+
+  if (rawUri) {
+    try {
+      target = parseAndSanitizeMongoTarget(rawUri);
+    } catch (err: any) {
+      uriValidationError = err.message || String(err);
+      target = null;
     }
   }
 
-  const target = parseAndSanitizeMongoTarget(rawUri);
+  // If URI is missing or invalid:
+  if (!target) {
+    if (!isTTY) {
+      // Non-interactive fail-closed
+      const envHint = envVars.TARGET_MONGODB_URI
+        ? `\nThe current TARGET_MONGODB_URI environment variable contains invalid input:\n  ${sanitizeMongoMessage(uriValidationError || "Invalid URI")}\nTo clear the invalid value in PowerShell, run:\n  Remove-Item Env:\\TARGET_MONGODB_URI\n`
+        : "";
+      throw new Error(
+        `Target database URI is required and must be valid.${envHint}\nSupply a valid TARGET_MONGODB_URI or MONGODB_URI in the environment, or pass --uri=<connection-string>.`
+      );
+    }
+
+    // Interactive TTY recovery path
+    if (rawUri && uriValidationError) {
+      output.write(`[Provision Warning] Database URI from environment is invalid:\n  ${sanitizeMongoMessage(uriValidationError)}\n`);
+      output.write(`[Provision Hint] If your environment variable holds stale command text, clear it in PowerShell with:\n  Remove-Item Env:\\TARGET_MONGODB_URI\n\n`);
+    } else {
+      output.write("[Provision] Target MongoDB URI not found in environment variables.\n");
+    }
+
+    let attempts = 0;
+    while (!target && attempts < 3) {
+      attempts++;
+      output.write("[Provision] Enter target MongoDB Atlas connection string (e.g. mongodb+srv://<user>:<password>@cluster.mongodb.net/manuai?retryWrites=true):\n");
+      rawUri = await promptMaskedPassword("Enter target MongoDB URI (masked): ", input, output);
+      try {
+        target = parseAndSanitizeMongoTarget(rawUri);
+      } catch (err: any) {
+        output.write(`[Provision Error] ${sanitizeMongoMessage(err.message || String(err))}\n`);
+        target = null;
+        if (attempts >= 3) {
+          throw new Error(
+            "Failed to provide a valid target MongoDB URI after 3 attempts. Provisioning aborted to protect database integrity."
+          );
+        }
+      }
+    }
+  }
+
+  if (!target) {
+    throw new Error("Target database URI could not be validated.");
+  }
+
+  rawUri = cleanMongoUri(rawUri);
 
   // Refuse localhost target unless explicitly authorized via --allow-local
   if (target.isLocal && !allowLocal) {
     throw new Error(
       `Target database resolves to a local address (${target.host} / ${target.database}). Local database provisioning is refused by default to prevent accidental local modifications. If you intentionally intend to provision a local test database, explicitly pass --allow-local.`
+    );
+  }
+
+  // Production workflow strictly requires target database to be "manuai"
+  if (!allowLocal && target.database.toLowerCase() !== "manuai") {
+    throw new Error(
+      `Invalid target database "${target.database}": Production account provisioning workflow strictly requires database "manuai".`
     );
   }
 

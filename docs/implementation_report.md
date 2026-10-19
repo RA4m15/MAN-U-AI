@@ -1621,3 +1621,94 @@ To provision the authorized operator account safely on Windows PowerShell:
    ```powershell
    Remove-Item Env:\TARGET_MONGODB_URI
    ```
+
+---
+
+## 27. STAGE 5.2.4: PERMANENTLY FIX MONGODB URI INPUT AND INTERACTIVE RECOVERY
+
+### Root Cause Analysis of Stale PowerShell Variable & Input Glitches
+
+In Windows PowerShell, operators attempting to load clipboard contents into `$env:TARGET_MONGODB_URI` encountered recurring validation failures:
+1. **Accidental Shell Command Stored in Clipboard**:
+   - When copying previous commands or scripts, the clipboard frequently contained the PowerShell command string itself (e.g. `$env:TARGET_MONGODB_URI = (Get-Clipboard -Raw).Trim()` or `Write-Host ...`) rather than the raw connection string.
+   - Once set, the environment variable persistently held this invalid string across multiple CLI invocations.
+2. **Missing Database Path in Copied Atlas URIs**:
+   - MongoDB Atlas provides connection strings ending in `...mongodb.net/` or `...mongodb.net/?retryWrites=true`.
+   - Without an explicit `/manuai` database path, the CLI rejected the input to protect against default database writes.
+3. **Lack of Interactive Recovery in Previous CLI**:
+   - The CLI previously failed immediately on invalid environment variables without offering an interactive TTY recovery path or clear PowerShell variable clearing instructions.
+
+### Hardening & Remediations Implemented
+
+1. **`cleanMongoUri` Utility Function ([provision-user.ts](file:///c:/Shiva/MORE/Projects/MAN-U-AI/apps/api/src/scripts/provision-user.ts#L23-L33))**:
+   - Cleans leading/trailing ASCII control characters (`[\x00-\x1F\x7F]`) and whitespace.
+   - Automatically detects and strips surrounding single quotes (`'...'`) or double quotes (`"..."`).
+   - Ensures `mongoose.connect()` receives the cleanly stripped URI.
+
+2. **Hardened URI Parsing & Validation ([provision-user.ts](file:///c:/Shiva/MORE/Projects/MAN-U-AI/apps/api/src/scripts/provision-user.ts#L35-L125))**:
+   - Strict scheme enforcement: accepts only `mongodb://` and `mongodb+srv://`.
+   - Rejects accidental PowerShell command lines, script code, and HTTP/HTTPS schemes.
+   - Validates hostnames: rejects missing hostnames (`mongodb+srv:///manuai`), spaces in hosts, and multiple unescaped `@` symbols.
+   - Supports multi-host replica sets (e.g. `mongodb://host1:27017,host2:27017/manuai`).
+   - Supports query parameters (e.g. `?retryWrites=true&w=majority`) and percent-encoded credentials (`%40`, `%21`).
+   - Enforces non-empty database path in URI and strictly rejects whitespace in database names.
+   - Normalizes loopback detection across IPv4 (`127.0.0.0/8`), IPv6 (`::1`, `[::1]`), and localhost domains.
+
+3. **Interactive Recovery in TTY Mode ([provision-user.ts](file:///c:/Shiva/MORE/Projects/MAN-U-AI/apps/api/src/scripts/provision-user.ts#L295-L355))**:
+   - If `TARGET_MONGODB_URI` is missing, empty, or contains invalid data, the CLI in an interactive TTY:
+     - Warns the operator about the invalid input.
+     - Displays actionable PowerShell guidance: `Remove-Item Env:\TARGET_MONGODB_URI`.
+     - Securely prompts the operator up to 3 times for a fresh masked URI: `Enter target MongoDB URI (masked): `.
+     - Seamlessly continues account provisioning without requiring terminal restarts.
+   - In non-interactive environments (CI/CD), the CLI fails closed with an actionable error.
+
+4. **Production Workflow Database Enforcement**:
+   - When running against remote clusters (default, `--allow-local` omitted), the CLI strictly requires the database to be `manuai`.
+   - Preserves mandatory `--role` (`admin`, `engineer`, `viewer`), `--target-db=manuai`, and `--confirm` flags.
+   - Preserves overwrite protection (`provisionUser` refuses to overwrite existing user accounts).
+
+### Safe PowerShell Operator Workflow to Clear and Provision
+
+#### Step 1: Clear Any Stale Environment Variable
+In Windows PowerShell, ensure any stale or corrupted variable is removed:
+```powershell
+Remove-Item Env:\TARGET_MONGODB_URI -ErrorAction SilentlyContinue
+```
+
+#### Step 2: Assemble Clean Atlas Connection String
+Ensure your MongoDB Atlas URI includes `/manuai` before query parameters:
+```
+mongodb+srv://<db-user>:<db-password>@<cluster-host>/manuai?retryWrites=true&w=majority
+```
+Select and copy **only** this connection string (`Ctrl+C`).
+
+#### Step 3: Load into PowerShell Environment (Memory-Only)
+```powershell
+$env:TARGET_MONGODB_URI = (Get-Clipboard -Raw).Trim()
+```
+
+*(Alternatively, you may omit setting the environment variable and let the CLI prompt you interactively with masked input).*
+
+#### Step 4: Run the Safe Account Provisioning Utility
+```powershell
+npm --prefix apps/api run provision-user -- --email="operator@plant.io" --role=admin --name="Plant Administrator" --target-db=manuai --confirm
+```
+
+#### Step 5: Enter Password at the Masked Prompt
+When prompted:
+```
+Enter initial password (min 8 chars): ********
+```
+Type your chosen password (minimum 8 characters). Keystrokes are masked with asterisks.
+
+#### Step 6: Clean Up Environment Variable
+```powershell
+Remove-Item Env:\TARGET_MONGODB_URI -ErrorAction SilentlyContinue
+```
+
+### Verified Test & Build Results
+
+- **Backend Automated Tests (`npm --prefix apps/api test`)**: 13 test files passed, 169/169 tests passed (34 focused tests in `test/stage5_provisioning.test.ts`).
+- **Frontend Automated Tests (`npm --prefix apps/web test`)**: 3 test files passed, 25/25 tests passed.
+- **Monorepo Build (`npm run build`)**: `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` all compiled cleanly with exit code 0.
+- **Git Diff Whitespace Hygiene**: `git diff --check` passed with 0 errors.

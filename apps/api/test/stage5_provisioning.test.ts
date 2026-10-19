@@ -10,6 +10,7 @@ import { provisionUser } from "../src/services/provision.service";
 import { isConnectedToMongo, connectDatabase } from "../src/config/database";
 import {
   parseAndSanitizeMongoTarget,
+  cleanMongoUri,
   promptMaskedPassword,
   parseArgs,
   sanitizeMongoMessage,
@@ -332,16 +333,61 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
       expect(ctrlCharUri.database).toBe("manuai");
     });
 
-    it("parseAndSanitizeMongoTarget requires an explicit database in URI path and fails closed if missing", () => {
-      // Atlas URI without database path before query parameters
-      expect(() =>
-        parseAndSanitizeMongoTarget("mongodb+srv://user:pass@cluster0.abcde.mongodb.net/?retryWrites=true")
-      ).toThrow(/Database name is missing from URI path.*specify '\/manuai'/);
+    it("cleanMongoUri strips quotes, whitespace, and control characters", () => {
+      expect(cleanMongoUri('  "mongodb+srv://cluster.mongodb.net/manuai"  ')).toBe("mongodb+srv://cluster.mongodb.net/manuai");
+      expect(cleanMongoUri("  'mongodb+srv://cluster.mongodb.net/manuai'  ")).toBe("mongodb+srv://cluster.mongodb.net/manuai");
+      expect(cleanMongoUri("\x16\x00mongodb+srv://cluster.mongodb.net/manuai\r\n")).toBe("mongodb+srv://cluster.mongodb.net/manuai");
+      expect(cleanMongoUri("")).toBe("");
+    });
 
-      // Atlas URI without trailing slash or database
+    it("parseAndSanitizeMongoTarget rejects accidental PowerShell command text from clipboard", () => {
       expect(() =>
-        parseAndSanitizeMongoTarget("mongodb+srv://user:pass@cluster0.abcde.mongodb.net")
-      ).toThrow(/Database name is missing from URI path.*specify '\/manuai'/);
+        parseAndSanitizeMongoTarget("$env:TARGET_MONGODB_URI = (Get-Clipboard -Raw).Trim()")
+      ).toThrow(/Unsupported MongoDB URI scheme/);
+
+      expect(() =>
+        parseAndSanitizeMongoTarget('$env:TARGET_MONGODB_URI = Read-Host "Paste your NEW MongoDB Atlas URI"')
+      ).toThrow(/Unsupported MongoDB URI scheme/);
+
+      expect(() =>
+        parseAndSanitizeMongoTarget('Write-Host "Valid MongoDB scheme:" ($u -match \'^mongodb(\\+srv)?://\')')
+      ).toThrow(/Unsupported MongoDB URI scheme/);
+    });
+
+    it("parseAndSanitizeMongoTarget rejects malformed hostnames and whitespace in database", () => {
+      // Missing host
+      expect(() => parseAndSanitizeMongoTarget("mongodb+srv:///manuai")).toThrow(/Hostname is invalid or missing/);
+      // Spaces in host
+      expect(() => parseAndSanitizeMongoTarget("mongodb+srv://cluster .mongodb.net/manuai")).toThrow(/Hostname is invalid or missing/);
+      // Extra unescaped @ in password/host
+      expect(() => parseAndSanitizeMongoTarget("mongodb+srv://user:pass@word@cluster.mongodb.net/manuai")).toThrow(/Hostname is invalid or missing/);
+      // Whitespace in database name
+      expect(() => parseAndSanitizeMongoTarget("mongodb+srv://cluster.mongodb.net/man uai")).toThrow(/Database name contains invalid whitespace/);
+    });
+
+    it("parseAndSanitizeMongoTarget correctly handles query parameters and percent-encoded credentials", () => {
+      const targetWithParams = parseAndSanitizeMongoTarget(
+        "mongodb+srv://admin%40plant.io:Secret%21Pass%402026@cluster0.abcde.mongodb.net/manuai?retryWrites=true&w=majority"
+      );
+      expect(targetWithParams.host).toBe("cluster0.abcde.mongodb.net");
+      expect(targetWithParams.database).toBe("manuai");
+      expect(targetWithParams.isLocal).toBe(false);
+
+      // Multi-host replica set with query params
+      const multiHostTarget = parseAndSanitizeMongoTarget(
+        "mongodb://operator:pass@mongo-1.corp.net:27017,mongo-2.corp.net:27017/manuai?replicaSet=rs0"
+      );
+      expect(multiHostTarget.host).toBe("mongo-1.corp.net:27017,mongo-2.corp.net:27017");
+      expect(multiHostTarget.database).toBe("manuai");
+      expect(multiHostTarget.isLocal).toBe(false);
+    });
+
+    it("sanitizeMongoMessage redacts sensitive credentials from messages and connection strings", () => {
+      const rawError = "Error: Authentication failed for mongodb+srv://db_admin:P%40ssw0rd99!@cluster0.90gymzr.mongodb.net/manuai?retryWrites=true";
+      const sanitized = sanitizeMongoMessage(rawError);
+      expect(sanitized).toBe("Error: Authentication failed for mongodb+srv://[REDACTED]@cluster0.90gymzr.mongodb.net/manuai?retryWrites=true");
+      expect(sanitized).not.toContain("db_admin");
+      expect(sanitized).not.toContain("P%40ssw0rd99!");
     });
 
     it("promptMaskedPassword masks interactive input with asterisks and restores terminal raw mode", async () => {
@@ -592,6 +638,82 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
           output: outputStream,
         })
       ).rejects.toThrow(/already exists.*Existing accounts and passwords cannot be overwritten/);
+    });
+
+    it("provisionUserCli fails closed in non-interactive mode when TARGET_MONGODB_URI contains accidental PowerShell command", async () => {
+      await expect(
+        provisionUserCli({
+          args: {
+            email: "cli.hardened@plant.io",
+            role: "admin",
+            confirm: true,
+          },
+          envVars: {
+            TARGET_MONGODB_URI: "$env:TARGET_MONGODB_URI = (Get-Clipboard -Raw).Trim()",
+            PROVISION_PASSWORD: "HardenedPassword123!",
+          },
+        })
+      ).rejects.toThrow(/Remove-Item Env:\\TARGET_MONGODB_URI/);
+    });
+
+    it("provisionUserCli fails closed when target database is not 'manuai' for production workflow", async () => {
+      await expect(
+        provisionUserCli({
+          args: {
+            email: "cli.hardened@plant.io",
+            role: "admin",
+            confirm: true,
+            "target-db": "wrong_db",
+          },
+          envVars: {
+            TARGET_MONGODB_URI: "mongodb+srv://cluster0.abcde.mongodb.net/wrong_db",
+            PROVISION_PASSWORD: "HardenedPassword123!",
+          },
+        })
+      ).rejects.toThrow(/requires database "manuai"/);
+    });
+
+    it("provisionUserCli recovers interactively when TARGET_MONGODB_URI is initially invalid in interactive TTY", async () => {
+      const mockInput = new EventEmitter() as any;
+      mockInput.isTTY = true;
+      mockInput.setRawMode = vi.fn();
+      mockInput.resume = vi.fn();
+
+      const outputStream = new PassThrough();
+      let outputText = "";
+      outputStream.on("data", (chunk) => {
+        const text = chunk.toString();
+        outputText += text;
+        if (text.includes("Enter target MongoDB URI (masked): ")) {
+          // Send valid local test URI through masked input
+          mockInput.emit("data", Buffer.from("mongodb://127.0.0.1:27017/manuai_test\r"));
+        }
+      });
+
+      const result = await provisionUserCli({
+        args: {
+          email: "cli.recovered@plant.io",
+          name: "Recovered Operator",
+          role: "viewer",
+          "allow-local": true,
+          "target-db": "manuai_test",
+          confirm: true,
+        },
+        envVars: {
+          TARGET_MONGODB_URI: "$env:TARGET_MONGODB_URI = Read-Host", // Stale command text in env
+          PROVISION_PASSWORD: "RecoveredPassword123!",
+        },
+        input: mockInput,
+        output: outputStream,
+      });
+
+      expect(result.id).toBeDefined();
+      expect(result.email).toBe("cli.recovered@plant.io");
+      expect(outputText).toContain("[Provision Warning] Database URI from environment is invalid");
+      expect(outputText).toContain("Remove-Item Env:\\TARGET_MONGODB_URI");
+      expect(outputText).toContain("[Provision] Target Host:     127.0.0.1:27017");
+      expect(outputText).toContain("[Provision] Target Database: manuai_test");
+      expect(outputText).toContain("[Provision] Account provisioned successfully!");
     });
   });
 });
