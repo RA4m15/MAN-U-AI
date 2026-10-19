@@ -2336,4 +2336,113 @@ Based on the technical manual (Source: "Lathe", Rev 1.0, Pages 5 & 7), the prima
 - **Zero Raw Provider JSON or Fabricated Fallback:** **PASS** (Clean, professional industrial markdown output).
 - **Live Status:** **Stage 5 Complete and Operationally Verified in Production.**
 
+---
+
+## 36. STAGE 5.6.2: RESOLUTION OF COOLDOWN-AWARE CANDIDATE SELECTION & EMPIRICAL QUOTA AUDIT
+
+### 36.1 Trace of Failing Production Request (`req-mvfmh7wx-ty7bw`)
+
+Inspection of `req-mvfmh7wx-ty7bw` (observed at `2026-10-19T18:58:36Z`) revealed why live generation failed with `"The requested AI model is currently unavailable or not accessible with the current project credentials. Please verify model configuration."`:
+
+1. **Request Flow Trace**:
+   - `POST /api/v1/chat` -> `ragService.answerQuestion(message, ...)` -> `settingsService.getEffectiveSettings()` -> `geminiService.generateAnswer(prompt, { model: activeSettings.selectedModel })`.
+   - In MongoDB Atlas, `FacilitySettings.selectedModel` had previously defaulted or been saved as `"gemini-3.8-flash"`.
+   - In `apps/api/src/services/gemini.service.ts`, `isExplicitModel` was set to `true` because `options.model` was passed by the RAG service.
+2. **Defect in Cooldown Skipping Logic**:
+   - In `geminiService.generateAnswer()`, the candidate loop checked:
+     ```typescript
+     if (!modelQuotaTracker.isAvailable(candidateModel) && anyAvailable) {
+       if (!isExplicitModel || candidateModel !== targetModel) {
+         continue;
+       }
+     }
+     ```
+   - Because `isExplicitModel` was `true` and `candidateModel === targetModel`, the condition evaluated to `false`.
+   - **Consequence:** The explicitly requested target model was attempted *even when it was in active cooldown or had zero quota*.
+   - In addition, under commit `1c30d60` (running at the time of `req-mvfmh7wx-ty7bw`), `gemini-3-flash-preview` had not yet finished deploying.
+   - The loop attempted `gemini-3.8-flash` (HTTP 429 quota exhausted), then `gemini-3.6-flash` (HTTP 429 quota exhausted), and finally `gemini-4-argon` (HTTP 429 `limit: 0` zero quota).
+   - Because `gemini-4-argon` failed last with `limit: 0`, `lastAnalysis.category` was set to `"zero_quota"`, returning:
+     *"The requested AI model is currently unavailable or not accessible with the current project credentials. Please verify model configuration."*
+
+---
+
+### 36.2 Architectural & Code Remediations (Commit `681fb94`)
+
+1. **Elimination of Explicit Model Bypass (`apps/api/src/services/gemini.service.ts`)**:
+   - Removed `(!isExplicitModel || candidateModel !== targetModel)`.
+   - Any model in active cooldown or known zero-quota is now strictly skipped whenever healthy fallback candidates are available:
+     ```typescript
+     for (const candidateModel of candidateModels) {
+       if (!modelQuotaTracker.isAvailable(candidateModel) && anyAvailable) {
+         console.log(`[GeminiService] Skipping model '${candidateModel}' (in cooldown or zero quota)`);
+         continue;
+       }
+     ```
+   - Applied identical cooldown enforcement in `transcribePdfWithOcr()`.
+2. **Cooldown-Aware Candidate Ordering (`getCandidateModels`)**:
+   - Preserves operator preference when the target model is genuinely available (`modelQuotaTracker.isAvailable(targetModel)` and `!modelQuotaTracker.hasZeroQuota(targetModel)`).
+   - When the target model is unavailable (in cooldown or zero quota), available fallback candidates take priority at the head of the list, preventing futile upstream calls.
+   - Permanently filters out models with `hasZeroQuota: true` whenever viable alternatives exist.
+3. **Model Allowlist Priority (`apps/api/src/services/settings.service.ts`)**:
+   - Reordered `SUPPORTED_MODELS` to place `"gemini-3-flash-preview"` at index 0 ahead of `"gemini-3.8-flash"`, `"gemini-3.6-flash"`, and `"gemini-4-argon"`.
+4. **Enhanced Integration Probe (`apps/api/src/routes/integrations.routes.ts`)**:
+   - Updated `probeCandidateModel()` to classify `model_unavailable` (HTTP 404 / unsupported) distinctly from `quota_exhausted` (HTTP 429) and `zero_quota` (Free Tier limit: 0).
+   - Synchronized candidate probe failures directly to `modelQuotaTracker`.
+   - Exposed `effectiveConfig` and `modelQuotaState` in probe responses for full operator visibility.
+5. **Frontend Default State Alignment (`apps/web/src/pages/SettingsPage.tsx`)**:
+   - Initialized `selectedModel` state default to `"gemini-3-flash-preview"` and listed `"gemini-3-flash-preview"` first in `supportedModels`.
+
+---
+
+### 36.3 Empirical Probe Results from Live Running Render Service
+
+Direct authenticated probe (`POST /api/v1/integrations/gemini/test`) against the deployed container running commit `681fb94ade0a5c7615de59955c079e9df993eab3`:
+
+| Model ID | Supported | Safe Category | HTTP Status | Latency | Upstream Retry Delay |
+| :--- | :---: | :--- | :---: | :---: | :---: |
+| `gemini-3-flash-preview` | Yes | `quota_exhausted` | 429 | 159ms | 41,118s (~11.4 hours) |
+| `gemini-3.8-flash` | Yes | `quota_exhausted` | 429 | 110ms | 41,118s (~11.4 hours) |
+| `gemini-3.6-flash` | Yes | `quota_exhausted` | 429 | 105ms | 41,118s (~11.4 hours) |
+| `gemini-4-argon` | Yes | `zero_quota` | 429 | 103ms | 41,118s (~11.4 hours) |
+
+**Effective Service Configuration Reported by Running Container:**
+- Primary Model: `gemini-3-flash-preview`
+- Env Model: `gemini-3.8-flash` (Render dashboard override)
+- Fallback Models: `gemini-3.6-flash,gemini-3.8-flash`
+- Embedding Model: `gemini-embedding-001`
+- Model Quota State: All candidate models in active cooldown due to project-wide Free Tier daily quota exhaustion.
+
+---
+
+### 36.4 Verification and Test Results
+
+- **Backend API Tests (`npm --prefix apps/api test`):**
+  - **18/18 test files passed (100%)**
+  - **213/213 tests passed (100%)** (+7 new regression tests in `test/stage5_cooldown_selection.test.ts`)
+- **Frontend Web Tests (`npm --prefix apps/web test`):**
+  - **5/5 test files passed (100%)**
+  - **30/30 tests passed (100%)**
+- **Monorepo Production Build (`pnpm run build`):** Clean exit code 0 across `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web`.
+- **Git Diff Whitespace Check (`git diff --check`):** Clean, 0 errors.
+
+---
+
+### 36.5 Required Operator Action for Production Quota Restoration
+
+The application code is functioning with full architectural correctness:
+- It eliminates the bypass for models in cooldown.
+- It prioritizes available fallback candidates.
+- It displays concise, safe error messages without raw JSON or credential leakage:
+  `AI generation is temporarily unavailable because the configured model quota has been reached. Check the Gemini API project's quota and billing settings, or try again later. (Request ID: req-mvfnjya8-2xz6p)`
+- It never fabricates ungrounded answers.
+
+Because Google Generative AI enforces a hard daily limit of 20 requests/day per project on the Free Tier (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`), the Google AI project attached to `GEMINI_API_KEY` has reached its ceiling until the daily quota resets (~11.4 hours) or billing is enabled.
+
+**Exact Operator Action Required:**
+1. Navigate to **Google AI Studio** (`https://aistudio.google.com/`) or **Google Cloud Console**.
+2. Select the project associated with `GEMINI_API_KEY`.
+3. Enable **Pay-As-You-Go Billing** (Settings -> Billing).
+4. This instantly raises request limits from 20 requests/day to **1,000 requests/minute**, immediately lifting the 429 quota exhaustion and 11.4-hour cooldown.
+
+
 
