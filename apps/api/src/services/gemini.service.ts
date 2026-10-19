@@ -218,6 +218,50 @@ export class ModelQuotaTracker {
     return Date.now() >= state.exhaustedUntil;
   }
 
+  hasZeroQuota(model: string): boolean {
+    const state = this.quotaState.get(model);
+    return Boolean(state?.hasZeroQuota);
+  }
+
+  getStatus(model: string): {
+    available: boolean;
+    inCooldown: boolean;
+    hasZeroQuota: boolean;
+    remainingSeconds: number;
+    lastCategory?: string;
+  } {
+    const state = this.quotaState.get(model);
+    if (!state) {
+      return { available: true, inCooldown: false, hasZeroQuota: false, remainingSeconds: 0 };
+    }
+    const remaining = Math.max(0, Math.ceil((state.exhaustedUntil - Date.now()) / 1000));
+    return {
+      available: !state.hasZeroQuota && remaining === 0,
+      inCooldown: remaining > 0,
+      hasZeroQuota: Boolean(state.hasZeroQuota),
+      remainingSeconds: remaining,
+      lastCategory: state.lastCategory,
+    };
+  }
+
+  getAllStates(): Record<
+    string,
+    { available: boolean; inCooldown: boolean; hasZeroQuota: boolean; remainingSeconds: number; lastCategory?: string }
+  > {
+    const res: Record<string, any> = {};
+    for (const [m, state] of this.quotaState.entries()) {
+      const remaining = Math.max(0, Math.ceil((state.exhaustedUntil - Date.now()) / 1000));
+      res[m] = {
+        available: !state.hasZeroQuota && remaining === 0,
+        inCooldown: remaining > 0,
+        hasZeroQuota: Boolean(state.hasZeroQuota),
+        remainingSeconds: remaining,
+        lastCategory: state.lastCategory,
+      };
+    }
+    return res;
+  }
+
   getCooldownRemaining(model: string): number {
     const state = this.quotaState.get(model);
     if (!state) return 0;
@@ -257,8 +301,11 @@ export class GeminiService {
 
   /**
    * Builds ordered list of candidate models for generation.
-   * When prioritizeTarget is true (e.g. caller passed explicit model), target model is always first.
-   * Otherwise, currently available models are prioritized over models in cooldown.
+   * - Preserves the operator's explicit model preference when that model is genuinely available.
+   * - When the selected model is unavailable (in cooldown or zero quota), available fallback candidates
+   *   take precedence and the unavailable model is not attempted ahead of working fallbacks.
+   * - Models with permanent zero quota are filtered out whenever viable alternatives exist.
+   * - An explicit model request does NOT bypass active cooldown or zero-quota conditions.
    */
   getCandidateModels(targetModel: string, prioritizeTarget = false): string[] {
     const candidates: string[] = [targetModel];
@@ -276,24 +323,24 @@ export class GeminiService {
       candidates.push(...configuredFallbacks);
     }
 
-    // Filter out models known to have permanent zero quota on the free tier (like gemini-4-argon)
-    const filtered = candidates.filter((m) => {
-      const state = (modelQuotaTracker as any).quotaState?.get(m);
-      return !state?.hasZeroQuota || m === targetModel;
-    });
+    // Filter out models known to have permanent zero quota on the active tier (e.g. gemini-4-argon)
+    const withoutZeroQuota = candidates.filter((m) => !modelQuotaTracker.hasZeroQuota(m));
+    const activeList = withoutZeroQuota.length > 0 ? withoutZeroQuota : candidates;
 
-    const activeList = filtered.length > 0 ? filtered : candidates;
-
-    if (prioritizeTarget) {
-      const remainingAvailable = activeList.filter((m) => m !== targetModel && modelQuotaTracker.isAvailable(m));
-      const remainingCooldown = activeList.filter((m) => m !== targetModel && !modelQuotaTracker.isAvailable(m));
-      return [targetModel, ...remainingAvailable, ...remainingCooldown];
-    }
-
-    // Prioritize models that are not in cooldown
     const available = activeList.filter((m) => modelQuotaTracker.isAvailable(m));
     const inCooldown = activeList.filter((m) => !modelQuotaTracker.isAvailable(m));
 
+    if (prioritizeTarget) {
+      // If the explicitly requested target model is genuinely available, prioritize it at index 0
+      if (modelQuotaTracker.isAvailable(targetModel) && !modelQuotaTracker.hasZeroQuota(targetModel)) {
+        const remainingAvailable = available.filter((m) => m !== targetModel);
+        return [targetModel, ...remainingAvailable, ...inCooldown];
+      }
+      // Target model is in cooldown or zero quota: available fallbacks MUST be tried first
+      return [...available, ...inCooldown];
+    }
+
+    // Default ordering: all available models first, followed by models in cooldown
     return [...available, ...inCooldown];
   }
 
@@ -384,12 +431,11 @@ export class GeminiService {
       let lastAnalysis: QuotaFailureInfo | null = null;
       const attemptedModels: string[] = [];
       for (const candidateModel of candidateModels) {
-        // Skip models in cooldown if we have other available candidate options, unless explicitly requested
+        // Skip models in cooldown or zero quota if we have other available candidate options.
+        // An explicit model request MUST NOT bypass a known active cooldown or zero-quota condition.
         if (!modelQuotaTracker.isAvailable(candidateModel) && anyAvailable) {
-          if (!isExplicitModel || candidateModel !== targetModel) {
-            console.log(`[GeminiService] Skipping model '${candidateModel}' (in cooldown or zero quota)`);
-            continue;
-          }
+          console.log(`[GeminiService] Skipping model '${candidateModel}' (in cooldown or zero quota)`);
+          continue;
         }
 
         attemptedModels.push(candidateModel);

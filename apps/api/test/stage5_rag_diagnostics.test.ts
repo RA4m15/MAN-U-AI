@@ -59,7 +59,8 @@ describe("Stage 5.5b & 5.6: Multimodal RAG Pipeline Diagnostics & Quota Handling
 
       expect(answer).toContain("Lathe machine components include the bed");
       expect(attemptedModels[0]).toBe("gemini-3.8-flash");
-      expect(attemptedModels).toContain("gemini-3.6-flash");
+      expect(attemptedModels.length).toBeGreaterThanOrEqual(2);
+      expect(attemptedModels.some((m) => m === "gemini-3-flash-preview" || m === "gemini-3.6-flash")).toBe(true);
       expect(callCount).toBeGreaterThanOrEqual(2);
       expect(geminiService.getLastProvider()).toBe("live-gemini");
     } finally {

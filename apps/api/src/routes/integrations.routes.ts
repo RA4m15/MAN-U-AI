@@ -45,7 +45,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMsg: stri
 export interface CandidateModelProbeResult {
   model: string;
   supported: boolean;
-  category: "success" | "quota_exhausted" | "zero_quota" | "access_denied" | "unsupported_model" | "provider_outage" | "unknown";
+  category: "success" | "quota_exhausted" | "zero_quota" | "model_unavailable" | "access_denied" | "unsupported_model" | "provider_outage" | "unknown";
   httpStatus: number;
   latencyMs: number;
   retryDelaySeconds?: number;
@@ -120,7 +120,7 @@ export async function probeCandidateModel(ai: GoogleGenAI, model: string): Promi
     } else if (status === 403 || /permission denied|access denied/i.test(rawMsg)) {
       category = "access_denied";
     } else if (status === 404 || /is not supported|is no longer available|model not found/i.test(rawMsg)) {
-      category = "unsupported_model";
+      category = "model_unavailable";
     } else if (status === 503 || /high demand|spikes in demand|overloaded|service unavailable/i.test(rawMsg)) {
       category = "provider_outage";
     }
@@ -345,6 +345,15 @@ integrationsRouter.post(
           results.push(resModel);
           if (resModel.category === "success") {
             modelQuotaTracker.recordSuccess(candidate);
+          } else if (resModel.category === "zero_quota" || resModel.category === "quota_exhausted") {
+            modelQuotaTracker.recordFailure(candidate, {
+              status: resModel.httpStatus,
+              error: {
+                code: resModel.httpStatus,
+                message: resModel.category,
+                details: resModel.retryDelaySeconds ? [{ retryDelay: `${resModel.retryDelaySeconds}s` }] : undefined,
+              },
+            });
           }
         }
 
@@ -356,6 +365,14 @@ integrationsRouter.post(
           message: anySuccess
             ? `Gemini verification probe: candidate model access verified via @google/genai.`
             : `Gemini verification probe: all candidate models unavailable.`,
+          effectiveConfig: {
+            primaryModel: activeModel,
+            envModel: env.GEMINI_MODEL,
+            fallbackModels: env.GEMINI_FALLBACK_MODELS,
+            embeddingModel: env.GEMINI_EMBEDDING_MODEL,
+            supportedModels: SUPPORTED_MODELS,
+          },
+          modelQuotaState: modelQuotaTracker.getAllStates(),
           primaryModel: activeModel,
           envModel: env.GEMINI_MODEL,
           results,

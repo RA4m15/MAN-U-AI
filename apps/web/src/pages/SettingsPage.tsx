@@ -41,16 +41,16 @@ export function SettingsPage() {
   const isAdmin = user?.role === "admin";
 
   // Persistent settings state
-  const [selectedModel, setSelectedModel] = useState("gemini-3.8-flash");
+  const [selectedModel, setSelectedModel] = useState("gemini-3-flash-preview");
   const [temperature, setTemperature] = useState(0.2);
   const [topK, setTopK] = useState(5);
   const [similarityThreshold, setSimilarityThreshold] = useState(0.5);
   const [facilityName, setFacilityName] = useState("MAN-U-AI Heavy Operations Facility Alpha");
   const [timezone, setTimezone] = useState("UTC+05:30 (IST)");
   const [supportedModels, setSupportedModels] = useState<string[]>([
+    "gemini-3-flash-preview",
     "gemini-3.8-flash",
     "gemini-3.6-flash",
-    "gemini-3-flash-preview",
     "gemini-4-argon",
   ]);
 
