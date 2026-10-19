@@ -36,7 +36,7 @@ export function extractStructuredErrorInfo(
 
   if (err instanceof Error) {
     errorName = err.name || "Error";
-    rawMessage = err.message || "Error without message";
+    rawMessage = (err as any).userMessage || (err as any).sanitizedMessage || err.message || "Error without message";
     stack = err.stack;
     if ("code" in err && typeof (err as any).code === "string") {
       errorCode = (err as any).code;
@@ -84,7 +84,7 @@ export function extractStructuredErrorInfo(
   }
 
   // Sanitize the message so credentials, tokens, URLs, and paths are redacted
-  const sanitizedMessage = sanitizeError(rawMessage);
+  let sanitizedMessage = sanitizeError(rawMessage);
 
   // Map upstream status codes appropriately based on pipeline stage
   if (stage === "storage_upload" || stage === "database_persistence") {
@@ -105,12 +105,56 @@ export function extractStructuredErrorInfo(
       httpStatus = 500;
     }
   } else if (stage.includes("model_generation") || stage.includes("rag") || stage.includes("query_embedding")) {
-    if (httpStatus === 429 || httpStatus === 503 || errorCode === "LLM_PROVIDER_ERROR") {
+    const isZeroQuota =
+      /limit:\s*0/i.test(rawMessage) ||
+      rawMessage.includes("limit: 0") ||
+      errorCode === "LLM_MODEL_UNAVAILABLE";
+
+    const isQuota =
+      !isZeroQuota &&
+      (httpStatus === 429 ||
+        /RESOURCE_EXHAUSTED|quota exceeded|exceeded your current quota|rate limit/i.test(rawMessage) ||
+        errorCode === "LLM_QUOTA_EXHAUSTED");
+
+    const isUnavailable =
+      !isZeroQuota &&
+      !isQuota &&
+      (httpStatus === 503 ||
+        /high demand|Spikes in demand|temporarily unavailable|overloaded/i.test(rawMessage) ||
+        errorCode === "LLM_PROVIDER_UNAVAILABLE");
+
+    if (isZeroQuota) {
+      if (errorCode === "UPLOAD_FAILED" || errorCode === "INTERNAL_ERROR" || !errorCode || errorCode === "RAG_ERROR") {
+        errorCode = "LLM_MODEL_UNAVAILABLE";
+      }
+      httpStatus = 503;
+      sanitizedMessage = "The requested AI model is currently unavailable or not accessible with the current project credentials. Please verify model configuration.";
+    } else if (isQuota) {
+      if (errorCode === "UPLOAD_FAILED" || errorCode === "INTERNAL_ERROR" || !errorCode || errorCode === "RAG_ERROR") {
+        errorCode = "LLM_QUOTA_EXHAUSTED";
+      }
+      httpStatus = 503;
+      sanitizedMessage = "AI generation is temporarily unavailable because the configured model quota has been reached. Check the Gemini API project's quota and billing settings, or try again later.";
+    } else if (isUnavailable) {
+      if (errorCode === "UPLOAD_FAILED" || errorCode === "INTERNAL_ERROR" || !errorCode || errorCode === "RAG_ERROR") {
+        errorCode = "LLM_PROVIDER_UNAVAILABLE";
+      }
+      httpStatus = 503;
+      sanitizedMessage = "The AI generation service is temporarily unavailable due to high upstream demand. Please try again shortly.";
+    } else if (httpStatus === 429 || httpStatus === 503 || errorCode === "LLM_PROVIDER_ERROR") {
       errorCode = "LLM_PROVIDER_ERROR";
       httpStatus = 503;
+      if (sanitizedMessage.includes("{") && sanitizedMessage.includes("}")) {
+        sanitizedMessage = "AI generation service is currently unavailable. Please try again later.";
+      }
     } else if (errorCode === "UPLOAD_FAILED") {
       errorCode = "RAG_ERROR";
     }
+  }
+
+  // Ensure sanitizedMessage never contains raw nested JSON objects or Google RPC payloads
+  if (sanitizedMessage.includes("{\"error\":") || (sanitizedMessage.includes("{") && sanitizedMessage.includes("}"))) {
+    sanitizedMessage = "AI generation is temporarily unavailable because the configured model quota has been reached. Check the Gemini API project's quota and billing settings, or try again later.";
   }
 
   return {

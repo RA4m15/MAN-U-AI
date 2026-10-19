@@ -189,9 +189,42 @@ export function AssistantPage() {
     } catch (err: any) {
       console.error("[Assistant Error]:", err);
       const errData = err.response?.data?.error;
-      const msg = errData
-        ? (errData.details ? `${errData.message} (${errData.details})` : errData.message)
-        : (err.message || "Communication failure with RAG gateway.");
+      let msg = "Communication failure with RAG gateway.";
+      if (errData) {
+        let primaryText = errData.details || errData.message || "";
+        // Sanitize any raw nested JSON if it ever leaked through
+        if (
+          primaryText.includes("RESOURCE_EXHAUSTED") ||
+          primaryText.includes("Quota exceeded") ||
+          primaryText.includes("429")
+        ) {
+          primaryText =
+            "AI generation is temporarily unavailable because the configured model quota has been reached. Check the Gemini API project's quota and billing settings, or try again later.";
+        } else if (
+          primaryText.includes("high demand") ||
+          primaryText.includes("Spikes in demand") ||
+          primaryText.includes("503")
+        ) {
+          primaryText =
+            "The AI generation service is temporarily unavailable due to high upstream demand. Please try again shortly.";
+        } else if (
+          primaryText.includes("limit: 0") ||
+          primaryText.includes("is not available") ||
+          primaryText.includes("not accessible")
+        ) {
+          primaryText =
+            "The requested AI model is currently unavailable or not accessible with the current project credentials. Please verify model configuration.";
+        } else if (primaryText.includes("{") && primaryText.includes("}")) {
+          primaryText = "AI generation is temporarily unavailable. Please try again later.";
+        }
+
+        msg = primaryText || "Error running multimodal RAG pipeline";
+        if (errData.requestId) {
+          msg += ` (Request ID: ${errData.requestId})`;
+        }
+      } else if (err.message) {
+        msg = err.message;
+      }
       setErrorMessage(msg);
     } finally {
       setIsLoading(false);

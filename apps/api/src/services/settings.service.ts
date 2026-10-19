@@ -5,6 +5,7 @@ import { env } from "../config/env";
 export const SUPPORTED_MODELS = [
   "gemini-3.8-flash",
   "gemini-3.6-flash",
+  "gemini-3-flash-preview",
   "gemini-4-argon",
 ] as const;
 
@@ -23,6 +24,11 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapabilities> = {
     supportsGenerationTopK: false,
   },
   "gemini-3.6-flash": {
+    supportsTemperature: false,
+    supportsTopP: false,
+    supportsGenerationTopK: false,
+  },
+  "gemini-3-flash-preview": {
     supportsTemperature: false,
     supportsTopP: false,
     supportsGenerationTopK: false,

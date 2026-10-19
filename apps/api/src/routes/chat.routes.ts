@@ -66,15 +66,20 @@ chatRouter.post("/", requireAuth, async (req: AuthenticatedRequest, res: Respons
     });
 
     const status = errorInfo.httpStatus || 500;
+    const retryAfter = (err as any)?.retryAfterSeconds;
+    const errorPayload: Record<string, any> = {
+      code: errorInfo.code || "RAG_ERROR",
+      message: "Error running multimodal RAG pipeline",
+      details: errorInfo.sanitizedMessage,
+      stage: errorInfo.stage,
+      requestId: errorInfo.requestId,
+    };
+    if (typeof retryAfter === "number" && retryAfter > 0) {
+      errorPayload.retryAfter = retryAfter;
+    }
     return res.status(status).json({
       success: false,
-      error: {
-        code: errorInfo.code || "RAG_ERROR",
-        message: "Error running multimodal RAG pipeline",
-        details: errorInfo.sanitizedMessage,
-        stage: errorInfo.stage,
-        requestId: errorInfo.requestId,
-      },
+      error: errorPayload,
     });
   }
 });

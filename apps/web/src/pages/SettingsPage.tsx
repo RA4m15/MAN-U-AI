@@ -50,6 +50,7 @@ export function SettingsPage() {
   const [supportedModels, setSupportedModels] = useState<string[]>([
     "gemini-3.8-flash",
     "gemini-3.6-flash",
+    "gemini-3-flash-preview",
     "gemini-4-argon",
   ]);
 
@@ -401,6 +402,8 @@ export function SettingsPage() {
                       ? "Google Gemini 3.8 Flash (High-Throughput Industrial Workhorse)"
                       : m === "gemini-3.6-flash"
                       ? "Google Gemini 3.6 Flash (Low-Latency Technical Reasoner)"
+                      : m === "gemini-3-flash-preview"
+                      ? "Google Gemini 3 Flash Preview (Adaptive Technical Reasoner)"
                       : m === "gemini-4-argon"
                       ? "Google Gemini 4 Argon (Advanced Agentic & Schematic Reasoning)"
                       : m}

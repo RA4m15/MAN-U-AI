@@ -46,6 +46,7 @@ const envSchema = z.object({
   CLOUDINARY_URL: z.string().optional().default(""),
   GEMINI_API_KEY: z.string().optional().default(""),
   GEMINI_MODEL: z.string().default("gemini-3.6-flash"),
+  GEMINI_FALLBACK_MODELS: z.string().default("gemini-3-flash-preview,gemini-3.8-flash"),
   GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-001"),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),

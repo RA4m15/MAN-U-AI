@@ -5,12 +5,12 @@ import mongoose from "mongoose";
 import { app } from "../src/app";
 import { env } from "../src/config/env";
 import { connectDatabase } from "../src/config/database";
-import { geminiService } from "../src/services/gemini.service";
+import { geminiService, modelQuotaTracker } from "../src/services/gemini.service";
 import { ragService } from "../src/services/rag.service";
 import { vectorService } from "../src/services/vector.service";
 import { DocumentModel, DocumentChunk, User, DocumentPermission } from "../src/models";
 
-describe("Stage 5.5b: Multimodal RAG Pipeline Diagnostics & Model Failover", () => {
+describe("Stage 5.5b & 5.6: Multimodal RAG Pipeline Diagnostics & Quota Handling", () => {
   let engineerToken: string;
   const engineerUser = {
     id: "usr-eng-55555555555555555555",
@@ -29,6 +29,7 @@ describe("Stage 5.5b: Multimodal RAG Pipeline Diagnostics & Model Failover", () 
 
   afterEach(() => {
     vi.restoreAllMocks();
+    modelQuotaTracker.clear();
   });
 
   it("1. Model failover: when primary model fails with 429, fails over to next supported model and succeeds", async () => {
@@ -263,5 +264,208 @@ describe("Stage 5.5b: Multimodal RAG Pipeline Diagnostics & Model Failover", () 
     expect(res.body.data.citations[0].documentTitle).toBe("Engine Lathe Maintenance Manual");
     expect(res.body.data.citations[0].page).toBe(7);
     expect(res.body.data.citations[0].section).toBe("Main Components & Assemblies");
+  });
+
+  it("9. Quota 429 with nested provider JSON error returns clean safe message and no raw JSON", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const originalNodeEnv = env.NODE_ENV;
+    (env as any).NODE_ENV = "production";
+
+    const nestedProviderError = new Error(
+      JSON.stringify({
+        error: {
+          code: 429,
+          message: "Resource has been exhausted (e.g. check quota).",
+          status: "RESOURCE_EXHAUSTED",
+          details: [
+            {
+              "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+              violations: [
+                {
+                  quotaMetric: "generativelanguage.googleapis.com/generate_content_free_tier_requests",
+                  quotaId: "GenerateRequestsPerMinutePerProjectPerModel-FreeTier",
+                  quotaDimensions: { location: "global", model: "gemini-3.6-flash" },
+                },
+              ],
+            },
+            {
+              "@type": "type.googleapis.com/google.rpc.RetryInfo",
+              retryDelay: "50768s",
+            },
+          ],
+        },
+      })
+    );
+    (nestedProviderError as any).status = 429;
+
+    vi.spyOn(geminiService, "generateEmbedding").mockResolvedValue(new Array(768).fill(0.01));
+    vi.spyOn(vectorService, "searchSimilar").mockResolvedValueOnce([
+      {
+        chunk: {
+          id: "chk-lathe",
+          documentId: new mongoose.Types.ObjectId().toString(),
+          documentTitle: "Lathe Manual",
+          revision: "v1.0",
+          page: 1,
+          section: "Overview",
+          text: "Lathe bed and headstock assembly.",
+        },
+        score: 0.9,
+      },
+    ]);
+
+    const originalAi = (geminiService as any).ai;
+    (geminiService as any).ai = {
+      models: {
+        generateContent: vi.fn().mockRejectedValue(nestedProviderError),
+      },
+    };
+
+    try {
+      const res = await request(app)
+        .post("/api/v1/chat")
+        .set("Authorization", `Bearer ${engineerToken}`)
+        .send({
+          message: "What are the components of lathe machine?",
+        });
+
+      expect(res.status).toBe(503);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe("LLM_QUOTA_EXHAUSTED");
+      expect(res.body.error.message).toBe("Error running multimodal RAG pipeline");
+      expect(res.body.error.details).toBe(
+        "AI generation is temporarily unavailable because the configured model quota has been reached. Check the Gemini API project's quota and billing settings, or try again later."
+      );
+      // Ensure raw JSON, stack traces, and 50768s are never exposed in response
+      expect(res.body.error.details).not.toContain("RESOURCE_EXHAUSTED");
+      expect(res.body.error.details).not.toContain("generativelanguage.googleapis.com");
+      expect(res.body.error.details).not.toContain("50768s");
+      expect(res.body.error.details).not.toContain("{");
+      expect(res.body.error.requestId).toBeDefined();
+    } finally {
+      (geminiService as any).ai = originalAi;
+      (env as any).NODE_ENV = originalNodeEnv;
+    }
+  });
+
+  it("10. Candidate model with zero quota (limit: 0) is flagged and not repeatedly retried", async () => {
+    const zeroQuotaErr = new Error(
+      "Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-4-argon"
+    );
+    (zeroQuotaErr as any).status = 429;
+
+    const analysis = modelQuotaTracker.recordFailure("gemini-4-argon", zeroQuotaErr);
+    expect(analysis.isZeroQuota).toBe(true);
+    expect(modelQuotaTracker.isAvailable("gemini-4-argon")).toBe(false);
+
+    // Call getCandidateModels: gemini-4-argon must be filtered out
+    const candidates = geminiService.getCandidateModels("gemini-3.6-flash");
+    expect(candidates).not.toContain("gemini-4-argon");
+  });
+
+  it("11. Failover succeeds promptly when primary candidate is exhausted and fallback works", async () => {
+    const originalAi = (geminiService as any).ai;
+    const attempted: string[] = [];
+
+    (geminiService as any).ai = {
+      models: {
+        generateContent: vi.fn().mockImplementation(async (payload: any) => {
+          attempted.push(payload.model);
+          if (payload.model === "gemini-3.6-flash") {
+            const err: any = new Error("Quota exceeded for metric: limit: 20, model: gemini-3.6-flash");
+            err.status = 429;
+            throw err;
+          }
+          return { text: "Lathe bed and headstock components are operational." };
+        }),
+      },
+    };
+
+    try {
+      const answer = await geminiService.generateAnswer("What are the components of lathe machine?", {
+        model: "gemini-3.6-flash",
+      });
+
+      expect(answer).toContain("Lathe bed and headstock components are operational");
+      expect(attempted[0]).toBe("gemini-3.6-flash");
+      expect(attempted.length).toBeGreaterThanOrEqual(2);
+      expect(modelQuotaTracker.isAvailable("gemini-3.6-flash")).toBe(false); // marked in cooldown
+    } finally {
+      (geminiService as any).ai = originalAi;
+    }
+  });
+
+  it("12. Short-circuit: When all candidates are in cooldown, fails promptly without waiting", async () => {
+    const originalNodeEnv = env.NODE_ENV;
+    (env as any).NODE_ENV = "production";
+
+    // Mark all models in cooldown
+    const err = new Error("Quota exceeded");
+    (err as any).status = 429;
+    for (const m of ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-4-argon"]) {
+      modelQuotaTracker.recordFailure(m, err);
+    }
+
+    const startTime = Date.now();
+    try {
+      await expect(
+        geminiService.generateAnswer("What are lathe machine components?")
+      ).rejects.toThrow("AI generation service is currently unavailable");
+      const elapsed = Date.now() - startTime;
+      expect(elapsed).toBeLessThan(1000); // Must fail promptly (< 1s), not sleep for hours
+    } finally {
+      (env as any).NODE_ENV = originalNodeEnv;
+    }
+  });
+
+  it("13. HTTP responses never expose raw provider JSON, API keys, or stack traces", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const originalNodeEnv = env.NODE_ENV;
+    (env as any).NODE_ENV = "production";
+
+    const secretKey = "AIzaSySecretApiKey1234567890";
+    const rawError = new Error(`Google API call failed with key=${secretKey}: {"error":{"code":429,"message":"Rate limit exceeded"}}`);
+
+    vi.spyOn(geminiService, "generateEmbedding").mockResolvedValue(new Array(768).fill(0.01));
+    vi.spyOn(vectorService, "searchSimilar").mockResolvedValueOnce([
+      {
+        chunk: {
+          id: "chk-lathe",
+          documentId: new mongoose.Types.ObjectId().toString(),
+          documentTitle: "Lathe Manual",
+          revision: "v1.0",
+          page: 1,
+          section: "Overview",
+          text: "Lathe bed.",
+        },
+        score: 0.9,
+      },
+    ]);
+
+    const originalAi = (geminiService as any).ai;
+    (geminiService as any).ai = {
+      models: {
+        generateContent: vi.fn().mockRejectedValue(rawError),
+      },
+    };
+
+    try {
+      const res = await request(app)
+        .post("/api/v1/chat")
+        .set("Authorization", `Bearer ${engineerToken}`)
+        .send({
+          message: "What are the components of lathe machine?",
+        });
+
+      const responseString = JSON.stringify(res.body);
+      expect(responseString).not.toContain(secretKey);
+      expect(responseString).not.toContain("AIzaSy");
+      expect(responseString).not.toContain("{\"error\":");
+      expect(res.body.error.details).not.toContain("{");
+      expect(res.body.error.requestId).toBeDefined();
+    } finally {
+      (geminiService as any).ai = originalAi;
+      (env as any).NODE_ENV = originalNodeEnv;
+    }
   });
 });
