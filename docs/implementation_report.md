@@ -1987,3 +1987,46 @@ The following non-breaking improvements were added to `apps/api/src/config/datab
 - **Frontend Tests (`npm --prefix apps/web test`)**: 5 test files passed, **30/30 tests passed**.
 - **Monorepo Build (`pnpm run build`)**: Exit code 0.
 - **Git Whitespace Hygiene (`git diff --check`)**: Clean, 0 errors.
+
+### 6. Live Deployed Verification Probe Results
+
+Live probe of `https://man-u-ai.onrender.com/health/ready` at commit `58124cb`:
+```json
+{
+  "status": "unhealthy",
+  "ready": false,
+  "timestamp": "2026-10-19T13:30:55.647Z",
+  "service": "MAN-U-AI API Server",
+  "version": "1.0.0",
+  "environment": "production",
+  "database": {
+    "status": "disconnected",
+    "ready": false,
+    "vectorStore": "mongodb",
+    "diagnostics": {
+      "hasUri": true,
+      "uriScheme": "mongodb+srv",
+      "clusterHost": "cluster0.90gymzr.mongodb.net",
+      "targetDatabase": "manuai",
+      "errorCategory": "Atlas Network Access blocking the Render service",
+      "errorReason": "Could not connect to any servers in your MongoDB Atlas cluster. One common reason is that you're trying to access the database from an IP that isn't whitelisted. Make sure your current IP address is on your Atlas cluster's IP whitelist: https://www.mongodb.com/docs/atlas/security-whitelist/",
+      "lastAttemptAt": "2026-10-19T13:30:43.023Z"
+    }
+  },
+  "multimodalEngine": {
+    "provider": "Google Gemini",
+    "model": "gemini-3.8-flash",
+    "embeddingModel": "gemini-embedding-001",
+    "status": "key_configured",
+    "keyConfigured": true
+  },
+  "dependencies": {
+    "database": "unavailable",
+    "vectorStore": "ready",
+    "aiProvider": "key_configured"
+  },
+  "error": "Required database or vector retrieval dependencies are unavailable"
+}
+```
+- **Liveness Probe (`/health/live`)**: `HTTP 200 OK` (1ms response time, `uptime: 11s`).
+- **Readiness Probe (`/health/ready`)**: `HTTP 503 Service Unavailable` (2ms response time, 0 bytes hanging eliminated).
