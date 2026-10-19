@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { DocumentModel, DocumentChunk, DocumentPermission, ProcessingJob, AuditEvent } from "../models";
 
@@ -21,14 +21,50 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
   fileFilter: (req, file, cb) => {
-    const allowed = ["application/pdf", "image/png", "image/jpeg", "image/tiff", "application/octet-stream"];
-    if (allowed.includes(file.mimetype) || file.originalname.endsWith(".pdf")) {
+    const isPdfMime = file.mimetype === "application/pdf" || file.mimetype === "application/x-pdf";
+    const hasPdfExt = file.originalname.toLowerCase().endsWith(".pdf");
+    if (isPdfMime || hasPdfExt) {
       cb(null, true);
     } else {
-      cb(new Error("Unsupported file type. Only PDF and high-res technical diagrams are accepted."));
+      const err = new Error("Only PDF documents are supported for ingestion. Unsupported file type provided.");
+      (err as any).code = "UNSUPPORTED_FILE_TYPE";
+      cb(err);
     }
   },
 });
+
+const uploadMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  upload.single("file")(req, res, (err: any) => {
+    if (err) {
+      if (err.code === "UNSUPPORTED_FILE_TYPE" || err.message?.includes("Unsupported file type") || err.message?.includes("Only PDF")) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: "UNSUPPORTED_FILE_TYPE",
+            message: "Only PDF documents are supported for ingestion. Unsupported file type provided.",
+          },
+        });
+      }
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: "FILE_TOO_LARGE",
+            message: "File exceeds the 50MB upload limit.",
+          },
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "UPLOAD_ERROR",
+          message: err.message || "Failed to parse upload request.",
+        },
+      });
+    }
+    next();
+  });
+};
 
 import crypto from "crypto";
 
@@ -131,6 +167,7 @@ documentsRouter.get("/", requireAuth, async (req: AuthenticatedRequest, res: Res
         sizeBytes: d.sizeBytes,
         status: d.status,
         pageCount: d.pageCount,
+        processingError: d.processingError,
         tags: d.tags,
         createdAt: d.createdAt.toISOString(),
         updatedAt: d.updatedAt.toISOString(),
@@ -172,6 +209,7 @@ documentsRouter.get("/:id", requireAuth, async (req: AuthenticatedRequest, res: 
       sizeBytes: doc.sizeBytes,
       status: doc.status,
       pageCount: doc.pageCount,
+      processingError: doc.processingError,
       tags: doc.tags,
       equipment: doc.equipmentId,
       createdAt: doc.createdAt.toISOString(),
@@ -265,12 +303,24 @@ documentsRouter.post(
   uploadLimiter,
   requireAuth,
   requireRole(["admin", "engineer"]),
-  upload.single("file"),
+  uploadMiddleware,
   async (req: AuthenticatedRequest, res: Response) => {
     if (!req.file) {
       return res.status(400).json({
         success: false,
         error: { code: "NO_FILE", message: "No document file was provided" },
+      });
+    }
+
+    const isPdfMime = req.file.mimetype === "application/pdf" || req.file.mimetype === "application/x-pdf";
+    const hasPdfExt = req.file.originalname.toLowerCase().endsWith(".pdf");
+    if (!isPdfMime && !hasPdfExt) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "UNSUPPORTED_FILE_TYPE",
+          message: "Only PDF documents are supported for ingestion. Unsupported file type provided.",
+        },
       });
     }
 
@@ -508,46 +558,92 @@ documentsRouter.get("/:id/status", requireAuth, async (req: AuthenticatedRequest
       id: doc._id.toString(),
       status: doc.status,
       pageCount: doc.pageCount,
+      processingError: doc.processingError,
     },
   });
 });
 
 async function processDocumentAsync(docId: string, title: string, revision: string, buffer: Buffer, uploaderId?: string) {
   try {
+    // Clear previous error when initiating a new ingestion attempt
+    if (isConnectedToMongo) {
+      try {
+        await DocumentModel.findByIdAndUpdate(docId, {
+          status: "processing",
+          $unset: { processingError: 1 },
+        });
+      } catch (clearErr) {
+        console.warn(`[Ingestion] Failed to clear previous processing error for ${docId}:`, clearErr);
+      }
+    }
+
     emitDocumentProgress(docId, 30, "Extracting text and tables via PDF parser...", uploaderId);
     const extraction = await pdfService.extractAndChunk(buffer, title);
 
     if (extraction.outcome === "extraction_failed") {
-      throw new Error(extraction.error || "PDF extraction failed");
+      throw new Error(extraction.error || "Failed to extract text from PDF document structure.");
     }
 
     // If OCR is required but has not produced usable text, persist needs_ocr and do not generate embeddings or index anything
     if (extraction.outcome === "ocr_required_unresolved" || extraction.requiresOcr) {
+      const actionableOcrError = sanitizeError(
+        extraction.ocrError || "Document contains scanned pages requiring optical character recognition (OCR) which is currently unresolved."
+      );
       console.warn(
-        `[Ingestion Needs OCR] Document ${docId} ("${title}") requires OCR but usable text is unresolved: ${extraction.ocrError || "Scanned document without digital text"}`
+        `[Ingestion Needs OCR] Document ${docId} ("${title}") requires OCR but usable text is unresolved: ${actionableOcrError}`
       );
-      if (isConnectedToMongo) {
-        await DocumentModel.findByIdAndUpdate(docId, {
-          status: "needs_ocr",
-          pageCount: extraction.pageCount,
-        });
-        await DocumentChunk.deleteMany({ documentId: docId });
+
+      // Best-effort step 1: delete any partial chunks
+      try {
+        if (isConnectedToMongo) {
+          await DocumentChunk.deleteMany({ documentId: docId });
+        }
+      } catch (cleanupErr) {
+        console.warn(`[Ingestion Cleanup Error for ${docId}]:`, cleanupErr);
       }
-      emitDocumentStatus(
-        docId,
-        "needs_ocr",
-        extraction.pageCount,
-        extraction.ocrError || "Document contains scanned pages requiring optical character recognition (OCR)",
-        uploaderId
-      );
+
+      // Best-effort step 2: update document status to needs_ocr with actionable processingError
+      try {
+        if (isConnectedToMongo) {
+          await DocumentModel.findByIdAndUpdate(docId, {
+            status: "needs_ocr",
+            pageCount: extraction.pageCount,
+            processingError: actionableOcrError,
+          });
+        }
+      } catch (statusErr) {
+        console.warn(`[Ingestion Status Update Error for ${docId}]:`, statusErr);
+      }
+
+      // Best-effort step 3: emit socket status
+      try {
+        emitDocumentStatus(
+          docId,
+          "needs_ocr",
+          extraction.pageCount,
+          actionableOcrError,
+          uploaderId
+        );
+      } catch (socketErr) {
+        console.warn(`[Ingestion Socket Event Error for ${docId}]:`, socketErr);
+      }
       return;
+    }
+
+    // Invariant: Never mark a document indexed when no genuine non-empty extracted chunks were successfully embedded and persisted
+    if (!extraction.chunks || extraction.chunks.length === 0) {
+      throw new Error("Document text extraction yielded zero valid structural chunks to index.");
     }
 
     emitDocumentProgress(docId, 60, `Generating vector embeddings for ${extraction.chunks.length} chunks...`, uploaderId);
 
-    // Clean existing chunks if re-indexing
+    // Clean existing chunks before indexing new chunks
     if (isConnectedToMongo) {
-      await DocumentChunk.deleteMany({ documentId: docId });
+      try {
+        await DocumentChunk.deleteMany({ documentId: docId });
+      } catch (cleanupErr) {
+        console.warn(`[Ingestion Pre-cleanup Warning for ${docId}]:`, cleanupErr);
+      }
     }
 
     let chunkIndex = 0;
@@ -567,11 +663,16 @@ async function processDocumentAsync(docId: string, title: string, revision: stri
       emitDocumentProgress(docId, progress, `Indexing chunk ${chunkIndex} of ${extraction.chunks.length}...`, uploaderId);
     }
 
+    // Invariant: If final document status persistence fails, NEVER emit a successful indexed status event
     if (isConnectedToMongo) {
-      await DocumentModel.findByIdAndUpdate(docId, {
+      const updated = await DocumentModel.findByIdAndUpdate(docId, {
         status: "indexed",
         pageCount: extraction.pageCount,
+        $unset: { processingError: 1 },
       });
+      if (!updated) {
+        throw new Error(`Failed to locate document ${docId} to persist indexed status.`);
+      }
     }
 
     emitDocumentProgress(docId, 100, "Indexing completed successfully", uploaderId);
@@ -579,14 +680,36 @@ async function processDocumentAsync(docId: string, title: string, revision: stri
     console.log(`[Ingestion Complete] ${title} indexed with ${extraction.chunks.length} chunks (OCR: ${extraction.ocrPerformed ? "performed" : "not needed"}).`);
   } catch (err: any) {
     console.error(`[Ingestion Failed for ${docId}]:`, err);
-    if (isConnectedToMongo) {
-      await DocumentModel.findByIdAndUpdate(docId, { status: "failed" });
-      try {
+    const safeErrorMessage = sanitizeError(
+      err?.message || "Document processing and vector indexing pipeline failed."
+    );
+
+    // Independent best-effort step 1: Always delete every chunk for this document so partial chunks never remain
+    try {
+      if (isConnectedToMongo) {
         await DocumentChunk.deleteMany({ documentId: docId });
-      } catch (cleanupErr) {
-        console.warn(`[Ingestion Cleanup Error for ${docId}]:`, cleanupErr);
       }
+    } catch (cleanupErr) {
+      console.warn(`[Ingestion Cleanup Error for ${docId}]:`, cleanupErr);
     }
-    emitDocumentStatus(docId, "failed", 0, err?.message || "Ingestion pipeline failure", uploaderId);
+
+    // Independent best-effort step 2: Update document status to failed and persist processingError
+    try {
+      if (isConnectedToMongo) {
+        await DocumentModel.findByIdAndUpdate(docId, {
+          status: "failed",
+          processingError: safeErrorMessage,
+        });
+      }
+    } catch (statusErr) {
+      console.warn(`[Ingestion DB Status Update Error for ${docId}]:`, statusErr);
+    }
+
+    // Independent best-effort step 3: Emit failed status event
+    try {
+      emitDocumentStatus(docId, "failed", 0, safeErrorMessage, uploaderId);
+    } catch (socketErr) {
+      console.warn(`[Ingestion Socket Event Error for ${docId}]:`, socketErr);
+    }
   }
 }

@@ -72,6 +72,7 @@ export interface IDocumentModel extends MongooseDocument {
   sizeBytes: number;
   status: DocumentStatus;
   pageCount?: number;
+  processingError?: string;
   equipmentId?: mongoose.Types.ObjectId;
   tags: string[];
   uploadedById: mongoose.Types.ObjectId;
@@ -98,6 +99,7 @@ const DocumentSchema = new Schema<IDocumentModel>(
       default: "pending",
     },
     pageCount: { type: Number, default: 0 },
+    processingError: { type: String },
     equipmentId: { type: Schema.Types.ObjectId, ref: "Equipment" },
     tags: [{ type: String }],
     uploadedById: { type: Schema.Types.ObjectId, ref: "User", required: true },

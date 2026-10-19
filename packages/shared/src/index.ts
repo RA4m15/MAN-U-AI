@@ -46,6 +46,7 @@ export interface DocumentDTO {
   sizeBytes: number;
   status: DocumentStatus;
   pageCount?: number;
+  processingError?: string;
   uploadedById: string;
   createdAt: string;
   updatedAt: string;

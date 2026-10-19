@@ -308,6 +308,289 @@ describe("Stage 5 — OCR Outcome Semantics & Ingestion Gating Suite", () => {
       expect(chunk?.text).toContain("Oil Lubrication Interval");
     }
   });
+
+  // Missing Case 1: Unsupported image type rejection
+  it("Requirement 4 & 5: Rejects PNG, JPG, and non-PDF uploads with UNSUPPORTED_FILE_TYPE", async () => {
+    const pngBuffer = Buffer.from("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01");
+    const extractSpy = vi.spyOn(pdfService, "extractAndChunk");
+
+    const pngRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${engineerToken}`)
+      .attach("file", pngBuffer, "schematic.png")
+      .field("title", "Wiring Schematic PNG");
+
+    expect(pngRes.status).toBe(400);
+    expect(pngRes.body.success).toBe(false);
+    expect(pngRes.body.error.code).toBe("UNSUPPORTED_FILE_TYPE");
+    expect(pngRes.body.error.message).toContain("Only PDF documents are supported");
+
+    // JPEG upload attempt
+    const jpgBuffer = Buffer.from("\xFF\xD8\xFF\xE0\x00\x10JFIF");
+    const jpgRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${engineerToken}`)
+      .attach("file", jpgBuffer, "bearing.jpg")
+      .field("title", "Bearing Photo JPG");
+
+    expect(jpgRes.status).toBe(400);
+    expect(jpgRes.body.error.code).toBe("UNSUPPORTED_FILE_TYPE");
+
+    // Invariant: Non-PDF files must never reach PDF parsing
+    expect(extractSpy).not.toHaveBeenCalled();
+  });
+
+  // Missing Case 2: Persisted processing error visible through the document status, detail, and list APIs
+  it("Requirement 2 & 5: Persisted processing error is visible in document status, detail, and list APIs", async () => {
+    mockParseBehavior = {
+      numpages: 1,
+      text: " ", // low text
+    };
+
+    vi.spyOn(geminiService, "isLiveClientConfigured").mockReturnValue(true);
+    vi.spyOn(geminiService, "transcribePdfWithOcr").mockRejectedValue(
+      new Error("Gemini OCR upstream model server error: internal fault")
+    );
+    vi.spyOn(storageService, "saveFile").mockResolvedValueOnce({
+      storagePath: "/mock/status_error_test.pdf",
+      sizeBytes: validDummyPdf.length,
+      storageProvider: "local",
+    });
+
+    const uploadRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${engineerToken}`)
+      .attach("file", validDummyPdf, "status_error_test.pdf")
+      .field("title", "OCR Semantics Test Error Exposure");
+
+    expect(uploadRes.status).toBe(202);
+    const docId = uploadRes.body.data.id;
+
+    // Poll until status reaches needs_ocr
+    let finalStatus = "";
+    let finalError = "";
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const statusRes = await request(app)
+        .get(`/api/v1/documents/${docId}/status`)
+        .set("Authorization", `Bearer ${engineerToken}`);
+      finalStatus = statusRes.body?.data?.status;
+      finalError = statusRes.body?.data?.processingError;
+      if (finalStatus === "needs_ocr") break;
+    }
+
+    expect(finalStatus).toBe("needs_ocr");
+    expect(finalError).toBeDefined();
+    expect(finalError).toContain("Gemini OCR upstream model server error");
+    expect(finalError).not.toContain("password");
+    expect(finalError).not.toContain("stack");
+
+    // Also verify detail API GET /documents/:id surfaces processingError
+    const detailRes = await request(app)
+      .get(`/api/v1/documents/${docId}`)
+      .set("Authorization", `Bearer ${engineerToken}`);
+    expect(detailRes.status).toBe(200);
+    expect(detailRes.body.data.status).toBe("needs_ocr");
+    expect(detailRes.body.data.processingError).toContain("Gemini OCR upstream model server error");
+
+    // Also verify list API GET /documents surfaces processingError
+    const listRes = await request(app)
+      .get("/api/v1/documents")
+      .set("Authorization", `Bearer ${engineerToken}`);
+    expect(listRes.status).toBe(200);
+    const found = listRes.body.data.find((d: any) => d.id === docId);
+    expect(found).toBeDefined();
+    expect(found.processingError).toContain("Gemini OCR upstream model server error");
+  });
+
+  // Missing Case 3: Partial vector-index failure cleans up all chunks and sets status failed
+  it("Requirement 3 & 5: Partial chunk index failure cleans up existing chunks and marks status failed", async () => {
+    mockParseBehavior = {
+      numpages: 2,
+      text: "--- PAGE 1 ---\nChunk 1 text: Boiler steam valve initial pressure check and gauge inspection.\n\n--- PAGE 2 ---\nChunk 2 text: Boiler steam valve replacement seals and torque tightness.",
+    };
+
+    let callCount = 0;
+    vi.spyOn(geminiService, "generateEmbedding").mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Array(768).fill(0.01);
+      }
+      throw new Error("Simulated failure generating embedding on chunk 2");
+    });
+    vi.spyOn(storageService, "saveFile").mockResolvedValueOnce({
+      storagePath: "/mock/partial_fail.pdf",
+      sizeBytes: validDummyPdf.length,
+      storageProvider: "local",
+    });
+
+    const res = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${engineerToken}`)
+      .attach("file", validDummyPdf, "partial_fail.pdf")
+      .field("title", "OCR Semantics Test Partial Fail");
+
+    expect(res.status).toBe(202);
+    const docId = res.body.data.id;
+
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const statusRes = await request(app)
+        .get(`/api/v1/documents/${docId}/status`)
+        .set("Authorization", `Bearer ${engineerToken}`);
+      if (statusRes.body?.data?.status === "failed") break;
+    }
+
+    const finalStatusRes = await request(app)
+      .get(`/api/v1/documents/${docId}/status`)
+      .set("Authorization", `Bearer ${engineerToken}`);
+
+    expect(finalStatusRes.body.data.status).toBe("failed");
+    expect(finalStatusRes.body.data.processingError).toContain("Simulated failure generating embedding on chunk 2");
+
+    // Invariant: All chunks must be cleaned up; no orphaned chunks remain
+    if (isConnectedToMongo) {
+      const remainingChunks = await DocumentChunk.countDocuments({ documentId: docId });
+      expect(remainingChunks).toBe(0);
+    }
+  });
+
+  // Missing Case 4: Failure to persist final indexed status does NOT falsely emit indexed
+  it("Requirement 3 & 5: Failure to persist final indexed status never falsely reports success", async () => {
+    mockParseBehavior = {
+      numpages: 1,
+      text: "Valid content for testing DB final update error path.",
+    };
+
+    vi.spyOn(geminiService, "generateEmbedding").mockResolvedValue(new Array(768).fill(0.01));
+    vi.spyOn(storageService, "saveFile").mockResolvedValueOnce({
+      storagePath: "/mock/db_final_fail.pdf",
+      sizeBytes: validDummyPdf.length,
+      storageProvider: "local",
+    });
+
+    // Mock DocumentModel.findByIdAndUpdate to fail on the final update when status is set to indexed
+    const origFindByIdAndUpdate = DocumentModel.findByIdAndUpdate.bind(DocumentModel);
+    vi.spyOn(DocumentModel, "findByIdAndUpdate").mockImplementation(async function (
+      this: any,
+      id: any,
+      update: any,
+      options: any
+    ) {
+      if (update?.status === "indexed") {
+        throw new Error("Simulated database timeout on persisting indexed status");
+      }
+      return origFindByIdAndUpdate(id, update, options);
+    });
+
+    const res = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${engineerToken}`)
+      .attach("file", validDummyPdf, "db_final_fail.pdf")
+      .field("title", "OCR Semantics Test Final DB Fail");
+
+    expect(res.status).toBe(202);
+    const docId = res.body.data.id;
+
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const statusRes = await request(app)
+        .get(`/api/v1/documents/${docId}/status`)
+        .set("Authorization", `Bearer ${engineerToken}`);
+      if (statusRes.body?.data?.status === "failed") break;
+    }
+
+    const finalStatusRes = await request(app)
+      .get(`/api/v1/documents/${docId}/status`)
+      .set("Authorization", `Bearer ${engineerToken}`);
+
+    // Invariant: Status must NEVER be indexed when final persistence failed
+    expect(finalStatusRes.body.data.status).not.toBe("indexed");
+    expect(finalStatusRes.body.data.status).toBe("failed");
+    expect(finalStatusRes.body.data.processingError).toContain("Simulated database timeout on persisting indexed status");
+
+    // Invariant: Cleanup removes any chunks
+    if (isConnectedToMongo) {
+      const chunkCount = await DocumentChunk.countDocuments({ documentId: docId });
+      expect(chunkCount).toBe(0);
+    }
+  });
+
+  // Missing Case 5: Correct page metadata for digital-text PDF chunks
+  it("Requirement 5: Digital-text PDF produces chunks with correct 1-indexed page metadata", async () => {
+    mockParseBehavior = {
+      numpages: 3,
+      text: "--- PAGE 1 ---\nSection 1.0 Safety Isolation: De-energize all motor control centers.\n\n--- PAGE 2 ---\nSection 2.0 Coupling Disassembly: Remove guard and loosen bolts.\n\n--- PAGE 3 ---\nSection 3.0 Re-assembly: Apply 95 Nm torque to coupling bolts.",
+    };
+
+    const result = await pdfService.extractAndChunk(validDummyPdf, "Multi-page Equipment Guide");
+
+    expect(result.outcome).toBe("digital_text_extracted");
+    expect(result.pageCount).toBe(3);
+    expect(result.chunks.length).toBe(3);
+
+    // Verify 1-indexed page metadata matches each section
+    expect(result.chunks[0].page).toBe(1);
+    expect(result.chunks[0].text).toContain("Safety Isolation");
+    expect(result.chunks[1].page).toBe(2);
+    expect(result.chunks[1].text).toContain("Coupling Disassembly");
+    expect(result.chunks[2].page).toBe(3);
+    expect(result.chunks[2].text).toContain("Re-assembly");
+  });
+
+  // Missing Case 6: Existing successful PDF ingestion and authorization behavior
+  it("Requirement 5: Enforces authorization on document chunk retrieval and deletion", async () => {
+    mockParseBehavior = {
+      numpages: 1,
+      text: "Authorized Manual Content for testing RBAC protections.",
+    };
+
+    vi.spyOn(geminiService, "generateEmbedding").mockResolvedValue(new Array(768).fill(0.01));
+    vi.spyOn(storageService, "saveFile").mockResolvedValueOnce({
+      storagePath: "/mock/auth_test.pdf",
+      sizeBytes: validDummyPdf.length,
+      storageProvider: "local",
+    });
+
+    const res = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${engineerToken}`)
+      .attach("file", validDummyPdf, "auth_test.pdf")
+      .field("title", "OCR Semantics Test RBAC");
+
+    expect(res.status).toBe(202);
+    const docId = res.body.data.id;
+
+    for (let i = 0; i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const statusRes = await request(app)
+        .get(`/api/v1/documents/${docId}/status`)
+        .set("Authorization", `Bearer ${engineerToken}`);
+      if (statusRes.body?.data?.status === "indexed") break;
+    }
+
+    // Authorized user can read chunks
+    const authorizedChunksRes = await request(app)
+      .get(`/api/v1/documents/${docId}/chunks`)
+      .set("Authorization", `Bearer ${engineerToken}`);
+    expect(authorizedChunksRes.status).toBe(200);
+    expect(authorizedChunksRes.body.success).toBe(true);
+
+    // Unauthenticated request is rejected
+    const unauthChunksRes = await request(app).get(`/api/v1/documents/${docId}/chunks`);
+    expect(unauthChunksRes.status).toBe(401);
+
+    // Viewer role without permission cannot delete document
+    const viewerToken = jwt.sign(
+      { id: "usr-viewer-unauthorized", email: "viewer@plant.io", name: "Viewer", role: "viewer" },
+      env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+    const deleteRes = await request(app)
+      .delete(`/api/v1/documents/${docId}`)
+      .set("Authorization", `Bearer ${viewerToken}`);
+    expect(deleteRes.status).toBe(403);
+  });
 });
 
 function validDummyDummyBuffer(): Buffer {

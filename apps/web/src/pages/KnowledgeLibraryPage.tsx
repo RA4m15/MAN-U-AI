@@ -113,7 +113,9 @@ export function KnowledgeLibraryPage() {
       return;
     }
 
-    if (!selectedFile.name.toLowerCase().endsWith(".pdf") && selectedFile.type !== "application/pdf") {
+    const isPdfExt = selectedFile.name.toLowerCase().endsWith(".pdf");
+    const isPdfMime = !selectedFile.type || selectedFile.type === "application/pdf" || selectedFile.type === "application/x-pdf";
+    if (!isPdfExt || !isPdfMime) {
       setUploadError("Invalid file type. Only authentic PDF manuals are accepted.");
       return;
     }
@@ -312,6 +314,14 @@ export function KnowledgeLibraryPage() {
                   )}
                 </div>
 
+                {/* Processing Error Message (actionable) */}
+                {doc.processingError && (doc.status === "needs_ocr" || doc.status === "failed") && (
+                  <div className="mt-2.5 p-2 rounded-lg bg-surface-2 border border-hairline text-2xs text-ink-subtle flex items-start gap-1.5">
+                    <AlertTriangle size={12} className={cn("mt-0.5 flex-shrink-0", doc.status === "needs_ocr" ? "text-warning" : "text-danger")} />
+                    <span className="line-clamp-2 leading-relaxed">{doc.processingError}</span>
+                  </div>
+                )}
+
                 {/* Tags */}
                 <div className="flex flex-wrap gap-1 my-3">
                   {(doc.tags || []).map((t: string, idx: number) => (
@@ -457,7 +467,9 @@ export function KnowledgeLibraryPage() {
                     onChange={(e) => {
                       if (e.target.files && e.target.files[0]) {
                         const file = e.target.files[0];
-                        if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
+                        const isPdfExt = file.name.toLowerCase().endsWith(".pdf");
+                        const isPdfMime = !file.type || file.type === "application/pdf" || file.type === "application/x-pdf";
+                        if (!isPdfExt || !isPdfMime) {
                           setUploadError("Invalid file type. Only authentic PDF manuals are accepted.");
                           setSelectedFile(null);
                           return;
