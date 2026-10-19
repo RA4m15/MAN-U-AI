@@ -31,6 +31,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
           "test.viewer@plant.io",
           "existing.user@plant.io",
           "cli.hardened@plant.io",
+          "cli.recovered@plant.io",
         ],
       },
     });
@@ -48,6 +49,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
           "test.viewer@plant.io",
           "existing.user@plant.io",
           "cli.hardened@plant.io",
+          "cli.recovered@plant.io",
         ],
       },
     });

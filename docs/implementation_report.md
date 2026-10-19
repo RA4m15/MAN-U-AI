@@ -1712,3 +1712,65 @@ Remove-Item Env:\TARGET_MONGODB_URI -ErrorAction SilentlyContinue
 - **Frontend Automated Tests (`npm --prefix apps/web test`)**: 3 test files passed, 25/25 tests passed.
 - **Monorepo Build (`npm run build`)**: `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` all compiled cleanly with exit code 0.
 - **Git Diff Whitespace Hygiene**: `git diff --check` passed with 0 errors.
+
+---
+
+## 28. STAGE 5.3: FIX LIVE FRONTEND /LOGIN 404
+
+### Root Cause Analysis of Live /login 404
+
+Probing the live deployed frontend produced:
+- `GET https://man-u-ai-1.onrender.com/` -> `HTTP 200 OK` (serves `index.html`).
+- `GET https://man-u-ai-1.onrender.com/login` -> `HTTP 404 Not Found` (`text/plain; charset=utf-8`).
+- `GET https://man-u-ai-1.onrender.com/equipment` -> `HTTP 404 Not Found`.
+
+Two complementary root causes caused this behavior:
+1. **Render Static Site vs. Blueprint Service Disconnect**:
+   - `render.yaml` specifies a Static Site service named `man-u-ai-web` with `routes: [{ type: rewrite, source: /*, destination: /index.html }]`.
+   - The live production frontend is hosted at `https://man-u-ai-1.onrender.com/` as a manually created standalone Render Static Site named `man-u-ai-1`.
+   - Render does not use a `_redirects` file; standalone static sites created in the Render Dashboard do not inherit `render.yaml` Blueprint rules unless managed by the Blueprint.
+   - Consequently, the rewrite rule `/*` -> `/index.html` was missing in the Render Dashboard under `man-u-ai-1` -> **Redirects/Rewrites**.
+2. **Missing Physical Route Fallbacks in Static Build Output**:
+   - The Vite build output previously only generated `dist/index.html` at the root.
+   - When a user navigated directly to `https://man-u-ai-1.onrender.com/login` or reloaded the browser, Render's web server searched for a physical file `dist/login/index.html` or `dist/login.html`.
+   - Lacking the server rewrite rule and without a physical file matching `/login`, Render returned `404 Not Found`.
+
+### Remediations Implemented
+
+1. **Static Fallback Generation (`apps/web/scripts/postbuild.js`)**:
+   - Implemented an automated build post-step executed on every `pnpm build` / `npm run build`.
+   - Generates `dist/404.html` (copy of `index.html`) as an SPA fallback for static hosting providers.
+   - Pre-generates physical directory structures and entry files for all client-side routes registered in `App.tsx`:
+     - `dist/login/index.html` and `dist/login.html`
+     - `dist/knowledge/index.html` and `dist/knowledge.html`
+     - `dist/equipment/index.html` and `dist/equipment.html`
+     - `dist/summaries/index.html` and `dist/summaries.html`
+     - `dist/insights/index.html` and `dist/insights.html`
+     - `dist/activity/index.html` and `dist/activity.html`
+     - `dist/integrations/index.html` and `dist/integrations.html`
+     - `dist/settings/index.html` and `dist/settings.html`
+     - `dist/chat/index.html` and `dist/chat.html`
+   - When deployed to Render, direct navigation to `/login` immediately finds `dist/login/index.html` and returns `HTTP 200 OK` directly from the edge CDN.
+2. **Build Script Integration (`apps/web/package.json`)**:
+   - Updated `"build": "tsc -b && vite build && node scripts/postbuild.js"`.
+3. **Automated Regression Suite (`apps/web/test/stage5_login_route.test.tsx`)**:
+   - Validates that navigating to `/login` mounts and renders the `LoginPage` component.
+   - Validates that unauthenticated navigation to `/` redirects to `/login`.
+   - Validates that the build output generates `404.html`, `login/index.html`, and `login.html`.
+4. **Test & Build Verification**:
+   - Frontend tests: 4 test files passed, 28/28 tests passed.
+   - Backend tests: 13 test files passed, 169/169 tests passed.
+   - Monorepo build: `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` compiled with exit code 0.
+   - Git hygiene: `git diff --check` reported 0 whitespace errors.
+
+### Manual Render Dashboard Configuration (Defense-in-Depth)
+
+To ensure dynamic parameterized routes (such as `/knowledge/manuals/:documentId` and `/chat/:conversationId`) also support direct browser refresh:
+1. Log in to [Render Dashboard](https://dashboard.render.com/).
+2. Select your Static Site (`man-u-ai-1`).
+3. Click **Redirects/Rewrites** in the left sidebar menu.
+4. Click **Add Rule**:
+   - **Source:** `/*`
+   - **Destination:** `/index.html`
+   - **Action:** `Rewrite`
+5. Click **Save Changes**.
