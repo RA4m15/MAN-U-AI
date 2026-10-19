@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
-import { DocumentModel, DocumentChunk, DocumentPermission, ProcessingJob, AuditEvent } from "../models";
+import { DocumentModel, DocumentChunk, DocumentPermission, AuditEvent } from "../models";
 
 import { storageService } from "../services/storage.service";
 import { pdfService, isValidPdfSignature } from "../services/pdf.service";
@@ -563,12 +563,13 @@ documentsRouter.get("/:id/status", requireAuth, async (req: AuthenticatedRequest
   });
 });
 
-async function processDocumentAsync(docId: string, title: string, revision: string, buffer: Buffer, uploaderId?: string) {
+export async function processDocumentAsync(docId: string, title: string, revision: string, buffer: Buffer, uploaderId?: string) {
+  const docOid = toMongoObjectId(docId);
   try {
     // Clear previous error when initiating a new ingestion attempt
     if (isConnectedToMongo) {
       try {
-        await DocumentModel.findByIdAndUpdate(docId, {
+        await DocumentModel.findByIdAndUpdate(docOid, {
           status: "processing",
           $unset: { processingError: 1 },
         });
@@ -596,7 +597,7 @@ async function processDocumentAsync(docId: string, title: string, revision: stri
       // Best-effort step 1: delete any partial chunks
       try {
         if (isConnectedToMongo) {
-          await DocumentChunk.deleteMany({ documentId: docId });
+          await DocumentChunk.deleteMany({ documentId: docOid });
         }
       } catch (cleanupErr) {
         console.warn(`[Ingestion Cleanup Error for ${docId}]:`, cleanupErr);
@@ -605,7 +606,7 @@ async function processDocumentAsync(docId: string, title: string, revision: stri
       // Best-effort step 2: update document status to needs_ocr with actionable processingError
       try {
         if (isConnectedToMongo) {
-          await DocumentModel.findByIdAndUpdate(docId, {
+          await DocumentModel.findByIdAndUpdate(docOid, {
             status: "needs_ocr",
             pageCount: extraction.pageCount,
             processingError: actionableOcrError,
@@ -637,20 +638,21 @@ async function processDocumentAsync(docId: string, title: string, revision: stri
 
     emitDocumentProgress(docId, 60, `Generating vector embeddings for ${extraction.chunks.length} chunks...`, uploaderId);
 
-    // Clean existing chunks before indexing new chunks
-    if (isConnectedToMongo) {
-      try {
-        await DocumentChunk.deleteMany({ documentId: docId });
-      } catch (cleanupErr) {
-        console.warn(`[Ingestion Pre-cleanup Warning for ${docId}]:`, cleanupErr);
-      }
+    // Required pre-cleanup: ensure existing chunks are purged before re-indexing to prevent duplicate/stale chunks
+    if (!isConnectedToMongo) {
+      throw new Error("Database unavailable: cannot verify or clear existing chunk state before indexing.");
+    }
+    try {
+      await DocumentChunk.deleteMany({ documentId: docOid });
+    } catch (cleanupErr: any) {
+      throw new Error(`Failed to clear existing chunks before indexing: ${cleanupErr?.message || cleanupErr}`);
     }
 
     let chunkIndex = 0;
     for (const chunk of extraction.chunks) {
       const embedding = await geminiService.generateEmbedding(chunk.text);
       await vectorService.indexChunk({
-        documentId: docId,
+        documentId: docOid.toString(),
         documentTitle: title,
         revision,
         page: chunk.page,
@@ -663,16 +665,18 @@ async function processDocumentAsync(docId: string, title: string, revision: stri
       emitDocumentProgress(docId, progress, `Indexing chunk ${chunkIndex} of ${extraction.chunks.length}...`, uploaderId);
     }
 
-    // Invariant: If final document status persistence fails, NEVER emit a successful indexed status event
-    if (isConnectedToMongo) {
-      const updated = await DocumentModel.findByIdAndUpdate(docId, {
-        status: "indexed",
-        pageCount: extraction.pageCount,
-        $unset: { processingError: 1 },
-      });
-      if (!updated) {
-        throw new Error(`Failed to locate document ${docId} to persist indexed status.`);
-      }
+    // Invariant: Final success is strictly conditional on confirmed persistence in database
+    if (!isConnectedToMongo) {
+      throw new Error("Database unavailable: cannot persist final indexed document status.");
+    }
+
+    const updated = await DocumentModel.findByIdAndUpdate(docOid, {
+      status: "indexed",
+      pageCount: extraction.pageCount,
+      $unset: { processingError: 1 },
+    });
+    if (!updated) {
+      throw new Error(`Failed to locate document ${docId} to persist indexed status.`);
     }
 
     emitDocumentProgress(docId, 100, "Indexing completed successfully", uploaderId);
@@ -687,7 +691,7 @@ async function processDocumentAsync(docId: string, title: string, revision: stri
     // Independent best-effort step 1: Always delete every chunk for this document so partial chunks never remain
     try {
       if (isConnectedToMongo) {
-        await DocumentChunk.deleteMany({ documentId: docId });
+        await DocumentChunk.deleteMany({ documentId: docOid });
       }
     } catch (cleanupErr) {
       console.warn(`[Ingestion Cleanup Error for ${docId}]:`, cleanupErr);
@@ -696,7 +700,7 @@ async function processDocumentAsync(docId: string, title: string, revision: stri
     // Independent best-effort step 2: Update document status to failed and persist processingError
     try {
       if (isConnectedToMongo) {
-        await DocumentModel.findByIdAndUpdate(docId, {
+        await DocumentModel.findByIdAndUpdate(docOid, {
           status: "failed",
           processingError: safeErrorMessage,
         });

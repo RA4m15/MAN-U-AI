@@ -1,13 +1,16 @@
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from "vitest";
+import mongoose from "mongoose";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 import { app } from "../src/app";
 import { env } from "../src/config/env";
-import { connectDatabase, isConnectedToMongo } from "../src/config/database";
+import { connectDatabase, isConnectedToMongo, setIsConnectedToMongo } from "../src/config/database";
 import { DocumentModel, DocumentChunk } from "../src/models";
 import { pdfService, isValidPdfSignature } from "../src/services/pdf.service";
 import { geminiService } from "../src/services/gemini.service";
 import { storageService } from "../src/services/storage.service";
+import * as socketEvents from "../src/index";
+import { processDocumentAsync } from "../src/routes/documents.routes";
 
 // Mock pdf-parse so we can precisely control parser behavior across test scenarios
 let mockParseBehavior: {
@@ -590,6 +593,107 @@ describe("Stage 5 — OCR Outcome Semantics & Ingestion Gating Suite", () => {
       .delete(`/api/v1/documents/${docId}`)
       .set("Authorization", `Bearer ${viewerToken}`);
     expect(deleteRes.status).toBe(403);
+  });
+
+  // Task 1 Final Invariant 1: isConnectedToMongo === false cannot result in an indexed event
+  it("Task 1 Invariant: isConnectedToMongo === false cannot result in an indexed event", async () => {
+    mockParseBehavior = {
+      numpages: 1,
+      text: "Normal text content ready for indexing.",
+    };
+
+    const statusSpy = vi.spyOn(socketEvents, "emitDocumentStatus");
+    const progressSpy = vi.spyOn(socketEvents, "emitDocumentProgress");
+
+    // Simulate database disconnected
+    setIsConnectedToMongo(false);
+
+    const disconnectedDocId = new mongoose.Types.ObjectId().toString();
+    try {
+      await processDocumentAsync(disconnectedDocId, "Disconnected Doc", "Rev 1", validDummyPdf);
+
+      // Invariant: Never emit indexed status event when database is disconnected
+      const indexedCalls = statusSpy.mock.calls.filter((call) => call[1] === "indexed");
+      expect(indexedCalls.length).toBe(0);
+
+      // Invariant: Never emit 100% progress event when database is disconnected
+      const hundredProgressCalls = progressSpy.mock.calls.filter((call) => call[1] === 100);
+      expect(hundredProgressCalls.length).toBe(0);
+
+      // Invariant: Emits failed status event with safe error
+      const failedCalls = statusSpy.mock.calls.filter((call) => call[1] === "failed");
+      expect(failedCalls.length).toBeGreaterThanOrEqual(1);
+      expect(failedCalls[0][3]).toContain("Database unavailable");
+    } finally {
+      setIsConnectedToMongo(true);
+    }
+  });
+
+  // Task 1 Final Invariant 2: Missing or failed final document status update cannot result in an indexed event
+  it("Task 1 Invariant: Missing or failed final document status update cannot result in an indexed event", async () => {
+    mockParseBehavior = {
+      numpages: 1,
+      text: "Valid content for testing missing document during final update.",
+    };
+
+    vi.spyOn(geminiService, "generateEmbedding").mockResolvedValue(new Array(768).fill(0.01));
+    const statusSpy = vi.spyOn(socketEvents, "emitDocumentStatus");
+
+    // Simulate findByIdAndUpdate returning null on the final indexed update (document was removed or missing)
+    const origFindByIdAndUpdate = DocumentModel.findByIdAndUpdate.bind(DocumentModel);
+    vi.spyOn(DocumentModel, "findByIdAndUpdate").mockImplementation(async function (
+      this: any,
+      id: any,
+      update: any,
+      options: any
+    ) {
+      if (update?.status === "indexed") {
+        return null as any; // Document not found
+      }
+      return origFindByIdAndUpdate(id, update, options);
+    });
+
+    const missingDocId = new mongoose.Types.ObjectId().toString();
+    await processDocumentAsync(missingDocId, "Missing Doc Test", "Rev 1", validDummyPdf);
+
+    // Invariant: Indexed status event must NEVER be emitted
+    const indexedCalls = statusSpy.mock.calls.filter((call) => call[1] === "indexed");
+    expect(indexedCalls.length).toBe(0);
+
+    // Invariant: Emits failed status event
+    const failedCalls = statusSpy.mock.calls.filter((call) => call[1] === "failed");
+    expect(failedCalls.length).toBeGreaterThanOrEqual(1);
+    expect(failedCalls[0][3]).toContain("Failed to locate document");
+  });
+
+  // Task 1 Final Invariant 3: Pre-cleanup failure aborts re-indexing and does not generate new embeddings
+  it("Task 1 Invariant: Pre-cleanup failure aborts re-indexing and does not generate new embeddings", async () => {
+    mockParseBehavior = {
+      numpages: 1,
+      text: "Content to test pre-cleanup failure abort path.",
+    };
+
+    // Pre-cleanup deleteMany throws an error
+    vi.spyOn(DocumentChunk, "deleteMany").mockRejectedValueOnce(
+      new Error("Lock conflict on chunk deletion during pre-cleanup")
+    );
+    const embeddingSpy = vi.spyOn(geminiService, "generateEmbedding");
+    const statusSpy = vi.spyOn(socketEvents, "emitDocumentStatus");
+
+    const precleanupDocId = new mongoose.Types.ObjectId().toString();
+    await processDocumentAsync(precleanupDocId, "Precleanup Fail Doc", "Rev 1", validDummyPdf);
+
+    // Invariant: Ingestion aborted before any embeddings were generated
+    expect(embeddingSpy).not.toHaveBeenCalled();
+
+    // Invariant: Never emitted indexed event
+    const indexedCalls = statusSpy.mock.calls.filter((call) => call[1] === "indexed");
+    expect(indexedCalls.length).toBe(0);
+
+    // Invariant: Emits failed status event with safe pre-cleanup error
+    const failedCalls = statusSpy.mock.calls.filter((call) => call[1] === "failed");
+    expect(failedCalls.length).toBeGreaterThanOrEqual(1);
+    expect(failedCalls[0][3]).toContain("Failed to clear existing chunks before indexing");
   });
 });
 
