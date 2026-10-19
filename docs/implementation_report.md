@@ -1245,3 +1245,87 @@ Stage 4.1.2 comprehensively aligns generation parameters across all supported mo
 | **API Server Build** | `pnpm --filter @man-u-ai/api build` | Passed | Exit 0 |
 | **Web Frontend Build** | `pnpm --filter @man-u-ai/web build` | Passed | Exit 0 |
 | **Git Diff Whitespace Check** | `git diff --check` | Passed | 0 errors |
+
+---
+
+## 21. STAGE 5: FINAL LIVE PRODUCTION ACCEPTANCE
+
+### Executive Summary
+Stage 5 performs the final live production acceptance audit for MAN-U-AI across the deployed Web Service (`https://man-u-ai.onrender.com`) and deployed static frontend (`https://man-u-ai-1.onrender.com/`). This audit adheres strictly to production safety constraints: no production database records were altered, seeded, reset, or cleared; no security boundaries were bypassed; credentials and signed URLs are kept strictly out of records.
+
+---
+
+### Detailed Findings & Verification Records
+
+#### 1. Deployment Identity & Live Probes
+- **Git Synchronization:** `HEAD` and `origin/main` are verified identical at commit `2bdedefc29fa1e2fd5c6ef1009f5b82f76304c44` with a clean working tree.
+- **Probe: `GET https://man-u-ai.onrender.com/health`**
+  - **HTTP Status:** `200 OK`
+  - **Timestamp:** `2026-10-19T05:53:05.928Z`
+  - **Environment:** `production`
+  - **Database Status:** `connected` (MongoDB Atlas ready: `true`, vectorStore: `"mongodb"`)
+  - **Multimodal Engine:** `provider: "Google Gemini"`, `model: "gemini-3.8-flash"`, `embeddingModel: "gemini-embedding-001"`, `status: "key_configured"`, `keyConfigured: true`
+- **Probe: `GET https://man-u-ai.onrender.com/health/ready`**
+  - **HTTP Status:** `200 OK` (`ready: true`)
+- **Render Active Commit SHA:** **BLOCKED** — Render API credentials (`RENDER_API_KEY`) and Dashboard access are not provisioned in this environment. As required, commit identity is not inferred from health status alone.
+- **Frontend Asset & Configuration Integrity:**
+  - URL: `https://man-u-ai-1.onrender.com/` (`200 OK`).
+  - Active Bundle: `/assets/index-BTmuujl8.js` (491,099 bytes).
+  - API Resolution: Bundle resolves API calls to `https://man-u-ai.onrender.com/api/v1` and WebSocket to production wss edge. Zero requests target `localhost` or `127.0.0.1`.
+
+#### 2. Live Service Configuration & Integration Health
+- **MongoDB Atlas Connectivity:** Direct read-only database ping executed against MongoDB Atlas:
+  - Result: `{"ok": 1}`.
+  - Existing collections: 14 collections intact without modification.
+- **Live Google Gemini Generation:** Executed a single live test request targeting `gemini-3.8-flash` with sampling parameters omitted:
+  - Result: **PASS** (`RESPONSE TEXT: READY`).
+  - Verification: Gemini API rate limit quota has reset and responds accurately with deterministic configuration.
+- **Live Cloudinary Authenticated Streaming & Byte Integrity:** Executed live raw-file upload, signed private download, and exact byte-for-byte comparison:
+  - Test Public ID: `manuai/documents/stage5_probe_378a3596-8367-4669-9fe5-2c0237908f35`
+  - Upload Result: Success (96 bytes).
+  - Download HTTP Status: `200 OK`.
+  - Byte-for-Byte Equality: `true` (96/96 bytes matching original binary).
+  - Cleanup: Destroyed immediately via `cloudinary.uploader.destroy()`; subsequent query confirmed `not found` (0 orphaned assets).
+
+#### 3. Real Deployed Document-to-Answer Workflow
+- **Authentication Boundary:** Probed `/api/v1/auth/login` on the deployed API with known accounts (`admin@plant.io`, `alex.mercer@plant.io`, `marcus.v@plant.io`). Returned HTTP `401 Unauthorized` (`INVALID_CREDENTIALS`), confirming password hashes were rotated in Stage 0/1 and default credentials revoked.
+- **Production Safety Protocol:** Per mandate, production Atlas records cannot be seeded, reset, or altered to inject test credentials.
+- **Status:** Marked **BLOCKED** for the deployed production service pending provision of an authorized production test operator session. (Verified in isolated pipeline via `test/document_to_answer.test.ts`).
+
+#### 4. Authorized PDF Download & Access Control
+- **Access Control:** Unauthenticated requests to `/api/v1/documents/:id/file` return HTTP `401 Unauthorized`.
+- **Streaming Hardening:** URL validation enforces HTTPS-only delivery and approved Cloudinary domains (`res.cloudinary.com`, `api.cloudinary.com`, `*.cloudinary.com`).
+- **Status:** **BLOCKED** for deployed production user session; **PASS** in isolated integration tests (`storage_cloudinary.test.ts` and `document_to_answer.test.ts`).
+
+#### 5. Live Frontend & Real-Time Behavior
+- **Browser Subagent Navigation:** Loaded `https://man-u-ai-1.onrender.com/` in Chromium browser subagent.
+- **UI State:** Rendered dark industrial theme (`MAN-U-AI | Industrial AI Copilot`), quick demo role selectors, and login form.
+- **Network Behavior:** Authenticated requests correctly target `https://man-u-ai.onrender.com`. Zero network requests target `localhost`.
+- **Error Handling:** Failed login attempts render clear, honest error notifications without synthetic data fallbacks.
+
+---
+
+### Final Live Production Acceptance Matrix
+
+| Item / Requirement | Evaluation Category | Status | Evidence / Observation |
+| :--- | :--- | :---: | :--- |
+| **Git & Branch Alignment** | Deployment Identity | **PASS** | `HEAD` equals `origin/main` (`2bdedef`), clean tree |
+| **Render API Commit SHA** | Deployment Identity | **BLOCKED** | Render API credentials not provisioned in environment |
+| **API Health & Readiness** | Deployment Identity | **PASS** | `GET /health` and `GET /health/ready` returned 200 OK |
+| **Frontend Production Bundle** | Frontend Delivery | **PASS** | `https://man-u-ai-1.onrender.com/` serves Vite bundle (`BTmuujl8`) |
+| **Frontend Endpoint Resolution** | Frontend Delivery | **PASS** | Bundle targets `man-u-ai.onrender.com`; 0 localhost requests |
+| **MongoDB Atlas Ping** | Database Health | **PASS** | Read-only admin ping returned `{"ok": 1}` |
+| **Google GenAI Key Config** | AI Engine | **PASS** | Configured and active (`keyConfigured: true`) |
+| **Live Gemini Generation Request** | AI Engine | **PASS** | Single live request succeeded (`gemini-3.8-flash` returned "READY") |
+| **Gemini Sampling Compliance** | AI Engine | **PASS** | Omitted `temperature`, `top_p`, `top_k` across all allowed models |
+| **Cloudinary Private Upload/Download** | Storage Health | **PASS** | Authenticated upload, signed download, exact byte match (96B) |
+| **Cloudinary Test Asset Cleanup** | Production Safeguards | **PASS** | Immediately deleted; verified `not found` |
+| **Cloudinary Stream SSRF Hardening** | Security Hardening | **PASS** | HTTPS enforced, private IP/localhost rejected, sockets drained |
+| **Live Deployed PDF Upload & Ingestion**| End-to-End Workflow | **BLOCKED** | Production credentials rotated; no authorized session provided |
+| **Live Deployed RAG Citation Query** | End-to-End Workflow | **BLOCKED** | Blocked on authorized production session |
+| **Isolated PDF Byte Fidelity & Ingestion** | Pipeline Integrity | **PASS** | `document_to_answer.test.ts`: bit-for-bit PDF match (3035B) |
+| **Frontend Real-Time & UI State** | User Interface | **PASS** | Validated via browser subagent; honest authentication errors |
+| **Backend Regression Suite** | Quality Assurance | **PASS** | 12 files, 133 tests passed (`vitest`) |
+| **Frontend Regression Suite** | Quality Assurance | **PASS** | 2 files, 22 tests passed (`vitest`) |
+| **Full Monorepo Builds** | Compilation | **PASS** | `@man-u-ai/shared`, `@man-u-ai/api`, `@man-u-ai/web` exit 0 |
+| **Git Diff Whitespace Hygiene** | Code Hygiene | **PASS** | `git diff --check` returned 0 whitespace errors |
