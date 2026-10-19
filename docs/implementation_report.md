@@ -1449,7 +1449,56 @@ To achieve complete production sign-off, an operator with Render Dashboard acces
 
 ### Test Results
 
-- **Backend Tests (`npm --prefix apps/api test`)**: 13 test files passed, 144 tests passed (including 8 new tests in `test/stage5_provisioning.test.ts`).
-- **Frontend Tests (`npm --prefix apps/web test`)**: 3 test files passed, 25 tests passed (including 3 new tests in `test/stage5_login_provisioning.test.tsx`).
+- **Backend Tests (`npm --prefix apps/api test`)**: 13 test files passed, 154 tests passed (including 18 tests in `test/stage5_provisioning.test.ts`).
+- **Frontend Tests (`npm --prefix apps/web test`)**: 3 test files passed, 25 tests passed (including 3 tests in `test/stage5_login_provisioning.test.tsx`).
 - **Monorepo Build (`npm run build`)**: `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` all compiled cleanly with exit code 0.
 - **Compiled CLI Test**: Tested compiled `dist/scripts/provision-user.js` against local test database. Validated account creation, password hashing, `--confirm` requirement, missing password handling, and existing-account overwrite protection.
+
+---
+
+## 24. STAGE 5.2.1: HARDEN ACCOUNT PROVISIONING BEFORE PRODUCTION USE
+
+### Security Hardening Findings & Corrections
+
+1. **Terminal Password Masking & Raw Mode Restoration**:
+   - `promptMaskedPassword()` in `apps/api/src/scripts/provision-user.ts` replaces plain `readline.question()` with raw-mode TTY input masking.
+   - Keystrokes are echoed as asterisks (`*`), backspace (`\b \b`) is handled accurately, and carriage returns resolve the password.
+   - Terminal raw mode is restored to normal (`setRawMode(false)`) upon completion, errors, and interruption signals (`SIGINT` code 130, `SIGTERM` code 143).
+   - The `--password` command-line argument was completely removed to prevent exposing credentials in process listings (`ps aux`), Windows Task Manager, or shell command history (`.bash_history`, PowerShell PSReadLine).
+   - In non-interactive environments, passwords must be supplied via the `PROVISION_PASSWORD` environment variable.
+
+2. **Fail-Closed Target Database Selection**:
+   - Removed implicit fallback to `mongodb://localhost:27017/manuai`. If no URI is provided, the CLI aborts with an explicit error.
+   - Added `parseAndSanitizeMongoTarget()` which extracts the target host and database name while stripping credentials.
+   - Refuses localhost / `127.0.0.1` targets by default. Local testing requires the explicit `--allow-local` flag.
+   - Requires explicit `--confirm` flag, and supports `--target-db=<dbname>` to verify that the target database matches expectations before executing any write operations.
+   - Prints only sanitized target details (`Target Host`, `Target Database`, `Operator Email`, `Operator Role`); never prints connection strings, auth tokens, or passwords.
+
+3. **Correction Regarding Render Free Tier Limitations**:
+   - Render Web Services on the **Free tier do not support Render Dashboard Shell or SSH access** (a limitation of Render's free tier).
+   - Consequently, operator account provisioning cannot be run via a web shell in the Render dashboard.
+   - Operators must execute the provisioning CLI from a secure local management terminal or CI runner directly targeting the remote MongoDB Atlas cluster.
+
+### Safe Local Operator Workflow for Production Account Provisioning
+
+> [!CAUTION]
+> Account provisioning performs write operations on the target database. Carefully verify the target host and database name displayed by the utility before authorizing changes.
+
+To provision the initial production operator account from your local workstation:
+
+1. **Obtain the Remote MongoDB Atlas Connection String**:
+   - Retrieve the connection string from your secure secrets manager or Render environment variables (`MONGODB_URI`).
+2. **Execute the Provisioning Utility**:
+   In PowerShell / bash, set `TARGET_MONGODB_URI` and run `provision-user`:
+   ```powershell
+   # Windows PowerShell example
+   $env:TARGET_MONGODB_URI="mongodb+srv://<db-user>:<db-password>@<cluster-host>/manuai"
+   npm --prefix apps/api run provision-user -- --email="operator@plant.io" --role=admin --name="Plant Administrator" --target-db=manuai --confirm
+   ```
+3. **Enter the Password at the Masked Terminal Prompt**:
+   - The CLI displays the sanitized target host and database.
+   - Type your strong initial operator password (minimum 8 characters). Asterisks (`*`) will mask the input.
+4. **Clean up Environment Variables**:
+   ```powershell
+   Remove-Item Env:\TARGET_MONGODB_URI
+   ```

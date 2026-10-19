@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { User } from "../models";
@@ -16,6 +17,7 @@ export const ProvisionUserSchema = z.object({
   confirm: z.boolean().refine((val) => val === true, {
     message: "Explicit confirmation required. Confirmation flag must be true to modify the database.",
   }),
+  expectedDatabase: z.string().trim().optional(),
 });
 
 export type ProvisionUserInput = z.infer<typeof ProvisionUserSchema>;
@@ -38,6 +40,7 @@ export interface ProvisionedUserResult {
  * 4. Never creates synthetic demo equipment, documents, vector chunks, or audit fixtures.
  * 5. Uses standard bcrypt hashing with work factor 10.
  * 6. Never logs passwords or sensitive credentials.
+ * 7. Verifies intended target database matches current database connection if expectedDatabase is specified.
  */
 export async function provisionUser(input: ProvisionUserInput): Promise<ProvisionedUserResult> {
   const parsed = ProvisionUserSchema.safeParse(input);
@@ -46,11 +49,20 @@ export async function provisionUser(input: ProvisionUserInput): Promise<Provisio
     throw new Error(`Provisioning validation failed: ${errorMessages}`);
   }
 
-  const { email, role, password, confirm } = parsed.data;
+  const { email, role, password, confirm, expectedDatabase } = parsed.data;
   const name = parsed.data.name || email.split("@")[0];
 
   if (!confirm) {
     throw new Error("Explicit operator confirmation is required before modifying the database.");
+  }
+
+  if (expectedDatabase) {
+    const currentDb = mongoose.connection.db?.databaseName;
+    if (currentDb && currentDb.toLowerCase() !== expectedDatabase.toLowerCase()) {
+      throw new Error(
+        `Target database mismatch: connected to "${currentDb}" but explicit confirmation required "${expectedDatabase}".`
+      );
+    }
   }
 
   const existingUser = await User.findOne({ email });
