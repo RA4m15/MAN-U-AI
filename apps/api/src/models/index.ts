@@ -94,7 +94,7 @@ const DocumentSchema = new Schema<IDocumentModel>(
     sizeBytes: { type: Number, required: true },
     status: {
       type: String,
-      enum: ["pending", "processing", "indexed", "failed"],
+      enum: ["pending", "processing", "indexed", "failed", "needs_ocr"],
       default: "pending",
     },
     pageCount: { type: Number, default: 0 },

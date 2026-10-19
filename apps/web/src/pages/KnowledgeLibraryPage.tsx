@@ -250,6 +250,7 @@ export function KnowledgeLibraryPage() {
             <option value="all">All Statuses</option>
             <option value="indexed">Indexed (Ready)</option>
             <option value="processing">Processing</option>
+            <option value="needs_ocr">Needs OCR</option>
             <option value="failed">Failed Index</option>
           </select>
         </div>
@@ -297,6 +298,11 @@ export function KnowledgeLibraryPage() {
                   {doc.status === "processing" && (
                     <span className="badge-primary text-2xs flex-shrink-0">
                       <Loader2 size={10} className="animate-spin" /> Ingesting
+                    </span>
+                  )}
+                  {doc.status === "needs_ocr" && (
+                    <span className="badge-warning text-2xs flex-shrink-0">
+                      <AlertTriangle size={10} /> Needs OCR
                     </span>
                   )}
                   {doc.status === "failed" && (

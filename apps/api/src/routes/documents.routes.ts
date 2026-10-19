@@ -517,6 +517,32 @@ async function processDocumentAsync(docId: string, title: string, revision: stri
     emitDocumentProgress(docId, 30, "Extracting text and tables via PDF parser...", uploaderId);
     const extraction = await pdfService.extractAndChunk(buffer, title);
 
+    if (extraction.outcome === "extraction_failed") {
+      throw new Error(extraction.error || "PDF extraction failed");
+    }
+
+    // If OCR is required but has not produced usable text, persist needs_ocr and do not generate embeddings or index anything
+    if (extraction.outcome === "ocr_required_unresolved" || extraction.requiresOcr) {
+      console.warn(
+        `[Ingestion Needs OCR] Document ${docId} ("${title}") requires OCR but usable text is unresolved: ${extraction.ocrError || "Scanned document without digital text"}`
+      );
+      if (isConnectedToMongo) {
+        await DocumentModel.findByIdAndUpdate(docId, {
+          status: "needs_ocr",
+          pageCount: extraction.pageCount,
+        });
+        await DocumentChunk.deleteMany({ documentId: docId });
+      }
+      emitDocumentStatus(
+        docId,
+        "needs_ocr",
+        extraction.pageCount,
+        extraction.ocrError || "Document contains scanned pages requiring optical character recognition (OCR)",
+        uploaderId
+      );
+      return;
+    }
+
     emitDocumentProgress(docId, 60, `Generating vector embeddings for ${extraction.chunks.length} chunks...`, uploaderId);
 
     // Clean existing chunks if re-indexing
@@ -550,7 +576,7 @@ async function processDocumentAsync(docId: string, title: string, revision: stri
 
     emitDocumentProgress(docId, 100, "Indexing completed successfully", uploaderId);
     emitDocumentStatus(docId, "indexed", extraction.pageCount, undefined, uploaderId);
-    console.log(`[Ingestion Complete] ${title} indexed with ${extraction.chunks.length} chunks.`);
+    console.log(`[Ingestion Complete] ${title} indexed with ${extraction.chunks.length} chunks (OCR: ${extraction.ocrPerformed ? "performed" : "not needed"}).`);
   } catch (err: any) {
     console.error(`[Ingestion Failed for ${docId}]:`, err);
     if (isConnectedToMongo) {

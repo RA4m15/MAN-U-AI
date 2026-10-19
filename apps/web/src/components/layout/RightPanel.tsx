@@ -20,6 +20,7 @@ function StatusIcon({ status }: { status: string }) {
   if (status === "indexed") return <CheckCircle2 size={12} className="text-success" />;
   if (status === "processing") return <Loader2 size={12} className="text-primary animate-spin" />;
   if (status === "failed") return <AlertTriangle size={12} className="text-danger" />;
+  if (status === "needs_ocr") return <Clock size={12} className="text-warning" />;
   return <Clock size={12} className="text-ink-tertiary" />;
 }
 

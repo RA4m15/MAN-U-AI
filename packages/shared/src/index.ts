@@ -34,7 +34,8 @@ export type DocumentStatus =
   | "pending"
   | "processing"
   | "indexed"
-  | "failed";
+  | "failed"
+  | "needs_ocr";
 
 export interface DocumentDTO {
   id: string;

@@ -8,11 +8,21 @@ export interface ExtractedPageChunk {
   tokenCount: number;
 }
 
+export type PdfExtractionOutcome =
+  | "digital_text_extracted"
+  | "ocr_success"
+  | "ocr_required_unresolved"
+  | "extraction_failed";
+
 export interface PdfExtractionResult {
+  outcome: PdfExtractionOutcome;
   pageCount: number;
   totalText: string;
   chunks: ExtractedPageChunk[];
   requiresOcr: boolean;
+  ocrPerformed: boolean;
+  ocrError?: string;
+  error?: string;
 }
 
 /**
@@ -25,17 +35,31 @@ export function isValidPdfSignature(buffer: Buffer): boolean {
 
 export class PdfService {
   /**
-   * Validates and extracts text from a PDF buffer, chunking by page and section.
-   * Scanned PDFs are transcribed via OCR. Malformed files are rejected explicitly.
+   * Safely extracts text with full outcome semantics, returning outcome="extraction_failed"
+   * instead of throwing when extraction fails for non-OCR reasons (e.g. invalid signature, corrupted structure).
    */
-  async extractAndChunk(pdfBuffer: Buffer, docTitle: string): Promise<PdfExtractionResult> {
-    if (!isValidPdfSignature(pdfBuffer)) {
-      throw new Error("Invalid PDF signature: file does not begin with standard %PDF- magic bytes.");
-    }
+  async extractSafe(pdfBuffer: Buffer, docTitle: string): Promise<PdfExtractionResult> {
+    return this.extractAndChunk(pdfBuffer, docTitle, { throwOnError: false });
+  }
 
-    if (pdfBuffer.length < 50) {
-      throw new Error("Malformed PDF file: file size is too small to contain a valid document structure.");
-    }
+  /**
+   * Validates and extracts text from a PDF buffer, chunking by page and section.
+   * Scanned PDFs are transcribed via OCR. Malformed files are rejected explicitly or return extraction_failed.
+   */
+  async extractAndChunk(
+    pdfBuffer: Buffer,
+    docTitle: string,
+    options?: { throwOnError?: boolean }
+  ): Promise<PdfExtractionResult> {
+    const shouldThrow = options?.throwOnError ?? true;
+    try {
+      if (!isValidPdfSignature(pdfBuffer)) {
+        throw new Error("Invalid PDF signature: file does not begin with standard %PDF- magic bytes.");
+      }
+
+      if (pdfBuffer.length < 50) {
+        throw new Error("Malformed PDF file: file size is too small to contain a valid document structure.");
+      }
 
     const uint8 = new Uint8Array(pdfBuffer.buffer, pdfBuffer.byteOffset, pdfBuffer.byteLength);
     const options = {
@@ -66,21 +90,53 @@ export class PdfService {
 
     // Low text detection: if average text per page is < 30 characters, likely a scanned image requiring OCR
     const avgCharsPerPage = totalText.length / Math.max(1, pageCount);
-    const requiresOcr = avgCharsPerPage < 30 || totalText.trim().length < 30;
+    const isLowText = avgCharsPerPage < 30 || totalText.trim().length < 30;
 
-    // If scanned/image PDF, execute real OCR extraction
-    if (requiresOcr) {
+    // If scanned/low-text PDF, execute OCR extraction and inspect whether genuine text is produced
+    if (isLowText) {
       console.log(`[PdfService] Scanned or low-text PDF detected for "${docTitle}" (${avgCharsPerPage.toFixed(1)} chars/page). Executing OCR...`);
-      try {
-        const ocrText = await geminiService.transcribePdfWithOcr(pdfBuffer);
-        if (ocrText && ocrText.trim().length >= 20) {
-          totalText = ocrText;
-        } else {
-          throw new Error("OCR returned empty or unreadable text content.");
+      let ocrText: string | null = null;
+      let ocrAttempted = false;
+      let ocrError: string | undefined;
+
+      if (geminiService.isLiveClientConfigured()) {
+        try {
+          ocrAttempted = true;
+          ocrText = await geminiService.transcribePdfWithOcr(pdfBuffer);
+        } catch (err: unknown) {
+          ocrError = err instanceof Error ? err.message : String(err);
+          console.warn(`[PdfService] OCR transcription failed for "${docTitle}":`, ocrError);
         }
-      } catch (ocrErr: unknown) {
-        throw new Error(`Scanned document contains no digital text and OCR extraction failed: ${ocrErr instanceof Error ? ocrErr.message : String(ocrErr)}`);
+      } else {
+        ocrError = "OCR multimodal client is not configured in this environment.";
       }
+
+      // Inspect whether OCR returned genuine, non-empty extracted text
+      const isGenuineText = Boolean(ocrText && ocrText.trim().length >= 30);
+      if (isGenuineText && ocrText) {
+        const chunks = this.chunkTextByPageAndSection(ocrText, pageCount);
+        if (chunks.length > 0) {
+          return {
+            outcome: "ocr_success",
+            pageCount,
+            totalText: ocrText,
+            chunks,
+            requiresOcr: false, // OCR successfully completed, so OCR is no longer required
+            ocrPerformed: true,
+          };
+        }
+      }
+
+      // OCR was required but unavailable, failed, or returned unreadable text
+      return {
+        outcome: "ocr_required_unresolved",
+        pageCount,
+        totalText: "",
+        chunks: [],
+        requiresOcr: true, // OCR is still required
+        ocrPerformed: ocrAttempted,
+        ocrError: ocrError || "OCR returned empty or unreadable text content.",
+      };
     }
 
     if (totalText.trim().length === 0) {
@@ -94,11 +150,27 @@ export class PdfService {
     }
 
     return {
+      outcome: "digital_text_extracted",
       pageCount,
       totalText,
       chunks,
-      requiresOcr,
+      requiresOcr: false,
+      ocrPerformed: false,
     };
+    } catch (err: unknown) {
+      if (!shouldThrow) {
+        return {
+          outcome: "extraction_failed",
+          pageCount: 0,
+          totalText: "",
+          chunks: [],
+          requiresOcr: false,
+          ocrPerformed: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+      throw err;
+    }
   }
 
   /**
@@ -111,11 +183,11 @@ export class PdfService {
     let currentChunkText = "";
 
     for (const para of paragraphs) {
-      const trimmed = para.trim();
+      let trimmed = para.trim();
       if (!trimmed) continue;
 
       // Detect page markers (e.g. "--- PAGE 2 ---" or "Page 2")
-      const pageMarkerMatch = trimmed.match(/--- PAGE (\d+) ---/i) || trimmed.match(/^(?:PAGE|Page)\s+(\d+)$/i);
+      const pageMarkerMatch = trimmed.match(/^--- PAGE (\d+) ---\s*(.*)$/is) || trimmed.match(/^(?:PAGE|Page)\s+(\d+)\s*(.*)$/is);
       if (pageMarkerMatch && parseInt(pageMarkerMatch[1])) {
         const newPage = parseInt(pageMarkerMatch[1]);
         if (newPage !== currentPage && currentChunkText.trim()) {
@@ -128,7 +200,11 @@ export class PdfService {
           currentChunkText = "";
         }
         currentPage = newPage;
-        continue;
+        const remainder = pageMarkerMatch[2]?.trim();
+        if (!remainder) {
+          continue;
+        }
+        trimmed = remainder;
       }
 
       // Detect potential section headers (e.g. "4.2 Seal Replacement" or "SECTION 3:")
