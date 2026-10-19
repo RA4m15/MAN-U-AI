@@ -1774,3 +1774,90 @@ To ensure dynamic parameterized routes (such as `/knowledge/manuals/:documentId`
    - **Destination:** `/index.html`
    - **Action:** `Rewrite`
 5. Click **Save Changes**.
+
+---
+
+## 15. STAGE 5.4 — PRODUCTION AUTHENTICATION TIMEOUT & RESILIENCY
+
+### Executive Summary
+
+| Parameter | Observed Live Reality |
+| :--- | :--- |
+| **Frontend Endpoint** | `https://man-u-ai-1.onrender.com/login` |
+| **Backend API Base** | `https://man-u-ai.onrender.com/api/v1` |
+| **Target Route** | `POST https://man-u-ai.onrender.com/api/v1/auth/login` |
+| **Symptom** | UI displays red alert: `timeout of 30000ms exceeded` |
+| **Client Timeout Origin** | Axios client-side configuration in `apps/web/src/lib/api.ts` (`timeout: 30_000`) |
+| **Root Cause** | Sequential blocking startup in `apps/api/src/index.ts` deferred `server.listen(PORT)` until `await connectDatabase()` resolved. Database connection delays or restarts prevented Express from binding to `env.PORT`. Render's reverse proxy held incoming TLS connections waiting for the container port, causing the 30-second client timeout. Express also lacked query deadlines and server-side request timeouts. |
+| **Remediation** | Immediate non-blocking HTTP server binding to `0.0.0.0:${PORT}`, resilient degraded startup to serve safe 503 error responses when dependencies are unavailable, 8s query timeouts (`.maxTimeMS(8000)`) with 10s promise race deadline returning 504 `AUTH_TIMEOUT`, 25s server-level request timeout middleware, `app.set("trust proxy", 1)`, and `X-Response-Time` diagnostic header. |
+| **Commit SHA** | `93d4480` |
+| **Verification** | All 14 API test suites (177 tests) passed; all 5 Web test suites (30 tests) passed; monorepo build succeeded. |
+
+### Technical Trace of Authentication Flow (Task 1)
+
+1. **Frontend Request Path**:
+   - In `apps/web/src/pages/LoginPage.tsx`, submitting credentials invokes `authApi.login(email, password)`.
+   - In `apps/web/src/lib/api.ts`:
+     - `BASE_URL` is configured as `import.meta.env.VITE_API_URL ?? "/api/v1"`.
+     - Inspection of the deployed production JavaScript bundle (`/assets/index-GXtKvSmy.js`) confirmed `VITE_API_URL` resolves to `https://man-u-ai.onrender.com/api/v1`.
+     - Axios is instantiated with `timeout: 30_000` (30 seconds).
+     - `authApi.login` dispatches `POST https://man-u-ai.onrender.com/api/v1/auth/login` with `{ email, password }`.
+2. **Failure Point**:
+   - The browser opens a TLS connection to Render's Cloudflare edge proxy (`216.24.57.16:443`).
+   - The HTTP request headers are sent.
+   - The backend service returned 0 bytes within 30,000 milliseconds.
+   - Axios threw an `ECONNABORTED` exception: `timeout of 30000ms exceeded`.
+   - The catch block in `LoginPage.tsx` extracted `err.message` since `err.response` was `undefined`, displaying the raw timeout string in the UI.
+
+### Live Backend Diagnostics (Task 2)
+
+Probing the production backend directly using `curl.exe` revealed:
+- `GET https://man-u-ai.onrender.com/health/live`: Timed out after 10,005ms with 0 bytes received.
+- `GET https://man-u-ai.onrender.com/health`: Timed out after 130,009ms with 0 bytes received.
+- `OPTIONS https://man-u-ai.onrender.com/api/v1/auth/login`: Timed out after 15,010ms with 0 bytes received.
+
+Because `/health/live` executes no database queries, password checks, or external dependencies (simply returning `{ status: "live" }`), the failure of `/health/live` to respond proved conclusively that:
+1. The issue was not a slow query in `User.findOne` or `bcrypt.compare`.
+2. The Node.js application was not receiving or processing requests from the Render edge proxy because port 10000 was not bound or the container was stuck in a restart/startup cycle.
+
+### Root Cause Analysis (Task 3)
+
+1. **Sequential Blocking Startup**:
+   In `apps/api/src/index.ts`, `server.listen(env.PORT)` was previously placed after `await connectDatabase()` and `await seedDatabase()`. If database initialization encountered a delay, network timeout, or temporary Atlas connectivity restriction, the container never opened its listening port. Render's edge router held incoming requests indefinitely waiting for port 10000 to accept connections.
+2. **Fatal Exit on Disconnect**:
+   `startServer()` caught failed database connections and exited with code 1 (`process.exit(1)`), causing Render to restart the container in a crash loop instead of keeping the server up to report structured 503 error responses.
+3. **Missing Query Deadlines**:
+   Mongoose queries in `auth.routes.ts` lacked `maxTimeMS` options, allowing database operations to wait indefinitely if cluster connectivity stalled.
+4. **Missing Reverse Proxy Trust & Server Timeouts**:
+   `apps/api/src/app.ts` lacked `app.set("trust proxy", 1)` and had no server-level request timeout middleware to terminate hanging requests before client-side timeouts.
+
+### Code Remediations Applied
+
+1. **Immediate Port Binding (`apps/api/src/index.ts`)**:
+   - `server.listen(env.PORT, "0.0.0.0")` binds immediately upon startup in production and development.
+   - Database connection is initiated without blocking the listening socket. If the database is temporarily unreachable, the service starts in resilient mode to return safe 503 error responses (`SERVICE_UNAVAILABLE`) rather than crashing.
+2. **Strict Ping Deadline (`apps/api/src/config/database.ts`)**:
+   - Bounded `adminDb.ping()` with a 5-second `Promise.race` timeout to prevent cluster ping hangs.
+3. **Bounded Authentication Queries (`apps/api/src/routes/auth.routes.ts`)**:
+   - Added `.maxTimeMS(8000).exec()` to `User.findOne({ email })`.
+   - Added a 10-second promise race deadline returning safe HTTP 504 `AUTH_TIMEOUT` with message: `"Authentication service timed out waiting for database verification. Please try again."`
+   - Bounded `/register` with query deadlines.
+4. **App Resiliency & Observability (`apps/api/src/app.ts`)**:
+   - Configured `app.set("trust proxy", 1)` for Render reverse proxy.
+   - Added `X-Response-Time` diagnostic header.
+   - Added a 25-second server-level request timeout middleware returning 504 `REQUEST_TIMEOUT`.
+5. **Enhanced UI Error Presentation (`apps/web/src/pages/LoginPage.tsx`)**:
+   - Intercepts `ECONNABORTED` and timeout errors to display a helpful explanation: `"Authentication request timed out after 30 seconds. The backend service may be cold starting or database connection is unreachable. Please retry in a moment."`
+   - Honors backend 503 and 504 error messages.
+
+### Test & Build Verification (Task 4)
+
+- **Backend Test Suite (`npm --prefix apps/api test`)**:
+  - `apps/api/test/stage5_auth_timeout.test.ts` (8/8 tests passed).
+  - All 14 API test files (177 tests) passed.
+- **Frontend Test Suite (`npm --prefix apps/web test`)**:
+  - `apps/web/test/stage5_login_timeout.test.tsx` (2/2 tests passed).
+  - All 5 Web test files (30 tests) passed.
+- **Monorepo Build (`pnpm run build`)**: Exit code 0 across all packages.
+- **Git Hygiene (`git diff --check`)**: 0 whitespace or formatting errors.
+
