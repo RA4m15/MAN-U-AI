@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import mongoose from "mongoose";
 import { DocumentChunk, DocumentModel, IDocumentChunk } from "../models";
 import { isConnectedToMongo } from "../config/database";
@@ -126,10 +127,65 @@ export class VectorService {
           tokenCount: Math.ceil(chunk.text.length / 4),
         });
       } catch (err) {
+        // Critical: Remove failed chunk from in-memory cache so no unpersisted chunk lingers
+        ephemeralMemoryChunks = ephemeralMemoryChunks.filter((c) => c.id !== chunkId);
         console.warn("[VectorService] Error inserting chunk to MongoDB:", err);
         throw err;
       }
     }
+  }
+
+  /**
+   * Document-scoped cleanup: removes all in-memory chunks for the given document ID
+   * and deletes all persisted MongoDB chunks.
+   * Consistently normalizes document IDs before comparison.
+   */
+  async deleteDocumentChunks(documentId: string): Promise<void> {
+    if (!documentId) return;
+
+    const targetIdStr = String(documentId).trim();
+    let targetOidStr = "";
+    let targetOid: mongoose.Types.ObjectId | null = null;
+    if (mongoose.Types.ObjectId.isValid(targetIdStr) && targetIdStr.length === 24) {
+      targetOid = new mongoose.Types.ObjectId(targetIdStr);
+      targetOidStr = targetIdStr;
+    } else {
+      const hex = crypto.createHash("md5").update(targetIdStr).digest("hex").slice(0, 24);
+      targetOid = new mongoose.Types.ObjectId(hex);
+      targetOidStr = hex;
+    }
+
+    // 1. Remove all matching chunks from in-memory cache
+    ephemeralMemoryChunks = ephemeralMemoryChunks.filter((c) => {
+      const cDocId = String(c.documentId).trim();
+      return cDocId !== targetIdStr && cDocId !== targetOidStr;
+    });
+
+    // 2. Delete persisted MongoDB chunks if database is connected
+    if (isConnectedToMongo) {
+      try {
+        await DocumentChunk.deleteMany({ documentId: targetOid });
+      } catch (err) {
+        console.warn(`[VectorService] Error deleting MongoDB chunks for document ${documentId}:`, err);
+        throw err;
+      }
+    }
+  }
+
+  /**
+   * Inspect in-memory chunks (useful for unit testing cache state)
+   */
+  getMemoryChunks(documentId?: string) {
+    if (!documentId) return [...ephemeralMemoryChunks];
+    const targetIdStr = String(documentId).trim();
+    return ephemeralMemoryChunks.filter((c) => c.documentId === targetIdStr);
+  }
+
+  /**
+   * Reset in-memory chunks (useful for test isolation)
+   */
+  clearMemoryChunks(): void {
+    ephemeralMemoryChunks = [];
   }
 
   /**
@@ -214,6 +270,26 @@ export class VectorService {
         devPool = devPool.filter((c) => filterDocIds.includes(c.documentId));
       }
       candidateChunks = devPool;
+    }
+
+    // Safety check: Ensure documents in processing, failed, or needs_ocr state cannot supply chunks
+    if (isConnectedToMongo && candidateChunks.length > 0) {
+      const candidateOids = candidateChunks
+        .map((c) => c.documentId)
+        .filter((id) => mongoose.Types.ObjectId.isValid(id) && id.length === 24)
+        .map((id) => new mongoose.Types.ObjectId(id));
+
+      if (candidateOids.length > 0) {
+        const unindexedDocs = await DocumentModel.find({
+          _id: { $in: candidateOids },
+          status: { $in: ["processing", "failed", "needs_ocr"] },
+        }).select("_id").lean();
+
+        if (unindexedDocs.length > 0) {
+          const unindexedIdSet = new Set(unindexedDocs.map((d: any) => d._id.toString()));
+          candidateChunks = candidateChunks.filter((c) => !unindexedIdSet.has(c.documentId));
+        }
+      }
     }
 
     if (candidateChunks.length === 0) {

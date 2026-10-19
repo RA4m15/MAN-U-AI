@@ -509,7 +509,7 @@ documentsRouter.delete(
           } catch (e) {
             console.warn("[Documents] File cleanup warning:", e);
           }
-          await DocumentChunk.deleteMany({ documentId: id });
+          await vectorService.deleteDocumentChunks(id);
           await DocumentModel.findByIdAndDelete(id);
 
           await AuditEvent.create({
@@ -594,11 +594,9 @@ export async function processDocumentAsync(docId: string, title: string, revisio
         `[Ingestion Needs OCR] Document ${docId} ("${title}") requires OCR but usable text is unresolved: ${actionableOcrError}`
       );
 
-      // Best-effort step 1: delete any partial chunks
+      // Clean up any existing or partial chunks (in-memory and MongoDB)
       try {
-        if (isConnectedToMongo) {
-          await DocumentChunk.deleteMany({ documentId: docOid });
-        }
+        await vectorService.deleteDocumentChunks(docId);
       } catch (cleanupErr) {
         console.warn(`[Ingestion Cleanup Error for ${docId}]:`, cleanupErr);
       }
@@ -644,7 +642,7 @@ export async function processDocumentAsync(docId: string, title: string, revisio
       throw new Error("Database unavailable: cannot verify or clear existing chunk state before indexing.");
     }
     try {
-      await DocumentChunk.deleteMany({ documentId: docOid });
+      await vectorService.deleteDocumentChunks(docId);
     } catch (cleanupErr: any) {
       throw new Error(`Failed to clear existing chunks before indexing: ${cleanupErr?.message || cleanupErr}`);
     }
@@ -685,18 +683,21 @@ export async function processDocumentAsync(docId: string, title: string, revisio
     console.log(`[Ingestion Complete] ${title} indexed with ${extraction.chunks.length} chunks (OCR: ${extraction.ocrPerformed ? "performed" : "not needed"}).`);
   } catch (err: any) {
     console.error(`[Ingestion Failed for ${docId}]:`, err);
-    const safeErrorMessage = sanitizeError(
-      err?.message || "Document processing and vector indexing pipeline failed."
-    );
+    let cleanupError: unknown = null;
 
-    // Independent best-effort step 1: Always delete every chunk for this document so partial chunks never remain
+    // Independent step 1: Always delete every chunk for this document so partial chunks never remain in memory or DB
     try {
-      if (isConnectedToMongo) {
-        await DocumentChunk.deleteMany({ documentId: docOid });
-      }
+      await vectorService.deleteDocumentChunks(docId);
     } catch (cleanupErr) {
-      console.warn(`[Ingestion Cleanup Error for ${docId}]:`, cleanupErr);
+      cleanupError = cleanupErr;
+      console.error(`[Ingestion Cleanup Error for ${docId}]:`, cleanupErr);
     }
+
+    const safeErrorMessage = sanitizeError(
+      cleanupError
+        ? `Ingestion failed and chunk cleanup encountered an error: ${err?.message || err}`
+        : err?.message || "Document processing and vector indexing pipeline failed."
+    );
 
     // Independent best-effort step 2: Update document status to failed and persist processingError
     try {
