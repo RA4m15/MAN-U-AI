@@ -11,6 +11,7 @@ healthRouter.get("/live", (req: Request, res: Response) => {
     status: "live",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    commit: process.env.RENDER_GIT_COMMIT || "local",
   });
 });
 
@@ -33,6 +34,7 @@ function evaluateReadiness(req: Request, res: Response) {
     timestamp: new Date().toISOString(),
     service: "MAN-U-AI API Server",
     version: "1.0.0",
+    commit: process.env.RENDER_GIT_COMMIT || "local",
     environment: env.NODE_ENV,
     database: {
       status: isMongoConnected ? "connected" : "disconnected",

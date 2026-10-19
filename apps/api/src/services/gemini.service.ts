@@ -383,7 +383,6 @@ export class GeminiService {
       let lastError: unknown = null;
       let lastAnalysis: QuotaFailureInfo | null = null;
       const attemptedModels: string[] = [];
-
       for (const candidateModel of candidateModels) {
         // Skip models in cooldown if we have other available candidate options, unless explicitly requested
         if (!modelQuotaTracker.isAvailable(candidateModel) && anyAvailable) {
@@ -494,9 +493,7 @@ export class GeminiService {
 
     for (const targetModel of candidateModels) {
       if (!modelQuotaTracker.isAvailable(targetModel) && anyAvailable) {
-        if (!isExplicitModel || targetModel !== primaryModel) {
-          continue;
-        }
+        continue;
       }
 
       try {

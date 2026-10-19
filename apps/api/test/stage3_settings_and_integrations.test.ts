@@ -14,7 +14,7 @@ import {
 } from "../src/models";
 import { ragService } from "../src/services/rag.service";
 import { vectorService } from "../src/services/vector.service";
-import { geminiService, buildModelGenerationConfig } from "../src/services/gemini.service";
+import { geminiService, buildModelGenerationConfig, modelQuotaTracker } from "../src/services/gemini.service";
 import { settingsService, SUPPORTED_MODELS, MODEL_CAPABILITIES, getModelCapabilities } from "../src/services/settings.service";
 import { isConnectedToMongo, setIsConnectedToMongo, connectDatabase } from "../src/config/database";
 import { sanitizeError } from "../src/routes/settings.routes";
@@ -963,6 +963,7 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
       };
 
       try {
+        modelQuotaTracker.clear();
         // Test all allowed models
         for (const model of ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-4-argon"] as const) {
           generateContentMock.mockClear();
@@ -1016,6 +1017,7 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
       };
 
       try {
+        modelQuotaTracker.clear();
         const dummyPdf = Buffer.from("%PDF-1.4 binary content");
 
         // Test each supported model: verify unsupported temperature: 0.1 is NEVER sent

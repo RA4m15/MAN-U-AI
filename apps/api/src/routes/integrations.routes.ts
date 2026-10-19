@@ -9,6 +9,8 @@ import { requireAuth, requireRole, AuthenticatedRequest } from "../middlewares/a
 import { isConnectedToMongo } from "../config/database";
 import { env } from "../config/env";
 import { sanitizeError } from "./settings.routes";
+import { SUPPORTED_MODELS, settingsService } from "../services/settings.service";
+import { modelQuotaTracker } from "../services/gemini.service";
 
 export const integrationsRouter: Router = Router();
 
@@ -38,6 +40,100 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMsg: stri
   return Promise.race([promise, timeoutPromise]).finally(() => {
     if (timer) clearTimeout(timer);
   });
+}
+
+export interface CandidateModelProbeResult {
+  model: string;
+  supported: boolean;
+  category: "success" | "quota_exhausted" | "zero_quota" | "access_denied" | "unsupported_model" | "provider_outage" | "unknown";
+  httpStatus: number;
+  latencyMs: number;
+  retryDelaySeconds?: number;
+}
+
+export async function probeCandidateModel(ai: GoogleGenAI, model: string): Promise<CandidateModelProbeResult> {
+  const supported = (SUPPORTED_MODELS as readonly string[]).includes(model);
+  const startTime = Date.now();
+  try {
+    await withTimeout(
+      ai.models.generateContent({
+        model,
+        contents: "health-probe",
+        config: { maxOutputTokens: 1 },
+      }),
+      4000,
+      "Model probe request timed out after 4000ms"
+    );
+    return {
+      model,
+      supported,
+      category: "success",
+      httpStatus: 200,
+      latencyMs: Date.now() - startTime,
+    };
+  } catch (err: any) {
+    const latencyMs = Date.now() - startTime;
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    let status = err?.status || err?.httpStatus || err?.statusCode || 500;
+    let errorObj = typeof err?.error === "object" && err?.error !== null ? err.error : null;
+    if (!errorObj) {
+      const match = rawMsg.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          const parsed = JSON.parse(match[0]);
+          errorObj = parsed?.error || parsed;
+        } catch {}
+      }
+    }
+    if (errorObj?.code && typeof errorObj.code === "number") {
+      status = errorObj.code;
+    }
+
+    const isZeroQuota =
+      /limit:\s*0/i.test(rawMsg) ||
+      errorObj?.message?.includes("limit: 0") ||
+      (Array.isArray(errorObj?.details) &&
+        errorObj.details.some((d: any) =>
+          Array.isArray(d.violations) && d.violations.some((v: any) => v.quotaValue === "0" || v.quotaValue === 0)
+        ));
+
+    let retryDelaySeconds: number | undefined;
+    if (Array.isArray(errorObj?.details)) {
+      const retryInfo = errorObj.details.find((d: any) => d["@type"]?.includes("RetryInfo") || d.retryDelay);
+      if (retryInfo?.retryDelay) {
+        const match = String(retryInfo.retryDelay).match(/^([0-9]+(?:\.[0-9]+)?)s?$/);
+        if (match) {
+          retryDelaySeconds = Math.round(parseFloat(match[1]));
+        }
+      }
+    }
+
+    let category: CandidateModelProbeResult["category"] = "unknown";
+    if (isZeroQuota) {
+      category = "zero_quota";
+    } else if (
+      status === 429 ||
+      errorObj?.status === "RESOURCE_EXHAUSTED" ||
+      /RESOURCE_EXHAUSTED|quota exceeded|exceeded your current quota/i.test(rawMsg)
+    ) {
+      category = "quota_exhausted";
+    } else if (status === 403 || /permission denied|access denied/i.test(rawMsg)) {
+      category = "access_denied";
+    } else if (status === 404 || /is not supported|is no longer available|model not found/i.test(rawMsg)) {
+      category = "unsupported_model";
+    } else if (status === 503 || /high demand|spikes in demand|overloaded|service unavailable/i.test(rawMsg)) {
+      category = "provider_outage";
+    }
+
+    return {
+      model,
+      supported,
+      category,
+      httpStatus: status,
+      latencyMs,
+      ...(typeof retryDelaySeconds === "number" ? { retryDelaySeconds } : {}),
+    };
+  }
 }
 
 // GET /integrations/status - Current dynamic status of all ecosystem integrations
@@ -219,23 +315,50 @@ integrationsRouter.post(
       }
 
       try {
-        const startTime = Date.now();
         const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+        let activeModel = env.GEMINI_MODEL;
+        try {
+          const s = await settingsService.getEffectiveSettings();
+          if (s?.selectedModel) activeModel = s.selectedModel;
+        } catch {}
 
-        await withTimeout(
-          ai.models.countTokens({
-            model: env.GEMINI_MODEL,
-            contents: "probe-health-check",
-          }),
-          5000,
-          "Gemini API request timed out after 5000ms"
-        );
-        const latency = Date.now() - startTime;
+        // Gather candidates to probe (bounded to 4 candidates max to avoid quota exhaustion)
+        let candidates: string[] = [];
+        if (req.body?.model && typeof req.body.model === "string") {
+          candidates = [req.body.model.trim()];
+        } else if (Array.isArray(req.body?.models) && req.body.models.length > 0) {
+          candidates = req.body.models.map((m: any) => String(m).trim()).filter(Boolean).slice(0, 4);
+        } else {
+          const configuredFallbacks = env.GEMINI_FALLBACK_MODELS.split(",").map((m) => m.trim()).filter(Boolean);
+          const pool = [activeModel, env.GEMINI_MODEL, ...SUPPORTED_MODELS, ...configuredFallbacks];
+          for (const m of pool) {
+            if (!candidates.includes(m)) {
+              candidates.push(m);
+            }
+          }
+          candidates = candidates.slice(0, 4);
+        }
+
+        const results: CandidateModelProbeResult[] = [];
+        for (const candidate of candidates) {
+          const resModel = await probeCandidateModel(ai, candidate);
+          results.push(resModel);
+          if (resModel.category === "success") {
+            modelQuotaTracker.recordSuccess(candidate);
+          }
+        }
+
+        const anySuccess = results.some((r) => r.category === "success");
 
         return res.json({
           success: true,
-          status: "connected",
-          message: `Gemini API connection verified via @google/genai (latency: ${latency}ms).`,
+          status: anySuccess ? "connected" : "degraded",
+          message: anySuccess
+            ? `Gemini verification probe: candidate model access verified via @google/genai.`
+            : `Gemini verification probe: all candidate models unavailable.`,
+          primaryModel: activeModel,
+          envModel: env.GEMINI_MODEL,
+          results,
         });
       } catch (err: any) {
         return res.json({
