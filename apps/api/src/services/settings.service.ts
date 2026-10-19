@@ -71,7 +71,7 @@ export const DEFAULT_SETTINGS: FacilitySettingsData = {
   timezone: "UTC",
   selectedModel: (SUPPORTED_MODELS.includes(env.GEMINI_MODEL as any)
     ? env.GEMINI_MODEL
-    : "gemini-3.8-flash") as SupportedModel,
+    : "gemini-3.6-flash") as SupportedModel,
   temperature: 0.2,
   topK: 5,
   similarityThreshold: 0.5,

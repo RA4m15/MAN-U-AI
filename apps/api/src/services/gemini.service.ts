@@ -138,31 +138,63 @@ export class GeminiService {
     }
 
     if (this.isLiveClientConfigured()) {
-      try {
-        const generationConfig = buildModelGenerationConfig(targetModel, options);
-        const payload: Record<string, any> = {
-          model: targetModel,
-          contents: prompt,
-        };
-        if (generationConfig) {
-          payload.config = generationConfig;
-        }
+      // Build candidate list: target model first, then other supported models for failover
+      const candidateModels = [
+        targetModel,
+        ...SUPPORTED_MODELS.filter((m) => m !== targetModel),
+      ];
 
-        const response = await (this.ai!.models.generateContent as any)(payload);
+      let lastError: unknown = null;
 
-        const text = response.text;
-        if (text && text.trim().length > 0) {
-          this.lastProvider = "live-gemini";
-          return text;
+      for (const candidateModel of candidateModels) {
+        try {
+          const generationConfig = buildModelGenerationConfig(candidateModel, options);
+          const payload: Record<string, any> = {
+            model: candidateModel,
+            contents: prompt,
+          };
+          if (generationConfig) {
+            payload.config = generationConfig;
+          }
+
+          const response = await (this.ai!.models.generateContent as any)(payload);
+
+          const text = response.text;
+          if (text && text.trim().length > 0) {
+            this.lastProvider = "live-gemini";
+            return text;
+          }
+        } catch (err) {
+          lastError = err;
+          const safeMsg = safeErrorMsg(err);
+          console.warn(
+            `[GeminiService] Model '${candidateModel}' generation failed: ${safeMsg}. Trying next candidate model...`
+          );
         }
-      } catch (err) {
-        console.warn("[GeminiService] Live Gemini API notice (falling back):", safeErrorMsg(err));
+      }
+
+      if (lastError) {
+        console.warn("[GeminiService] All candidate Gemini models exhausted:", safeErrorMsg(lastError));
+      }
+
+      if (env.NODE_ENV === "production") {
+        this.lastProvider = "deterministic-fallback";
+        const customErr = new Error(
+          `AI generation service is currently unavailable. Generative synthesis failed across candidate models: ${safeErrorMsg(lastError)}`
+        );
+        (customErr as any).code = "LLM_PROVIDER_ERROR";
+        (customErr as any).httpStatus = 503;
+        (customErr as any).originalError = lastError;
+        throw customErr;
       }
     }
 
     if (env.NODE_ENV === "production") {
       this.lastProvider = "deterministic-fallback";
-      throw new Error("AI generation service is currently unavailable. Generative synthesis failed or API key is not configured.");
+      const customErr = new Error("AI generation service is currently unavailable. Generative synthesis failed or API key is not configured.");
+      (customErr as any).code = "LLM_PROVIDER_ERROR";
+      (customErr as any).httpStatus = 503;
+      throw customErr;
     }
 
     this.lastProvider = "deterministic-fallback";
@@ -174,49 +206,60 @@ export class GeminiService {
    * Model generation settings strictly respect model capabilities: sampling parameters
    * (temperature, top_p, generation top_k) are omitted for models that do not support them
    * (e.g. gemini-3.8-flash, gemini-3.6-flash, gemini-4-argon).
-   * The configured model (env.GEMINI_MODEL or modelOverride) is deliberately preserved.
+   * Supports candidate model failover if the primary model encounters rate limits or errors.
    */
   async transcribePdfWithOcr(pdfBuffer: Buffer, modelOverride?: string): Promise<string> {
     if (!this.isLiveClientConfigured() || !this.ai) {
       throw new Error("Optical character recognition (OCR) unavailable: Gemini multimodal client is not configured.");
     }
 
-    try {
-      const targetModel = modelOverride || env.GEMINI_MODEL;
-      const base64Data = pdfBuffer.toString("base64");
-      const generationConfig = buildModelGenerationConfig(targetModel, {
-        temperature: 0.1, // Only emitted if targetModel supports temperature
-      });
+    const primaryModel = modelOverride || env.GEMINI_MODEL;
+    const candidateModels = [
+      primaryModel,
+      ...SUPPORTED_MODELS.filter((m) => m !== primaryModel),
+    ];
 
-      const payload: Record<string, any> = {
-        model: targetModel,
-        contents: [
-          {
-            inlineData: {
-              data: base64Data,
-              mimeType: "application/pdf",
+    let lastOcrErr: unknown = null;
+    const base64Data = pdfBuffer.toString("base64");
+
+    for (const targetModel of candidateModels) {
+      try {
+        const generationConfig = buildModelGenerationConfig(targetModel, {
+          temperature: 0.1, // Only emitted if targetModel supports temperature
+        });
+
+        const payload: Record<string, any> = {
+          model: targetModel,
+          contents: [
+            {
+              inlineData: {
+                data: base64Data,
+                mimeType: "application/pdf",
+              },
             },
-          },
-          {
-            text: "Perform optical character recognition (OCR) on this scanned industrial document. Transcribe the text verbatim, preserving page numbers in the format '--- PAGE X ---' and technical headings. Do not summarize or invent text.",
-          },
-        ],
-      };
+            {
+              text: "Perform optical character recognition (OCR) on this scanned industrial document. Transcribe the text verbatim, preserving page numbers in the format '--- PAGE X ---' and technical headings. Do not summarize or invent text.",
+            },
+          ],
+        };
 
-      if (generationConfig) {
-        payload.config = generationConfig;
+        if (generationConfig) {
+          payload.config = generationConfig;
+        }
+
+        const response = await (this.ai.models.generateContent as any)(payload);
+
+        const text = response.text;
+        if (text && text.trim().length > 0) {
+          return text;
+        }
+      } catch (err) {
+        lastOcrErr = err;
+        console.warn(`[GeminiService] OCR attempt with model '${targetModel}' failed: ${safeErrorMsg(err)}`);
       }
-
-      const response = await (this.ai.models.generateContent as any)(payload);
-
-      const text = response.text;
-      if (!text || text.trim().length === 0) {
-        throw new Error("OCR returned empty text.");
-      }
-      return text;
-    } catch (err) {
-      throw new Error(`Multimodal OCR extraction failed: ${safeErrorMsg(err)}`);
     }
+
+    throw new Error(`Multimodal OCR extraction failed across candidate models: ${safeErrorMsg(lastOcrErr)}`);
   }
 
   private generateGroundedFallback(prompt: string): string {

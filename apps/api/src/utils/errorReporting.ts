@@ -7,6 +7,7 @@ export interface ExtractedErrorInfo {
   errorMessage: string;
   sanitizedMessage: string;
   errorCode: string;
+  code?: string;
   httpStatus: number;
   stage: string;
   requestId: string;
@@ -85,22 +86,31 @@ export function extractStructuredErrorInfo(
   // Sanitize the message so credentials, tokens, URLs, and paths are redacted
   const sanitizedMessage = sanitizeError(rawMessage);
 
-  // Map upstream status codes appropriately
-  if (httpStatus === 401 || httpStatus === 403) {
-    errorCode = "STORAGE_PROVIDER_AUTH_FAILED";
-    httpStatus = 502; // Upstream storage provider auth failure is 502 Bad Gateway
-  } else if (httpStatus === 404) {
-    errorCode = "STORAGE_RESOURCE_NOT_FOUND";
-    httpStatus = 404;
-  } else if (httpStatus === 400) {
-    errorCode = "STORAGE_BAD_REQUEST";
-    httpStatus = 400;
-  } else if (httpStatus === 503) {
-    errorCode = "STORAGE_UNAVAILABLE";
-    httpStatus = 503;
-  } else if (httpStatus >= 500 && errorCode === "INTERNAL_ERROR") {
-    errorCode = "UPLOAD_FAILED";
-    httpStatus = 500;
+  // Map upstream status codes appropriately based on pipeline stage
+  if (stage === "storage_upload" || stage === "database_persistence") {
+    if (httpStatus === 401 || httpStatus === 403) {
+      errorCode = "STORAGE_PROVIDER_AUTH_FAILED";
+      httpStatus = 502; // Upstream storage provider auth failure is 502 Bad Gateway
+    } else if (httpStatus === 404) {
+      errorCode = "STORAGE_RESOURCE_NOT_FOUND";
+      httpStatus = 404;
+    } else if (httpStatus === 400) {
+      errorCode = "STORAGE_BAD_REQUEST";
+      httpStatus = 400;
+    } else if (httpStatus === 503) {
+      errorCode = "STORAGE_UNAVAILABLE";
+      httpStatus = 503;
+    } else if (httpStatus >= 500 && errorCode === "INTERNAL_ERROR") {
+      errorCode = "UPLOAD_FAILED";
+      httpStatus = 500;
+    }
+  } else if (stage.includes("model_generation") || stage.includes("rag") || stage.includes("query_embedding")) {
+    if (httpStatus === 429 || httpStatus === 503 || errorCode === "LLM_PROVIDER_ERROR") {
+      errorCode = "LLM_PROVIDER_ERROR";
+      httpStatus = 503;
+    } else if (errorCode === "UPLOAD_FAILED") {
+      errorCode = "RAG_ERROR";
+    }
   }
 
   return {
@@ -108,6 +118,7 @@ export function extractStructuredErrorInfo(
     errorMessage: rawMessage,
     sanitizedMessage,
     errorCode,
+    code: errorCode,
     httpStatus,
     stage,
     requestId,

@@ -2105,3 +2105,58 @@ Detailed tracing of the upload pipeline revealed three contributing defects:
     2. Cloudinary received the upload request and confirmed the identical `String to sign`, but rejected the request with HTTP 401 `Invalid Signature` because the effective `api_secret` in the running Render environment does not match the active secret for `som1aiqb`.
     3. Added `cleanConfigValue()` to strip enclosing single/double quotes, trailing carriage returns, and whitespace from `CLOUDINARY_URL`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`, prioritizing the canonical `CLOUDINARY_URL`.
     4. Required Render Dashboard setting: Update `CLOUDINARY_URL` (or `CLOUDINARY_API_SECRET`) in the Render Dashboard environment settings without quotes to match the active Cloudinary API credentials.
+
+---
+
+## 33. MULTIMODAL RAG PIPELINE FAILURE DIAGNOSIS & RESILIENT MODEL FAILOVER
+
+### 1. Root Cause Analysis
+
+When a user submitted a question (e.g., *"What are the components of lathe machine?"*), the frontend displayed:
+```
+Error running multimodal RAG pipeline
+```
+Inspection of the backend pipeline, source code, and live provider responses revealed four root causes:
+
+1. **Upstream Quota Exhaustion & Demand Spike on `gemini-3.8-flash`**:
+   - The default model configured across `render.yaml`, `env.ts`, and `settings.service.ts` was `gemini-3.8-flash`.
+   - When calling Google GenAI for `gemini-3.8-flash`, the API rejected requests with HTTP 429 (`"You exceeded your current quota, please check your plan and billing details... Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.8-flash"`) or HTTP 503 (`"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."`).
+2. **Absence of Model Failover Across Allowed Models**:
+   - In `apps/api/src/services/gemini.service.ts`, `GeminiService.generateAnswer` only attempted the single target model. When that model failed, it caught the error, logged a warning, and threw `Error("AI generation service is currently unavailable")`.
+   - It did not attempt other valid models declared in `SUPPORTED_MODELS` (`gemini-3.6-flash`, `gemini-4-argon`). Live empirical testing demonstrated that while `gemini-3.8-flash` returned 429 quota exhaustion, `gemini-3.6-flash` succeeded immediately and generated accurate industrial technical answers.
+3. **Missing Server-Side Error Logging & Structured Observability in Chat Controller**:
+   - In `apps/api/src/routes/chat.routes.ts`, the catch block caught `err` and immediately returned `HTTP 500` with `details: String(err)` without invoking `console.error()` or structured logging.
+   - Consequently, Render server logs showed zero error messages when the RAG pipeline failed.
+4. **Mongoose DocumentChunk Query ID Type Mismatch**:
+   - In `apps/api/src/services/vector.service.ts`, `filterDocIds` strings were passed into `{ documentId: { $in: filterDocIds } }`. Because `DocumentChunk.documentId` is defined as `Schema.Types.ObjectId`, raw string IDs risk query mismatch unless converted with `new mongoose.Types.ObjectId(id)`.
+
+### 2. Code Remediations Implemented
+
+1. **Multi-Model Candidate Failover (`apps/api/src/services/gemini.service.ts`)**:
+   - `generateAnswer()` builds a candidate model list starting with `targetModel` followed by all other models in `SUPPORTED_MODELS` (`gemini-3.6-flash`, `gemini-4-argon`).
+   - If the primary model encounters 429 quota exhaustion, 503 demand spikes, or transient errors, it logs a warning and automatically falls over to the next candidate model.
+   - Multimodal OCR in `transcribePdfWithOcr()` similarly implements multi-model candidate failover.
+2. **Pipeline Stage Diagnostic Logging (`apps/api/src/services/rag.service.ts`)**:
+   - Added `requestId` correlation and comprehensive logging at each RAG stage:
+     - `authorization`: logs resolved permitted document count and active user role.
+     - `query_embedding`: logs 768-dim embedding generation.
+     - `vector_retrieval`: logs candidate chunks evaluated, chunks retrieved, and top similarity score.
+     - `evidence_evaluation`: logs grounded insufficient evidence handling if 0 chunks are retrieved.
+     - `model_generation`: logs active model, failover status, citations count, and model provider.
+3. **Structured Error Handling in Chat Controller (`apps/api/src/routes/chat.routes.ts`)**:
+   - Integrated `extractStructuredErrorInfo` and `logStructuredError`.
+   - Maps upstream LLM provider failures (429/503) to HTTP 503 `LLM_PROVIDER_ERROR` with correlation request ID, stage, and safe sanitized details.
+4. **Mongoose ObjectId Normalization (`apps/api/src/services/vector.service.ts`)**:
+   - Normalizes all document IDs in `$in` filters and chunk persistence to genuine `mongoose.Types.ObjectId` instances.
+5. **Configuration Defaults & Render YAML (`render.yaml`, `env.ts`, `settings.service.ts`)**:
+   - Updated default `GEMINI_MODEL` to `gemini-3.6-flash` to ensure healthy out-of-the-box quota.
+6. **Frontend Error Display (`apps/web/src/pages/AssistantPage.tsx`)**:
+   - Enhanced error reporting to render `errData.details` alongside `errData.message`.
+
+### 3. Automated Validation & Test Suite
+
+- **API Tests (`npm --prefix apps/api test`)**: **16/16 test files passed, 198/198 tests passed** (+8 new regression tests in `test/stage5_rag_diagnostics.test.ts`).
+  - Covers: model failover from 429 to 3.6-flash, 503 error handling when all models fail, structured error response with request ID and stage, insufficient evidence (200 OK caution response), vector search ObjectId normalization, multimodal OCR failover, 400 validation, and citation grounding.
+- **Web Frontend Tests (`npm --prefix apps/web test`)**: **5/5 test files passed, 30/30 tests passed**.
+- **Monorepo Build (`pnpm run build`)**: Compiled `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` with exit code 0.
+- **Git Diff Hygiene (`git diff --check`)**: Clean, 0 whitespace errors.

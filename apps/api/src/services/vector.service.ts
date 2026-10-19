@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { DocumentChunk, DocumentModel, IDocumentChunk } from "../models";
 import { isConnectedToMongo } from "../config/database";
 import { env } from "../config/env";
@@ -109,8 +110,13 @@ export class VectorService {
 
     if (isConnectedToMongo) {
       try {
+        const docOid =
+          mongoose.Types.ObjectId.isValid(chunk.documentId) && chunk.documentId.length === 24
+            ? new mongoose.Types.ObjectId(chunk.documentId)
+            : chunk.documentId;
+
         await DocumentChunk.create({
-          documentId: chunk.documentId,
+          documentId: docOid,
           documentTitle: chunk.documentTitle,
           revision: chunk.revision,
           page: chunk.page,
@@ -165,11 +171,16 @@ export class VectorService {
       try {
         const queryFilter: any = {};
         if (filterDocIds && filterDocIds.length > 0) {
-          queryFilter.documentId = { $in: filterDocIds };
+          const oids = filterDocIds.map((id) =>
+            mongoose.Types.ObjectId.isValid(id) && id.length === 24
+              ? new mongoose.Types.ObjectId(id)
+              : id
+          );
+          queryFilter.documentId = { $in: oids };
         } else if (filterDocIds === undefined) {
           const indexedDocs = await DocumentModel.find({ status: "indexed" }).select("_id").lean();
-          const indexedIds = indexedDocs.map((d: any) => d._id.toString());
-          queryFilter.documentId = { $in: indexedIds };
+          const indexedOids = indexedDocs.map((d: any) => d._id);
+          queryFilter.documentId = { $in: indexedOids };
         }
 
         const mongoChunks = await DocumentChunk.find(queryFilter).limit(CANDIDATE_CHUNK_LIMIT).lean();

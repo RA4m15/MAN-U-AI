@@ -188,7 +188,10 @@ export function AssistantPage() {
       }
     } catch (err: any) {
       console.error("[Assistant Error]:", err);
-      const msg = err.response?.data?.error?.message || err.message || "Communication failure with RAG gateway.";
+      const errData = err.response?.data?.error;
+      const msg = errData
+        ? (errData.details ? `${errData.message} (${errData.details})` : errData.message)
+        : (err.message || "Communication failure with RAG gateway.");
       setErrorMessage(msg);
     } finally {
       setIsLoading(false);
