@@ -2205,3 +2205,135 @@ Direct investigation of the live environment and empirical probing of the Google
 - **Monorepo Build (`pnpm run build`):** Clean exit code 0.
 - **Git Commit:** `1c30d60` pushed to `origin/main`.
 
+---
+
+## 35. STAGE 5.6.1: RESOLVE LIVE GEMINI MODEL ACCESS FAILURE & PRODUCTION VERIFICATION
+
+### 35.1 Root Cause Analysis
+
+Following Stage 5.6 deployment, submitting queries on the live Assistant interface produced the concise sanitized error:
+```
+The requested AI model is currently unavailable or not accessible with the current project credentials. Please verify model configuration. (Request ID: req-mvfiiksw-p4uq7)
+```
+Followed upon re-attempt by:
+```
+The AI generation service is temporarily unavailable due to high upstream demand. Please try again shortly. (Request ID: req-mvfl4219-3dtj0)
+```
+
+Investigation across `origin/main`, running Render container state, and MongoDB Atlas database records identified four definitive root causes:
+
+1. **Persistent MongoDB Settings Override Environment Defaults**:
+   - In MongoDB Atlas, `FacilitySettings.selectedModel` had been initialized and persisted as `"gemini-3.8-flash"`.
+   - In `apps/api/src/services/rag.service.ts`, `activeSettings = await settingsService.getEffectiveSettings()` passed `model: activeSettings.selectedModel` directly to `geminiService.generateAnswer()`.
+   - `geminiService.generateAnswer()` received `options.model`, setting `isExplicitModel = true` and prioritizing `gemini-3.8-flash`.
+2. **Quota Exhaustion and Upstream Demand on Primary Flash Models**:
+   - Under the Google Cloud Free Tier (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`, limit: 20/day), `gemini-3.8-flash` and `gemini-3.6-flash` were exhausted upstream with retry delays of ~14 hours (`50768s`).
+   - `gemini-4-argon` possesses a Free Tier quota limit of **0** (`limit: 0`).
+   - Attempting `gemini-4-argon` as the final candidate model resulted in `category = "zero_quota"`, which set `lastAnalysis.safeMessage = "The requested AI model is currently unavailable or not accessible with the current project credentials. Please verify model configuration."`
+3. **Repeated Calls to Models with Active Cooldowns When Explicitly Requested**:
+   - In `gemini.service.ts`, when `isExplicitModel = true`, `generateAnswer` skipped cooldown checks for `targetModel` (`if (!isExplicitModel || candidateModel !== targetModel)`).
+   - This caused each incoming user message to hit `gemini-3.8-flash` despite its 14-hour cooldown, triggering upstream Google 503 demand spikes and 429 quota errors before reaching working candidates.
+4. **Missing Production Candidate Model Probe & Deploy Commit Telemetry**:
+   - The integration test route `POST /api/v1/integrations/gemini/test` previously performed a token-count call strictly against `env.GEMINI_MODEL`, rather than testing actual generation capability across candidate models.
+   - The `/health/ready` probe did not expose `process.env.RENDER_GIT_COMMIT`, preventing unambiguous verification of deployed commit state from HTTP endpoints.
+
+---
+
+### 35.2 Implementation & Architectural Remediations
+
+1. **Candidate Model Integration Probe (`apps/api/src/routes/integrations.routes.ts`)**:
+   - Implemented `probeCandidateModel(ai, model)`: Performs bounded test generation (`maxOutputTokens: 1`, 4000ms timeout) without exposing secrets or consuming excess quota.
+   - Categorizes upstream responses into safe, standardized categories:
+     - `success` (HTTP 200)
+     - `quota_exhausted` (HTTP 429)
+     - `zero_quota` (Free Tier limit: 0)
+     - `access_denied` (HTTP 403)
+     - `unsupported_model` (HTTP 404 / deprecated)
+     - `provider_outage` (HTTP 503 / upstream demand spikes)
+   - Exposes per-candidate sanitized results (`model`, `supported`, `category`, `httpStatus`, `latencyMs`, `retryDelaySeconds`) via authenticated, admin-only `POST /api/v1/integrations/gemini/test` and `GET /api/v1/integrations/gemini/probe`.
+   - On successful probe of a candidate model, immediately calls `modelQuotaTracker.recordSuccess(model)` to lift any stale cooldown.
+2. **Deterministic Candidate Ordering & Cooldown-Aware Execution (`apps/api/src/services/gemini.service.ts`)**:
+   - Updated `getCandidateModels()` to ensure that when `prioritizeTarget = true`, `targetModel` is prioritized only if it is currently available (`!isAvailable(targetModel)` moves it after available candidates).
+   - Updated generation loop to strictly skip models in active cooldown or zero quota whenever healthy candidates are available, eliminating repeated upstream 429 hits.
+   - Configured `DEFAULT_SETTINGS.selectedModel = "gemini-3-flash-preview"`, `env.GEMINI_MODEL = "gemini-3-flash-preview"`, and `GEMINI_FALLBACK_MODELS = "gemini-3.6-flash,gemini-3.8-flash"` across `env.ts` and `render.yaml`.
+3. **Database-Authoritative Settings Alignment (`MongoDB Atlas`)**:
+   - Updated `FacilitySettings.selectedModel` to `"gemini-3-flash-preview"` in MongoDB Atlas, aligning persistent database state with verified working model access.
+4. **Deployment Observability (`apps/api/src/routes/health.routes.ts`)**:
+   - Included `commit: process.env.RENDER_GIT_COMMIT || "local"` in `/health/live` and `/health/ready` responses.
+
+---
+
+### 35.3 Empirical Model Probe Audit (Deployed Render Container)
+
+Direct invocation of the authenticated candidate model probe on the running Render production container (`https://man-u-ai.onrender.com/api/v1/integrations/gemini/test`) yielded:
+
+| Model ID | Supported by API | Safe Category | HTTP Status | Upstream Latency | Notes |
+| :--- | :---: | :--- | :---: | :---: | :--- |
+| `gemini-3-flash-preview` | **Yes** | **success** | **200** | **~860ms** | **Active & fully operational in production** |
+| `gemini-3.8-flash` | Yes | `quota_exhausted` | 429 | ~120ms | Daily Free Tier quota (20/day) reached; retry delay ~14h |
+| `gemini-3.6-flash` | Yes | `quota_exhausted` | 429 | ~115ms | Daily Free Tier quota (20/day) reached; retry delay ~14h |
+| `gemini-4-argon` | Yes | `zero_quota` | 429 | ~95ms | Free Tier quota limit of 0 (`limit: 0`) |
+
+---
+
+### 35.4 Automated Test Suite Results
+
+- **Backend API Tests (`npm --prefix apps/api test`):**
+  - **17/17 test files passed (100%)**
+  - **206/206 tests passed (100%)** (+3 new regression tests in `test/stage5_model_probe.test.ts`)
+- **Frontend Web Tests (`npm --prefix apps/web test`):**
+  - **5/5 test files passed (100%)**
+  - **30/30 tests passed (100%)**
+- **Monorepo Production Build (`pnpm run build`):**
+  - `@man-u-ai/shared`: TypeScript build clean (exit code 0).
+  - `@man-u-ai/api`: TypeScript build clean (exit code 0).
+  - `@man-u-ai/web`: Vite production build clean + 9 static route fallbacks (exit code 0).
+- **Git Diff & Whitespace Audit (`git diff --check`):**
+  - Clean, 0 whitespace errors.
+
+---
+
+### 35.5 Production Live Verification
+
+**Deployed Commit:** `bf323fca45346a7b2ff2759fd337d5f8f4b43236` (confirmed via `GET https://man-u-ai.onrender.com/health/ready`)  
+**Production Frontend URL:** `https://man-u-ai-1.onrender.com/chat`  
+**Authenticated Session:** `shiva@gmail.com` (Administrator)  
+**Inquiry Submitted:** *"What are the components of lathe machine?"*  
+**Document Evaluated:** `Lathe` (Rev 1.0, 92 pages, Status: `indexed`)  
+
+#### Live Answer Content Generated:
+```markdown
+### Key Components of a Lathe Machine
+
+Based on the technical manual (Source: "Lathe", Rev 1.0, Pages 5 & 7), the primary components of a centre lathe include:
+
+1. Bed.
+   - Supports all major machine components.
+2. Headstock.
+   - Holds the jaws for securing the workpiece.
+   - Supplies power to the jaws and provides various drive speeds.
+   - Contains gears that power the feed rod.
+3. Carriage.
+   - Slides along the ways of the lathe bed.
+   - Sub-assemblies include: Cross-slide, Tool Post, Apron.
+4. Tailstock.
+   - Supports the opposite end of the workpiece during machining operations between centers.
+5. Feed Rod and Lead Screw.
+   - The feed rod is powered by a set of gears located in the headstock to facilitate controlled tool movement.
+```
+
+#### Grounded Citations Displayed:
+1. **`Lathe Rev 1.0 Page 7`**: *"Lathes - Lathes are the oldest machine tools. Lathe Components: Bed: supports all major components. Carriage: slides along the ways and consists of the cross-slide, tool post, apron. Headstock - Holds the..."*
+2. **`Lathe Rev 1.0 Page 5`**: *"MAIN PARTS Lathe Machine is also known as Centre Lathe... The main parts of centre lathe are: Bed, Head stock, Tail stock, Carriage..."*
+3. **`Lathe Rev 1.0 Page 68`**: Automatic lathe components & work cycle definition.
+4. **`Lathe Rev 1.0 Page 72`**: Classification of automatic lathes (magazine loaded automatics).
+5. **`Lathe Rev 1.0 Page 84`**: Multi-spindle automatic lathe tooling specifications.
+
+#### Verification Criteria Summary:
+- **Actual Deployed API Returns Successful Answer:** **PASS** (HTTP 200 OK via `gemini-3-flash-preview`).
+- **Grounded in Retrieved Document Content:** **PASS** (Directly cites authentic lathe manual text).
+- **Valid Page Citations Returned and Rendered:** **PASS** (5 verifiable citations on Pages 5, 7, 68, 72, 84).
+- **Zero Raw Provider JSON or Fabricated Fallback:** **PASS** (Clean, professional industrial markdown output).
+- **Live Status:** **Stage 5 Complete and Operationally Verified in Production.**
+
+
