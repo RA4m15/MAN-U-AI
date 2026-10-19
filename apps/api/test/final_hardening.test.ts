@@ -409,8 +409,8 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
     expect(res.body.data.summary).not.toContain("Line 1 & Line 3 Mechanical Operations - Shift Handover");
   });
 
-  // 11. Production startup aborts when required MongoDB connection fails
-  it("Requirement 11: Production startup aborts when required MongoDB connection fails", async () => {
+  // 11. Production startup binds HTTP server promptly and operates in fail-closed degraded mode when MongoDB fails
+  it("Requirement 11: Production startup binds HTTP server promptly and sets readiness to 503 when MongoDB fails", async () => {
     const prevEnv = env.NODE_ENV;
     const dbModule = await import("../src/config/database");
     const connectSpy = vi.spyOn(dbModule, "connectDatabase").mockResolvedValueOnce(false);
@@ -418,10 +418,16 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
     try {
       (env as any).NODE_ENV = "production";
       const { startServer } = await import("../src/index");
-      await expect(startServer()).rejects.toThrow("Production startup aborted");
+      const httpServer = await startServer();
+      expect(httpServer).toBeDefined();
+      expect(dbModule.isAppInitialized).toBe(false);
+      // Clean up server listener
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
     } finally {
       (env as any).NODE_ENV = prevEnv;
       connectSpy.mockRestore();
+      dbModule.setIsConnectedToMongo(true);
+      dbModule.setIsAppInitialized(true);
     }
   });
 
@@ -438,6 +444,9 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
     } finally {
       (env as any).NODE_ENV = prevEnv;
       mongooseSpy.mockRestore();
+      const { setIsConnectedToMongo, setIsAppInitialized } = await import("../src/config/database");
+      setIsConnectedToMongo(true);
+      setIsAppInitialized(true);
     }
   });
 

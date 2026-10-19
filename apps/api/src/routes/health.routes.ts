@@ -1,11 +1,11 @@
 import { Router, Request, Response } from "express";
 import mongoose from "mongoose";
-import { isConnectedToMongo } from "../config/database";
+import { isConnectedToMongo, isAppInitialized } from "../config/database";
 import { env } from "../config/env";
 
 export const healthRouter: Router = Router();
 
-// Liveness probe: confirms Express process is running
+// Liveness probe: confirms Express process is running independently of database
 healthRouter.get("/live", (req: Request, res: Response) => {
   return res.status(200).json({
     status: "live",
@@ -14,11 +14,11 @@ healthRouter.get("/live", (req: Request, res: Response) => {
   });
 });
 
-// Readiness probe: verifies essential database and vector dependencies
+// Readiness probe: verifies essential database, vector dependencies, and complete initialization
 function evaluateReadiness(req: Request, res: Response) {
   const isMongoConnected = isConnectedToMongo && mongoose.connection.readyState === 1;
   const isVectorStoreValid = env.NODE_ENV !== "production" || env.VECTOR_STORE !== "memory";
-  const isReady = isMongoConnected && isVectorStoreValid;
+  const isReady = isMongoConnected && isVectorStoreValid && isAppInitialized;
 
   const isReadinessRoute = req.path.includes("ready") || req.originalUrl?.includes("ready");
   const overallStatus = isReady

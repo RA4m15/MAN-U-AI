@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
+import mongoose from "mongoose";
 import { app } from "../src/app";
 import { setIsConnectedToMongo } from "../src/config/database";
 import { User } from "../src/models";
@@ -159,6 +160,54 @@ describe("Stage 5.4 — Production Authentication Timeout & Resiliency Suite", (
       expect(res.body.error.code).toBe("REQUEST_TIMEOUT");
     } finally {
       process.env.TEST_REQUEST_TIMEOUT_MS = prevTimeout;
+    }
+  });
+
+  it("Requirement 9: Readiness probe returns 503 while application initialization is incomplete", async () => {
+    const { setIsAppInitialized } = await import("../src/config/database");
+    setIsConnectedToMongo(true);
+    setIsAppInitialized(false);
+
+    const res = await request(app).get("/health/ready");
+    expect(res.status).toBe(503);
+    expect(res.body.status).toBe("unhealthy");
+    expect(res.body.ready).toBe(false);
+
+    // Restore initialization
+    setIsAppInitialized(true);
+  });
+
+  it("Requirement 10: Readiness probe returns 200 when initialized and MongoDB is connected", async () => {
+    const { setIsAppInitialized } = await import("../src/config/database");
+    setIsConnectedToMongo(true);
+    setIsAppInitialized(true);
+    vi.spyOn(mongoose.connection, "readyState", "get").mockReturnValue(1);
+
+    const res = await request(app).get("/health/ready");
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("healthy");
+    expect(res.body.ready).toBe(true);
+  });
+
+  it("Requirement 11: startServer() binds HTTP server promptly without throwing when DB fails in production", async () => {
+    const dbModule = await import("../src/config/database");
+    const connectSpy = vi.spyOn(dbModule, "connectDatabase").mockResolvedValueOnce(false);
+    const prevEnv = process.env.NODE_ENV;
+
+    try {
+      (process.env as any).NODE_ENV = "production";
+      const { startServer } = await import("../src/index");
+      const httpServer = await startServer();
+      expect(httpServer).toBeDefined();
+      expect(httpServer.listening).toBe(true);
+      expect(dbModule.isAppInitialized).toBe(false);
+
+      // Clean up server
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    } finally {
+      (process.env as any).NODE_ENV = prevEnv;
+      connectSpy.mockRestore();
+      dbModule.setIsAppInitialized(true);
     }
   });
 });

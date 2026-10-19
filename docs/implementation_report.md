@@ -1861,3 +1861,63 @@ Because `/health/live` executes no database queries, password checks, or externa
 - **Monorepo Build (`pnpm run build`)**: Exit code 0 across all packages.
 - **Git Hygiene (`git diff --check`)**: 0 whitespace or formatting errors.
 
+---
+
+## 30. STAGE 5.4.1: FIX THE ACTUAL BACKEND STARTUP FAILURE
+
+### 1. Discrepancy Verification Between Previous Report & Working Tree
+
+An inspection of `origin/main` at commit `2dde122` (and prior commit `93d4480`) revealed why Render production health checks continued to time out:
+1. **Conditional Test-Branch Guard in `apps/api/src/index.ts`**:
+   - `startServer()` contained an `if (isTest)` branch that preserved the old synchronous `await connectDatabase(); await seedDatabase();` flow before calling `server.listen()`.
+   - Furthermore, `test/final_hardening.test.ts` Requirement 11 explicitly asserted that `startServer()` threw and rejected on database failure (`expect(startServer()).rejects.toThrow("Production startup aborted")`), keeping the abortive behavior in place.
+2. **Missing Application Initialization Flag (`isAppInitialized`) in Readiness**:
+   - `/health/ready` checked `isConnectedToMongo && mongoose.connection.readyState === 1 && isVectorStoreValid`, but had no explicit `isAppInitialized` state variable.
+   - If database connection was still in progress or failed, readiness did not have a dedicated application initialization state tracker.
+3. **Mongoose Driver Timeout Settings**:
+   - `connectDatabase()` in `apps/api/src/config/database.ts` configured 10-second `serverSelectionTimeoutMS` and `connectTimeoutMS` without an explicit `socketTimeoutMS`.
+   - The database ping timeout was 5 seconds.
+4. **State Leakage in Regression Tests**:
+   - When tests simulated MongoDB connection failures, `isConnectedToMongo` was mutated without being restored in a `finally` block, causing downstream tests to fail unless sequential ordering was preserved.
+
+### 2. Implementation of Safe and Responsive Startup Lifecycle
+
+The following changes were implemented across the codebase:
+1. **Immediate Port Binding (`apps/api/src/index.ts`)**:
+   - Removed the `if (isTest)` branch completely.
+   - `server.listen(env.PORT, "0.0.0.0")` now binds immediately and unconditionally in all environments.
+   - Express begins accepting TCP connections and answering `/health/live` within milliseconds of process launch.
+2. **Asynchronous Initialization & State Tracking (`apps/api/src/config/database.ts` & `apps/api/src/index.ts`)**:
+   - Added and exported `isAppInitialized` and `setIsAppInitialized(boolean)`.
+   - Database connection and seeding occur asynchronously in the background.
+   - On successful connection and seeding, `setIsAppInitialized(true)` is recorded.
+   - If database connection fails, `isAppInitialized` remains `false`, `isConnectedToMongo` is set to `false`, and sanitized warnings are logged without crashing the process.
+3. **Finite Connection & Ping Deadlines (`apps/api/src/config/database.ts`)**:
+   - Configured `serverSelectionTimeoutMS: 5000`, `connectTimeoutMS: 5000`, and `socketTimeoutMS: 10000`.
+   - Reduced `adminDb.ping()` deadline to 3000ms using `Promise.race`.
+4. **Readiness Probe Decoupling (`apps/api/src/routes/health.routes.ts`)**:
+   - `/health/live`: Unchanged; confirms Express is running independently of MongoDB.
+   - `/health/ready`: Evaluates `isConnectedToMongo && mongoose.connection.readyState === 1 && isVectorStoreValid && isAppInitialized`.
+   - Returns `200 OK` when initialized and connected; immediately returns prompt `503 Service Unavailable` with `ready: false` when initialization is incomplete or MongoDB is disconnected.
+5. **Fail-Closed Protection for Authenticated Routes**:
+   - In production, routes fail closed with safe 503 responses (`SERVICE_UNAVAILABLE`) when MongoDB is disconnected or degraded.
+   - In-memory data fallbacks for business records are prohibited in production.
+6. **Secret Sanitization**:
+   - Database connection errors are sanitized with `sanitizeMongoMessage()` before logging, preventing credentials, connection strings, or host details from leaking.
+
+### 3. Regression Tests
+
+1. **`apps/api/test/stage5_auth_timeout.test.ts`**:
+   - Requirement 9: Readiness probe returns 503 while application initialization is incomplete.
+   - Requirement 10: Readiness probe returns 200 when initialized and MongoDB is connected.
+   - Requirement 11: `startServer()` binds HTTP server promptly without throwing when DB fails in production.
+2. **`apps/api/test/final_hardening.test.ts`**:
+   - Requirement 11: Updated to assert that `startServer()` binds HTTP listener and enters fail-closed degraded mode rather than throwing and aborting the process.
+   - Requirements 11 & 11b: Added state restoration in `finally` blocks (`setIsConnectedToMongo(true); setIsAppInitialized(true);`) to eliminate test state leakage.
+
+### 4. Verification Test & Build Results
+
+- **Backend Automated Tests (`npm --prefix apps/api test`)**: 14 test files passed, 180/180 tests passed.
+- **Frontend Automated Tests (`npm --prefix apps/web test`)**: 5 test files passed, 30/30 tests passed.
+- **Monorepo Build (`pnpm run build`)**: `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` all compiled cleanly with exit code 0.
+- **Git Diff Whitespace Hygiene**: `git diff --check` passed with 0 errors.

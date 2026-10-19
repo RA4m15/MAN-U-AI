@@ -9,7 +9,7 @@ import { seedDatabase } from "./config/seed";
 import mongoose from "mongoose";
 import { isAllowedOrigin } from "./app";
 import { DocumentModel, DocumentPermission } from "./models";
-import { isConnectedToMongo } from "./config/database";
+import { isConnectedToMongo, setIsAppInitialized, sanitizeMongoMessage } from "./config/database";
 
 const server = http.createServer(app);
 
@@ -158,40 +158,33 @@ export function emitAuditEvent(event: any) {
 }
 
 export async function startServer(): Promise<http.Server> {
-  const isTest = process.env.NODE_ENV === "test";
-
-  if (isTest) {
-    // In test environments, preserve legacy test expectations for startup abort
-    const connected = await connectDatabase();
-    if (!connected && env.NODE_ENV === "production") {
-      throw new Error("Production startup aborted: required MongoDB connection failed to connect or ping.");
-    }
-    return new Promise<http.Server>((resolve, reject) => {
-      server.listen(env.PORT, "0.0.0.0", () => resolve(server));
-      server.once("error", reject);
-    });
-  }
-
-  // In production & development: Bind HTTP listener immediately so Render router and liveness probes succeed immediately
+  // 1. Immediately bind HTTP listener to PORT on 0.0.0.0 so liveness checks,
+  // load balancers, and Render reverse proxy succeed promptly without delay.
   const httpServer = await new Promise<http.Server>((resolve, reject) => {
-    server.listen(env.PORT, "0.0.0.0", () => {
+    const s = server.listen(env.PORT, "0.0.0.0", () => {
       console.log(`[MAN-U-AI API] Server running on http://0.0.0.0:${env.PORT}`);
       console.log(`[MAN-U-AI API] Health check at http://0.0.0.0:${env.PORT}/health`);
       console.log(`[MAN-U-AI API] API v1 base: http://0.0.0.0:${env.PORT}/api/v1`);
       resolve(server);
     });
-    server.once("error", reject);
+    s.once("error", reject);
   });
 
+  // 2. Establish MongoDB connection with finite timeouts and seed on connection
   try {
     const connected = await connectDatabase();
-    if (!connected) {
-      console.warn("[MAN-U-AI API] MongoDB connection unavailable at startup. Server running in degraded mode to return safe 503 error responses.");
-    } else {
+    if (connected) {
       await seedDatabase();
+      setIsAppInitialized(true);
+      console.log("[MAN-U-AI API] Application initialization complete.");
+    } else {
+      setIsAppInitialized(false);
+      console.warn("[MAN-U-AI API] MongoDB connection unavailable at startup. Server operating in fail-closed degraded mode.");
     }
   } catch (err: unknown) {
-    console.error("[MAN-U-AI API] Non-fatal startup database connection warning:", err instanceof Error ? err.message : String(err));
+    setIsAppInitialized(false);
+    const msg = sanitizeMongoMessage(err instanceof Error ? err.message : String(err));
+    console.error(`[MAN-U-AI API] Startup database connection warning: ${msg}`);
   }
 
   return httpServer;

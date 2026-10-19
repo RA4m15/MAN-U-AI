@@ -39,6 +39,12 @@ export function setIsConnectedToMongo(connected: boolean): void {
   isConnectedToMongo = connected;
 }
 
+export let isAppInitialized = process.env.NODE_ENV === "test";
+
+export function setIsAppInitialized(initialized: boolean): void {
+  isAppInitialized = initialized;
+}
+
 /**
  * Sanitizes any MongoDB URI or error string to ensure credentials are never leaked.
  */
@@ -65,16 +71,17 @@ export async function connectDatabase(overrideUri?: string): Promise<boolean> {
   try {
     mongoose.set("strictQuery", true);
     await mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 10000,
-      connectTimeoutMS: 10000,
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 5000,
+      socketTimeoutMS: 10000,
     });
 
-    // Real database ping to confirm cluster connectivity with bounded 5s timeout
+    // Real database ping to confirm cluster connectivity with finite 3s timeout
     const adminDb = mongoose.connection.db?.admin();
     if (adminDb) {
       await Promise.race([
         adminDb.ping(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Database ping timed out")), 5000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Database ping timed out")), 3000)),
       ]);
     }
 
@@ -87,13 +94,14 @@ export async function connectDatabase(overrideUri?: string): Promise<boolean> {
     console.log(`[MongoDB] Connected successfully! Type: ${isAtlas ? "MongoDB Atlas" : "Local/Standard MongoDB"} | Host: ${host} | Database: ${dbName}`);
     return true;
   } catch (err: unknown) {
+    isConnectedToMongo = false;
+    isAppInitialized = false;
     const errorMsg = sanitizeMongoMessage(err instanceof Error ? err.message : String(err));
     if (env.NODE_ENV === "production") {
       throw new Error(`[FATAL] Production database connection failed: ${errorMsg}`);
     }
 
-    console.warn(`[MongoDB] Notice: Could not connect to MongoDB (${errorMsg}). Switching to in-memory active store fallback for development/test.`);
-    isConnectedToMongo = false;
+    console.warn(`[MongoDB] Notice: Could not connect to MongoDB (${errorMsg}). Service is reporting unavailable database state.`);
     return false;
   }
 }
