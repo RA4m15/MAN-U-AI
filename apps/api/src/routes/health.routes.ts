@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import mongoose from "mongoose";
-import { isConnectedToMongo, isAppInitialized } from "../config/database";
+import { isConnectedToMongo, isAppInitialized, mongoDiagnostics } from "../config/database";
 import { env } from "../config/env";
 
 export const healthRouter: Router = Router();
@@ -38,6 +38,15 @@ function evaluateReadiness(req: Request, res: Response) {
       status: isMongoConnected ? "connected" : "disconnected",
       ready: isMongoConnected,
       vectorStore: env.VECTOR_STORE,
+      diagnostics: {
+        hasUri: mongoDiagnostics.hasUri,
+        uriScheme: mongoDiagnostics.uriScheme,
+        clusterHost: mongoDiagnostics.clusterHost,
+        targetDatabase: mongoDiagnostics.targetDatabase,
+        ...(mongoDiagnostics.errorCategory ? { errorCategory: mongoDiagnostics.errorCategory } : {}),
+        ...(mongoDiagnostics.errorReason ? { errorReason: mongoDiagnostics.errorReason } : {}),
+        ...(mongoDiagnostics.lastAttemptAt ? { lastAttemptAt: mongoDiagnostics.lastAttemptAt } : {}),
+      },
     },
     multimodalEngine: {
       provider: "Google Gemini",

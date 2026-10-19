@@ -187,6 +187,30 @@ export async function startServer(): Promise<http.Server> {
     console.error(`[MAN-U-AI API] Startup database connection warning: ${msg}`);
   }
 
+  // 3. In non-test environments, if database was unavailable at boot, attempt periodic background reconnection
+  if (process.env.NODE_ENV !== "test") {
+    const reconnectTimer = setInterval(async () => {
+      const { isConnectedToMongo } = await import("./config/database");
+      if (isConnectedToMongo) {
+        clearInterval(reconnectTimer);
+        return;
+      }
+      try {
+        const reconnected = await connectDatabase();
+        if (reconnected) {
+          await seedDatabase();
+          setIsAppInitialized(true);
+          console.log("[MAN-U-AI API] Background reconnection to MongoDB succeeded. Application initialized.");
+          clearInterval(reconnectTimer);
+        }
+      } catch (err: unknown) {
+        const msg = sanitizeMongoMessage(err instanceof Error ? err.message : String(err));
+        console.warn(`[MAN-U-AI API] Background database reconnection notice: ${msg}`);
+      }
+    }, 15000);
+    reconnectTimer.unref?.();
+  }
+
   return httpServer;
 }
 

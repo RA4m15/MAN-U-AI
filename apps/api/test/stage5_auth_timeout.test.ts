@@ -210,5 +210,62 @@ describe("Stage 5.4 — Production Authentication Timeout & Resiliency Suite", (
       dbModule.setIsAppInitialized(true);
     }
   });
-});
 
+  it("Requirement 12: parseMongoUriMetadata and categorizeMongoError safely categorize errors without leaking credentials", async () => {
+    const { parseMongoUriMetadata, categorizeMongoError } = await import("../src/config/database");
+
+    // 1. Valid Atlas URI parsing
+    const meta = parseMongoUriMetadata("mongodb+srv://admin_user:SuperSecretPassword123@cluster0.90gymzr.mongodb.net/manuai?retryWrites=true&w=majority");
+    expect(meta.hasUri).toBe(true);
+    expect(meta.uriScheme).toBe("mongodb+srv");
+    expect(meta.clusterHost).toBe("cluster0.90gymzr.mongodb.net");
+    expect(meta.targetDatabase).toBe("manuai");
+
+    // 2. Missing URI
+    const missing = parseMongoUriMetadata("");
+    expect(missing.hasUri).toBe(false);
+    const catMissing = categorizeMongoError(new Error("No URI"), missing);
+    expect(catMissing.category).toBe("Missing or invalid MONGODB_URI");
+
+    // 3. Atlas Network Access blocking timeout
+    const timeoutErr = new Error("Server selection timed out after 5000 ms");
+    (timeoutErr as any).name = "MongooseServerSelectionError";
+    const catTimeout = categorizeMongoError(timeoutErr, meta);
+    expect(catTimeout.category).toBe("Atlas Network Access blocking the Render service");
+    expect(catTimeout.reason).not.toContain("SuperSecretPassword123");
+
+    // 4. Authentication failed
+    const authErr = new Error("Authentication failed for user admin_user on database manuai");
+    (authErr as any).code = 18;
+    const catAuth = categorizeMongoError(authErr, meta);
+    expect(catAuth.category).toBe("Incorrect or outdated credentials after password rotation");
+
+    // 5. DNS resolution failure
+    const dnsErr = new Error("querySrv ENOTFOUND _mongodb._tcp.cluster0.90gymzr.mongodb.net");
+    const catDns = categorizeMongoError(dnsErr, meta);
+    expect(catDns.category).toBe("DNS/SRV resolution failure");
+  });
+
+  it("Requirement 13: Readiness probe exposes sanitized database diagnostics without secrets", async () => {
+    const { setIsAppInitialized } = await import("../src/config/database");
+    setIsConnectedToMongo(false);
+    setIsAppInitialized(false);
+
+    const res = await request(app).get("/health/ready");
+    expect(res.status).toBe(503);
+    expect(res.body.database).toBeDefined();
+    expect(res.body.database.status).toBe("disconnected");
+    expect(res.body.database.diagnostics).toBeDefined();
+    expect(typeof res.body.database.diagnostics.hasUri).toBe("boolean");
+    expect(res.body.database.diagnostics.uriScheme).toBeDefined();
+
+    // Re-verify secrets are never present in payload
+    const bodyStr = JSON.stringify(res.body);
+    expect(bodyStr).not.toContain("password");
+    expect(bodyStr).not.toContain("Secret");
+
+    // Restore
+    setIsConnectedToMongo(true);
+    setIsAppInitialized(true);
+  });
+});

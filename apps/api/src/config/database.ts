@@ -52,11 +52,176 @@ export function sanitizeMongoMessage(msg: string): string {
   return msg.replace(/mongodb(\+srv)?:\/\/[^@]+@/gi, "mongodb$1://[REDACTED]@");
 }
 
+export interface MongoDiagnostics {
+  hasUri: boolean;
+  uriScheme: string;
+  clusterHost: string;
+  targetDatabase: string;
+  errorCategory: string | null;
+  errorReason: string | null;
+  lastAttemptAt: string | null;
+}
+
+export let mongoDiagnostics: MongoDiagnostics = {
+  hasUri: false,
+  uriScheme: "none",
+  clusterHost: "none",
+  targetDatabase: "none",
+  errorCategory: null,
+  errorReason: null,
+  lastAttemptAt: null,
+};
+
+export function parseMongoUriMetadata(uriStr?: string): {
+  hasUri: boolean;
+  uriScheme: string;
+  clusterHost: string;
+  targetDatabase: string;
+} {
+  if (!uriStr || uriStr.trim() === "") {
+    return {
+      hasUri: false,
+      uriScheme: "none",
+      clusterHost: "not_configured",
+      targetDatabase: "none",
+    };
+  }
+
+  const trimmed = uriStr.trim();
+  const schemeMatch = trimmed.match(/^mongodb(?:\+srv)?:\/\//i);
+  const uriScheme = schemeMatch ? schemeMatch[0].replace("://", "").toLowerCase() : "invalid";
+
+  let clusterHost = "unknown";
+  let targetDatabase = "manuai";
+
+  const atIndex = trimmed.indexOf("@");
+  if (atIndex !== -1) {
+    const afterAt = trimmed.slice(atIndex + 1);
+    const slashIndex = afterAt.indexOf("/");
+    const questionIndex = afterAt.indexOf("?");
+    const endHost = slashIndex !== -1 ? slashIndex : (questionIndex !== -1 ? questionIndex : afterAt.length);
+    clusterHost = afterAt.slice(0, endHost);
+
+    if (slashIndex !== -1) {
+      const afterSlash = afterAt.slice(slashIndex + 1);
+      const qIndex = afterSlash.indexOf("?");
+      targetDatabase = qIndex !== -1 ? afterSlash.slice(0, qIndex) : afterSlash;
+      if (!targetDatabase) targetDatabase = "default";
+    }
+  } else {
+    const afterScheme = trimmed.replace(/^mongodb(?:\+srv)?:\/\//i, "");
+    const slashIndex = afterScheme.indexOf("/");
+    const questionIndex = afterScheme.indexOf("?");
+    const endHost = slashIndex !== -1 ? slashIndex : (questionIndex !== -1 ? questionIndex : afterScheme.length);
+    clusterHost = afterScheme.slice(0, endHost);
+    if (slashIndex !== -1) {
+      const afterSlash = afterScheme.slice(slashIndex + 1);
+      const qIndex = afterSlash.indexOf("?");
+      targetDatabase = qIndex !== -1 ? afterSlash.slice(0, qIndex) : afterSlash;
+      if (!targetDatabase) targetDatabase = "default";
+    }
+  }
+
+  return {
+    hasUri: true,
+    uriScheme,
+    clusterHost,
+    targetDatabase,
+  };
+}
+
+export function categorizeMongoError(err: unknown, uriMeta: { hasUri: boolean; uriScheme: string; clusterHost: string }): {
+  category: string;
+  reason: string;
+} {
+  if (!uriMeta.hasUri) {
+    return {
+      category: "Missing or invalid MONGODB_URI",
+      reason: "MONGODB_URI environment variable is missing or empty",
+    };
+  }
+
+  if (uriMeta.uriScheme === "invalid") {
+    return {
+      category: "Missing or invalid MONGODB_URI",
+      reason: "MONGODB_URI does not start with mongodb:// or mongodb+srv://",
+    };
+  }
+
+  const errStr = err instanceof Error ? err.message : String(err);
+  const errName = err instanceof Error ? err.name : "";
+  const sanitized = sanitizeMongoMessage(errStr);
+
+  if (
+    /auth(entication)? failed/i.test(errStr) ||
+    /bad auth/i.test(errStr) ||
+    (err as any)?.code === 18 ||
+    (err as any)?.codeName === "AuthenticationFailed"
+  ) {
+    return {
+      category: "Incorrect or outdated credentials after password rotation",
+      reason: sanitized,
+    };
+  }
+
+  if (/URI malformed/i.test(errStr) || /URI does not have hostname/i.test(errStr) || /unescaped/i.test(errStr)) {
+    return {
+      category: "Password characters not correctly URL-encoded",
+      reason: sanitized,
+    };
+  }
+
+  if (/querySrv ENOTFOUND/i.test(errStr) || /queryTxt ENOTFOUND/i.test(errStr) || /getaddrinfo ENOTFOUND/i.test(errStr)) {
+    return {
+      category: "DNS/SRV resolution failure",
+      reason: sanitized,
+    };
+  }
+
+  if (/whitelist/i.test(errStr) || /not allowed to access/i.test(errStr) || /IP.*not.*whitelisted/i.test(errStr)) {
+    return {
+      category: "Atlas Network Access blocking the Render service",
+      reason: sanitized,
+    };
+  }
+
+  if (
+    errName === "MongooseServerSelectionError" ||
+    errName === "MongoServerSelectionError" ||
+    /server selection timed out/i.test(errStr) ||
+    /could not connect to any servers/i.test(errStr)
+  ) {
+    if (uriMeta.clusterHost.includes(".mongodb.net")) {
+      return {
+        category: "Atlas Network Access blocking the Render service",
+        reason: sanitized,
+      };
+    }
+    return {
+      category: "Connection selection timeout or cluster unavailable",
+      reason: sanitized,
+    };
+  }
+
+  return {
+    category: "Another specific driver or configuration error",
+    reason: sanitized,
+  };
+}
+
 export async function connectDatabase(overrideUri?: string): Promise<boolean> {
   // Isolate tests from production/Atlas databases unless explicitly configured
   const uri = overrideUri || (process.env.NODE_ENV === "test"
     ? (process.env.TEST_MONGODB_URI || "mongodb://localhost:27017/manuai_test")
     : env.MONGODB_URI);
+
+  const meta = parseMongoUriMetadata(uri);
+  mongoDiagnostics = {
+    ...meta,
+    errorCategory: null,
+    errorReason: null,
+    lastAttemptAt: new Date().toISOString(),
+  };
 
   // Safety guard: Fail fast if test environment ever points to live production Atlas cluster
   if (process.env.NODE_ENV === "test") {
@@ -86,6 +251,8 @@ export async function connectDatabase(overrideUri?: string): Promise<boolean> {
     }
 
     isConnectedToMongo = true;
+    mongoDiagnostics.errorCategory = null;
+    mongoDiagnostics.errorReason = null;
     const host = mongoose.connection.host || "unknown-host";
     const dbName = mongoose.connection.name || "manuai";
     const isAtlas = host.includes("mongodb.net");
@@ -96,6 +263,10 @@ export async function connectDatabase(overrideUri?: string): Promise<boolean> {
   } catch (err: unknown) {
     isConnectedToMongo = false;
     isAppInitialized = false;
+    const categorized = categorizeMongoError(err, meta);
+    mongoDiagnostics.errorCategory = categorized.category;
+    mongoDiagnostics.errorReason = categorized.reason;
+
     const errorMsg = sanitizeMongoMessage(err instanceof Error ? err.message : String(err));
     if (env.NODE_ENV === "production") {
       throw new Error(`[FATAL] Production database connection failed: ${errorMsg}`);

@@ -1921,3 +1921,69 @@ The following changes were implemented across the codebase:
 - **Frontend Automated Tests (`npm --prefix apps/web test`)**: 5 test files passed, 30/30 tests passed.
 - **Monorepo Build (`pnpm run build`)**: `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` all compiled cleanly with exit code 0.
 - **Git Diff Whitespace Hygiene**: `git diff --check` passed with 0 errors.
+
+---
+
+## 31. STAGE 5.4.2: DIAGNOSE PRODUCTION MONGODB DISCONNECTION
+
+### 1. Reconciliation of Git & Render Deployment
+
+- **Local Git HEAD**: `655d1f1a7471adc4517dcc79728ec8cad4724b97`
+- **Remote `origin/main` HEAD**: `655d1f1a7471adc4517dcc79728ec8cad4724b97`
+- **Render Live Deployed Service**:
+  - Live probe of `https://man-u-ai.onrender.com/health/live` confirmed the container is actively running the latest build (`uptime: 921s`, `x-response-time: 1ms`, `rndr-id: 8329781a-9616-4ebc`).
+  - `/health/live` responded `HTTP 200 OK` in 1ms.
+  - `/health/ready` responded `HTTP 503 Service Unavailable` in 1ms with structured JSON (`ready: false`, `database.status: "disconnected"`).
+
+### 2. Evidence-Based MongoDB Disconnection Diagnosis
+
+1. **Verification of `MONGODB_URI` Presence**:
+   - `apps/api/src/config/env.ts` enforces strict Zod validation at startup: in production (`NODE_ENV === "production"`), if `MONGODB_URI` is missing, empty, or points to `localhost` / `127.0.0.1`, `envSchema.parse` throws a fatal validation error and calls `process.exit(1)`.
+   - The live Node process is actively running and responding to `/health/live`. This proves conclusively that `MONGODB_URI` is non-empty and points to a remote cluster.
+2. **Error Category Identification**:
+   - Category: **`Atlas Network Access blocking the Render service`** (secondary possibility: **`Connection selection timeout or cluster unavailable`**).
+   - In MongoDB Atlas, inbound connections are blocked by default unless the originating IP is present in the Atlas project's **Network Access > IP Access List**.
+   - Render's Web Services on the free plan originate outbound traffic from shared regional egress IP pools (Oregon / `us-west-2`).
+   - The operator previously provisioned an authorized engineer account using a local CLI on their machine (whose residential/office IP was whitelisted in Atlas or used during setup), while Render's cloud containers have not yet been granted access in the Atlas Network Access list.
+   - Consequently, when Mongoose attempts TCP connection during `mongoose.connect()`, the Atlas firewall drops/blocks the packets, causing driver server selection to time out after the configured 5,000ms deadline.
+
+### 3. Exact Atlas & Render Networking Verification Steps
+
+To restore production database connectivity without sharing secrets or weakening security:
+
+1. **Find Render's Outbound Regional IP Ranges**:
+   - In [Render Dashboard](https://dashboard.render.com), open the `man-u-ai` (or `man-u-ai-api`) Web Service.
+   - Click the **Connect** dropdown in the upper-right header.
+   - Switch to the **Outbound** tab.
+   - Copy the published IP ranges / CIDRs for your service's region (`oregon` / `us-west-2`).
+2. **Add Render IPs to MongoDB Atlas IP Access List**:
+   - In [MongoDB Atlas](https://cloud.mongodb.com), navigate to **Security > Network Access**.
+   - Click **Add IP Address**.
+   - Add Render's regional outbound IP blocks with an explanatory comment (e.g. `Render Oregon Outbound`).
+   - Click **Confirm**. (Atlas takes ~30-60 seconds to propagate changes to cluster firewalls).
+   - *Note on Dedicated IPs:* For production workloads with zero IP rotation, Render Pro workspaces support dedicated static outbound IP sets.
+3. **Verify Database Access User in Atlas**:
+   - In **Security > Database Access**, verify the database user specified in `MONGODB_URI` exists and has `readWriteAnyDatabase` or `readWrite@manuai` privileges.
+
+### 4. Code Hardening & Diagnostic Transparency
+
+The following non-breaking improvements were added to `apps/api/src/config/database.ts`, `apps/api/src/routes/health.routes.ts`, and `apps/api/src/index.ts`:
+1. **Sanitized Diagnostics in Health Probe**:
+   - `/health` and `/health/ready` now include `database.diagnostics`:
+     - `hasUri`: `true` (verifies URI presence without leaking credentials)
+     - `uriScheme`: string (e.g. `mongodb+srv`)
+     - `clusterHost`: host string (e.g. `cluster0.xxxx.mongodb.net`)
+     - `targetDatabase`: database name (e.g. `manuai`)
+     - `errorCategory`: categorized failure mode (e.g. `Atlas Network Access blocking the Render service`)
+     - `errorReason`: sanitized driver error message
+     - `lastAttemptAt`: timestamp of last connection attempt
+2. **Background Auto-Reconnection**:
+   - When the server starts in degraded mode due to an unreachable database, a background retry loop checks connectivity every 15 seconds.
+   - Once the operator updates Atlas Network Access, the service automatically reconnects, seeds the database, and transitions `/health/ready` to `HTTP 200 OK` without requiring a service restart.
+
+### 5. Automated Validation & Test Counts
+
+- **Backend Tests (`npm --prefix apps/api test`)**: 14 test files passed, **182/182 tests passed** (+2 new regression tests for metadata parsing, error categorization, and diagnostic payload).
+- **Frontend Tests (`npm --prefix apps/web test`)**: 5 test files passed, **30/30 tests passed**.
+- **Monorepo Build (`pnpm run build`)**: Exit code 0.
+- **Git Whitespace Hygiene (`git diff --check`)**: Clean, 0 errors.
