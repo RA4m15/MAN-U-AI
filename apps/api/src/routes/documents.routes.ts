@@ -603,20 +603,21 @@ export async function processDocumentAsync(docId: string, title: string, revisio
         console.warn(`[Ingestion Cleanup Error for ${docId}]:`, cleanupErr);
       }
 
-      // Best-effort step 2: update document status to needs_ocr with actionable processingError
-      try {
-        if (isConnectedToMongo) {
-          await DocumentModel.findByIdAndUpdate(docOid, {
-            status: "needs_ocr",
-            pageCount: extraction.pageCount,
-            processingError: actionableOcrError,
-          });
-        }
-      } catch (statusErr) {
-        console.warn(`[Ingestion Status Update Error for ${docId}]:`, statusErr);
+      // Invariant: needs_ocr status transition is strictly conditional on confirmed persistence in database
+      if (!isConnectedToMongo) {
+        throw new Error("Database unavailable: cannot persist needs_ocr document status.");
       }
 
-      // Best-effort step 3: emit socket status
+      const updated = await DocumentModel.findByIdAndUpdate(docOid, {
+        status: "needs_ocr",
+        pageCount: extraction.pageCount,
+        processingError: actionableOcrError,
+      });
+      if (!updated) {
+        throw new Error(`Failed to locate document ${docId} to persist needs_ocr status.`);
+      }
+
+      // Emit socket status only after persistence is confirmed
       try {
         emitDocumentStatus(
           docId,

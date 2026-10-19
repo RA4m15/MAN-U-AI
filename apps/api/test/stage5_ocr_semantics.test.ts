@@ -695,6 +695,120 @@ describe("Stage 5 — OCR Outcome Semantics & Ingestion Gating Suite", () => {
     expect(failedCalls.length).toBeGreaterThanOrEqual(1);
     expect(failedCalls[0][3]).toContain("Failed to clear existing chunks before indexing");
   });
+
+  // Task 1 Final Edge Case 1: isConnectedToMongo === false cannot result in a needs_ocr event
+  it("Task 1 Final Edge Case: isConnectedToMongo === false cannot result in a needs_ocr event", async () => {
+    mockParseBehavior = {
+      numpages: 1,
+      text: " ", // low text triggers OCR
+    };
+
+    vi.spyOn(geminiService, "isLiveClientConfigured").mockReturnValue(false);
+    const statusSpy = vi.spyOn(socketEvents, "emitDocumentStatus");
+
+    // Simulate database disconnected
+    setIsConnectedToMongo(false);
+
+    const disconnectedDocId = new mongoose.Types.ObjectId().toString();
+    try {
+      await processDocumentAsync(disconnectedDocId, "Disconnected OCR Doc", "Rev 1", validDummyPdf);
+
+      // Invariant: Never emit needs_ocr status event when database is disconnected
+      const needsOcrCalls = statusSpy.mock.calls.filter((call) => call[1] === "needs_ocr");
+      expect(needsOcrCalls.length).toBe(0);
+
+      // Invariant: Never emit indexed status event
+      const indexedCalls = statusSpy.mock.calls.filter((call) => call[1] === "indexed");
+      expect(indexedCalls.length).toBe(0);
+
+      // Invariant: Emits failed status event
+      const failedCalls = statusSpy.mock.calls.filter((call) => call[1] === "failed");
+      expect(failedCalls.length).toBeGreaterThanOrEqual(1);
+      expect(failedCalls[0][3]).toContain("Database unavailable");
+    } finally {
+      setIsConnectedToMongo(true);
+    }
+  });
+
+  // Task 1 Final Edge Case 2: DocumentModel.findByIdAndUpdate throwing error cannot result in a needs_ocr event
+  it("Task 1 Final Edge Case: DocumentModel.findByIdAndUpdate throwing error cannot result in a needs_ocr event", async () => {
+    mockParseBehavior = {
+      numpages: 1,
+      text: " ",
+    };
+
+    vi.spyOn(geminiService, "isLiveClientConfigured").mockReturnValue(false);
+    const statusSpy = vi.spyOn(socketEvents, "emitDocumentStatus");
+
+    const origFindByIdAndUpdate = DocumentModel.findByIdAndUpdate.bind(DocumentModel);
+    vi.spyOn(DocumentModel, "findByIdAndUpdate").mockImplementation(async function (
+      this: any,
+      id: any,
+      update: any,
+      options: any
+    ) {
+      if (update?.status === "needs_ocr") {
+        throw new Error("Simulated database write timeout on needs_ocr transition");
+      }
+      return origFindByIdAndUpdate(id, update, options);
+    });
+
+    const throwingDocId = new mongoose.Types.ObjectId().toString();
+    await processDocumentAsync(throwingDocId, "Throwing OCR Doc", "Rev 1", validDummyPdf);
+
+    // Invariant: Never emit needs_ocr status event when update throws
+    const needsOcrCalls = statusSpy.mock.calls.filter((call) => call[1] === "needs_ocr");
+    expect(needsOcrCalls.length).toBe(0);
+
+    // Invariant: Never emit indexed event
+    const indexedCalls = statusSpy.mock.calls.filter((call) => call[1] === "indexed");
+    expect(indexedCalls.length).toBe(0);
+
+    // Invariant: Emits failed status event
+    const failedCalls = statusSpy.mock.calls.filter((call) => call[1] === "failed");
+    expect(failedCalls.length).toBeGreaterThanOrEqual(1);
+    expect(failedCalls[0][3]).toContain("Simulated database write timeout");
+  });
+
+  // Task 1 Final Edge Case 3: DocumentModel.findByIdAndUpdate returning null cannot result in a needs_ocr event
+  it("Task 1 Final Edge Case: DocumentModel.findByIdAndUpdate returning null cannot result in a needs_ocr event", async () => {
+    mockParseBehavior = {
+      numpages: 1,
+      text: " ",
+    };
+
+    vi.spyOn(geminiService, "isLiveClientConfigured").mockReturnValue(false);
+    const statusSpy = vi.spyOn(socketEvents, "emitDocumentStatus");
+
+    const origFindByIdAndUpdate = DocumentModel.findByIdAndUpdate.bind(DocumentModel);
+    vi.spyOn(DocumentModel, "findByIdAndUpdate").mockImplementation(async function (
+      this: any,
+      id: any,
+      update: any,
+      options: any
+    ) {
+      if (update?.status === "needs_ocr") {
+        return null as any; // Document not found
+      }
+      return origFindByIdAndUpdate(id, update, options);
+    });
+
+    const missingDocId = new mongoose.Types.ObjectId().toString();
+    await processDocumentAsync(missingDocId, "Missing OCR Doc", "Rev 1", validDummyPdf);
+
+    // Invariant: Never emit needs_ocr status event when document is missing
+    const needsOcrCalls = statusSpy.mock.calls.filter((call) => call[1] === "needs_ocr");
+    expect(needsOcrCalls.length).toBe(0);
+
+    // Invariant: Never emit indexed event
+    const indexedCalls = statusSpy.mock.calls.filter((call) => call[1] === "indexed");
+    expect(indexedCalls.length).toBe(0);
+
+    // Invariant: Emits failed status event
+    const failedCalls = statusSpy.mock.calls.filter((call) => call[1] === "failed");
+    expect(failedCalls.length).toBeGreaterThanOrEqual(1);
+    expect(failedCalls[0][3]).toContain("Failed to locate document");
+  });
 });
 
 function validDummyDummyBuffer(): Buffer {
