@@ -2091,3 +2091,17 @@ Detailed tracing of the upload pipeline revealed three contributing defects:
 - **Web Frontend Tests (`npm --prefix apps/web test`)**: 5 test files passed, **30/30 tests passed**.
 - **Monorepo Build (`pnpm run build`)**: `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` all compiled cleanly with exit code 0.
 - **Git Diff Whitespace Hygiene (`git diff --check`)**: Clean, 0 errors.
+
+### 4. Live Verification and Root Cause Confirmation
+
+- **Browser Subagent Live Test (`https://man-u-ai-1.onrender.com/knowledge`)**:
+  - Authenticated as Lead Systems Engineer and submitted genuine manual `apps/api/test_authorized_manual.pdf`.
+  - The live frontend captured the newly exposed, sanitized structured diagnostic:
+    ```
+    Failed to store or process document ([Error] Cloudinary storage upload failed (401): Invalid Signature ff62071ce9bfb0ba76c6992f4dec64d46e3da43d. String to sign - 'folder=manuai/documents&public_id=16682ac7-fb3a-4758-9ac6-39b68e1835bc.pdf&timestamp=1792419302&type=authenticated'.)
+    ```
+  - **Confirmation**:
+    1. `"[object Object]"` is completely eliminated; exact upstream error details and HTTP code (401) are extracted and displayed cleanly.
+    2. Cloudinary received the upload request and confirmed the identical `String to sign`, but rejected the request with HTTP 401 `Invalid Signature` because the effective `api_secret` in the running Render environment does not match the active secret for `som1aiqb`.
+    3. Added `cleanConfigValue()` to strip enclosing single/double quotes, trailing carriage returns, and whitespace from `CLOUDINARY_URL`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`, prioritizing the canonical `CLOUDINARY_URL`.
+    4. Required Render Dashboard setting: Update `CLOUDINARY_URL` (or `CLOUDINARY_API_SECRET`) in the Render Dashboard environment settings without quotes to match the active Cloudinary API credentials.

@@ -164,31 +164,36 @@ export function validateCloudinaryStreamUrl(urlString: string): URL {
   return parsedUrl;
 }
 
+function cleanConfigValue(val?: string): string {
+  if (!val || typeof val !== "string") return "";
+  let cleaned = val.replace(/^[\s\x00-\x1F\x7F]+|[\s\x00-\x1F\x7F]+$/g, "");
+  if (
+    (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+    (cleaned.startsWith("'") && cleaned.endsWith("'"))
+  ) {
+    cleaned = cleaned.slice(1, -1).trim();
+  }
+  return cleaned;
+}
+
 export class CloudinaryStorageService implements IStorageAdapter {
   constructor() {
-    if (env.CLOUDINARY_CLOUD_NAME && env.CLOUDINARY_API_KEY && env.CLOUDINARY_API_SECRET) {
+    const cleanUrl = cleanConfigValue(env.CLOUDINARY_URL);
+    const cleanCloudName = cleanConfigValue(env.CLOUDINARY_CLOUD_NAME);
+    const cleanApiKey = cleanConfigValue(env.CLOUDINARY_API_KEY);
+    const cleanApiSecret = cleanConfigValue(env.CLOUDINARY_API_SECRET);
+
+    if (cleanUrl) {
+      process.env.CLOUDINARY_URL = cleanUrl;
+      cloudinary.config(true);
+      cloudinary.config({ secure: true });
+    } else if (cleanCloudName && cleanApiKey && cleanApiSecret) {
       cloudinary.config({
-        cloud_name: env.CLOUDINARY_CLOUD_NAME,
-        api_key: env.CLOUDINARY_API_KEY,
-        api_secret: env.CLOUDINARY_API_SECRET,
+        cloud_name: cleanCloudName,
+        api_key: cleanApiKey,
+        api_secret: cleanApiSecret,
         secure: true,
       });
-    } else if (env.CLOUDINARY_URL) {
-      process.env.CLOUDINARY_URL = env.CLOUDINARY_URL;
-      const match = env.CLOUDINARY_URL.match(/^cloudinary:\/\/([^:]+):([^@]+)@([^/?#]+)/i);
-      if (match) {
-        cloudinary.config({
-          cloud_name: match[3],
-          api_key: match[1],
-          api_secret: match[2],
-          secure: true,
-        });
-      } else {
-        cloudinary.config({
-          cloudinary_url: env.CLOUDINARY_URL,
-          secure: true,
-        });
-      }
     }
   }
 
