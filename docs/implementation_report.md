@@ -1502,3 +1502,34 @@ To provision the initial production operator account from your local workstation
    ```powershell
    Remove-Item Env:\TARGET_MONGODB_URI
    ```
+
+---
+
+## 25. STAGE 5.2.2: FINAL PROVISIONING SAFETY REVIEW
+
+### Findings & Security Hardening Applied
+
+1. **Mandatory `--role` Enforcement**:
+   - Removed implicit fallback to `"admin"`. Omitting `--role` now raises an explicit validation error: `Error: --role=<role> is required. Allowed roles are: admin, engineer, viewer.`
+   - Roles are strictly validated against the allowed allowlist (`admin`, `engineer`, `viewer`).
+
+2. **Mandatory `--target-db` Confirmation**:
+   - Made `--target-db` confirmation mandatory before executing any database connection or write operation.
+   - If omitted, the CLI aborts: `Error: Explicit --target-db=<database-name> confirmation is required before any writes.`
+   - If the value does not match the database parsed from the URI, execution immediately terminates.
+
+3. **Fail-Closed Non-TTY Password Handling**:
+   - Removed unmasked non-TTY stream reading fallback in `promptMaskedPassword()`.
+   - In non-interactive environments (CI or automation), execution fails closed with an informative error unless `PROVISION_PASSWORD` is explicitly set in the process environment.
+   - Piped unmasked stdin and command-line arguments remain strictly disallowed.
+
+4. **Normalized Hostname & Loopback Protection**:
+   - `parseAndSanitizeMongoTarget()` normalizes hostnames to lowercase and handles port stripping for both IPv4/hostnames and bracketed/unbracketed IPv6 addresses.
+   - Detects uppercase `LOCALHOST`, mixed-case `LocalHost`, standard IPv4 loopback `127.0.0.1`, subnet variants `127.0.0.0/8` (e.g. `127.0.1.1`), `0.0.0.0`, and IPv6 loopback variants (`[::1]`, `::1`, `[0:0:0:0:0:0:0:1]`).
+   - Localhost targets remain strictly blocked unless `--allow-local` is explicitly passed.
+
+### Test Results
+
+- **Backend Automated Tests (`npm --prefix apps/api test`)**: 13 test files passed, 159 tests passed (24 focused tests in `test/stage5_provisioning.test.ts`).
+- **Frontend Automated Tests (`npm --prefix apps/web test`)**: 3 test files passed, 25 tests passed.
+- **Monorepo Build (`npm run build`)**: `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` all compiled cleanly with exit code 0.

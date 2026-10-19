@@ -252,9 +252,9 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
     expect(res3.body.data.user.role).toBe("admin");
   });
 
-  // ── 3. Stage 5.2.1 Hardened CLI & Security Tests ──────────────────────────
+  // ── 3. Stage 5.2.1 & 5.2.2 Hardened CLI & Security Tests ──────────────────
 
-  describe("Hardened CLI Target Validation & Password Masking", () => {
+  describe("Hardened CLI Target Validation, Role Enforcement & Password Masking", () => {
     it("parseAndSanitizeMongoTarget correctly parses remote cluster targets and excludes credentials", () => {
       const uri = "mongodb+srv://admin_user:SuperSecretPassword123!@cluster0.abcde.mongodb.net/manuai_prod?retryWrites=true";
       const target = parseAndSanitizeMongoTarget(uri);
@@ -267,13 +267,38 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
       expect(target.host).not.toContain("SuperSecretPassword123!");
     });
 
-    it("parseAndSanitizeMongoTarget detects localhost and 127.0.0.1 targets", () => {
-      const targetLocal = parseAndSanitizeMongoTarget("mongodb://localhost:27017/manuai");
-      expect(targetLocal.host).toBe("localhost:27017");
-      expect(targetLocal.isLocal).toBe(true);
+    it("parseAndSanitizeMongoTarget normalizes uppercase and IPv4/IPv6 loopback variants", () => {
+      // Uppercase LOCALHOST
+      const targetUpper = parseAndSanitizeMongoTarget("mongodb://LOCALHOST:27017/manuai");
+      expect(targetUpper.isLocal).toBe(true);
 
-      const targetIp = parseAndSanitizeMongoTarget("mongodb://127.0.0.1:27017/testdb");
-      expect(targetIp.isLocal).toBe(true);
+      // Mixed-case LocalHost
+      const targetMixed = parseAndSanitizeMongoTarget("mongodb://LocalHost:27017/manuai");
+      expect(targetMixed.isLocal).toBe(true);
+
+      // Standard IPv4 loopback
+      const targetIp1 = parseAndSanitizeMongoTarget("mongodb://127.0.0.1:27017/testdb");
+      expect(targetIp1.isLocal).toBe(true);
+
+      // IPv4 loopback subnet variants (127.0.1.1, 127.255.255.254)
+      const targetIp2 = parseAndSanitizeMongoTarget("mongodb://127.0.1.1:27017/testdb");
+      expect(targetIp2.isLocal).toBe(true);
+      const targetIp3 = parseAndSanitizeMongoTarget("mongodb://127.255.255.254:27017/testdb");
+      expect(targetIp3.isLocal).toBe(true);
+
+      // 0.0.0.0 loopback
+      const targetZero = parseAndSanitizeMongoTarget("mongodb://0.0.0.0:27017/testdb");
+      expect(targetZero.isLocal).toBe(true);
+
+      // IPv6 loopback variants [::1] and ::1
+      const targetIpv6Bracket = parseAndSanitizeMongoTarget("mongodb://[::1]:27017/testdb");
+      expect(targetIpv6Bracket.isLocal).toBe(true);
+      const targetIpv6Plain = parseAndSanitizeMongoTarget("mongodb://::1/testdb");
+      expect(targetIpv6Plain.isLocal).toBe(true);
+
+      // Remote Atlas host should not be local
+      const targetRemote = parseAndSanitizeMongoTarget("mongodb+srv://cluster0.abcde.mongodb.net/manuai");
+      expect(targetRemote.isLocal).toBe(false);
     });
 
     it("parseAndSanitizeMongoTarget throws when URI is missing or empty", () => {
@@ -320,11 +345,76 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
       expect(outputBuffer).toContain("***\b \b*");
     });
 
+    it("promptMaskedPassword rejects and fails closed when input stream is non-TTY", async () => {
+      const nonTtyInput = new PassThrough();
+      const mockOutput = { write: vi.fn() } as any;
+
+      await expect(
+        promptMaskedPassword("Enter password: ", nonTtyInput, mockOutput)
+      ).rejects.toThrow(/Interactive password masking requires a TTY terminal.*PROVISION_PASSWORD/);
+    });
+
+    it("provisionUserCli fails closed in non-interactive mode when PROVISION_PASSWORD is not set", async () => {
+      const nonTtyInput = new PassThrough();
+
+      await expect(
+        provisionUserCli({
+          args: {
+            email: "cli.hardened@plant.io",
+            role: "admin",
+            uri: "mongodb://127.0.0.1:27017/manuai_test",
+            "allow-local": true,
+            "target-db": "manuai_test",
+            confirm: true,
+          },
+          envVars: {}, // No PROVISION_PASSWORD
+          input: nonTtyInput,
+        })
+      ).rejects.toThrow(/Non-interactive terminal detected without secure password input.*PROVISION_PASSWORD/);
+    });
+
+    it("provisionUserCli requires explicitly supplied --role", async () => {
+      await expect(
+        provisionUserCli({
+          args: {
+            email: "cli.hardened@plant.io",
+            // missing role!
+            uri: "mongodb://127.0.0.1:27017/manuai_test",
+            "allow-local": true,
+            "target-db": "manuai_test",
+            confirm: true,
+          },
+          envVars: {
+            PROVISION_PASSWORD: "SecurePassword123!",
+          },
+        })
+      ).rejects.toThrow(/Error: --role=<role> is required\. Allowed roles are: admin, engineer, viewer/);
+    });
+
+    it("provisionUserCli rejects invalid --role values", async () => {
+      await expect(
+        provisionUserCli({
+          args: {
+            email: "cli.hardened@plant.io",
+            role: "superadmin", // Invalid
+            uri: "mongodb://127.0.0.1:27017/manuai_test",
+            "allow-local": true,
+            "target-db": "manuai_test",
+            confirm: true,
+          },
+          envVars: {
+            PROVISION_PASSWORD: "SecurePassword123!",
+          },
+        })
+      ).rejects.toThrow(/Error: Invalid role "superadmin"\. Allowed roles are: admin, engineer, viewer/);
+    });
+
     it("provisionUserCli rejects plaintext --password command-line argument", async () => {
       await expect(
         provisionUserCli({
           args: {
             email: "cli.hardened@plant.io",
+            role: "admin",
             password: "InsecureCliPassword123!",
             confirm: true,
           },
@@ -337,6 +427,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
         provisionUserCli({
           args: {
             email: "cli.hardened@plant.io",
+            role: "admin",
             confirm: true,
           },
           envVars: {}, // No TARGET_MONGODB_URI or MONGODB_URI
@@ -349,6 +440,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
         provisionUserCli({
           args: {
             email: "cli.hardened@plant.io",
+            role: "admin",
             uri: "mongodb://127.0.0.1:27017/manuai_test",
             confirm: true,
           },
@@ -356,11 +448,30 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
       ).rejects.toThrow(/Local database provisioning is refused by default.*pass --allow-local/);
     });
 
+    it("provisionUserCli requires explicit --target-db confirmation flag", async () => {
+      await expect(
+        provisionUserCli({
+          args: {
+            email: "cli.hardened@plant.io",
+            role: "admin",
+            uri: "mongodb://127.0.0.1:27017/manuai_test",
+            "allow-local": true,
+            // missing --target-db!
+            confirm: true,
+          },
+          envVars: {
+            PROVISION_PASSWORD: "SecurePassword123!",
+          },
+        })
+      ).rejects.toThrow(/Explicit --target-db=<database-name> confirmation is required before any writes/);
+    });
+
     it("provisionUserCli rejects database mismatch when --target-db confirmation differs", async () => {
       await expect(
         provisionUserCli({
           args: {
             email: "cli.hardened@plant.io",
+            role: "admin",
             uri: "mongodb://127.0.0.1:27017/manuai_test",
             "allow-local": true,
             "target-db": "manuai_production", // mismatch with 'manuai_test'
@@ -370,7 +481,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
             PROVISION_PASSWORD: "SecurePassword123!",
           },
         })
-      ).rejects.toThrow(/Target database mismatch: URI specifies database "manuai_test" but --target-db confirmation required "manuai_production"/);
+      ).rejects.toThrow(/Target database mismatch: URI specifies database "manuai_test" but --target-db confirmation specified "manuai_production"/);
     });
 
     it("provisionUserCli requires explicit --confirm flag", async () => {
@@ -378,8 +489,10 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
         provisionUserCli({
           args: {
             email: "cli.hardened@plant.io",
+            role: "admin",
             uri: "mongodb://127.0.0.1:27017/manuai_test",
             "allow-local": true,
+            "target-db": "manuai_test",
             confirm: false,
           },
           envVars: {
@@ -389,7 +502,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
       ).rejects.toThrow(/Confirmation required\. Pass --confirm/);
     });
 
-    it("provisionUserCli successfully provisions account with verified target and --allow-local", async () => {
+    it("provisionUserCli successfully provisions account with all safety checks satisfied", async () => {
       const outputStream = new PassThrough();
       let outputText = "";
       outputStream.on("data", (chunk) => {
@@ -420,6 +533,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
       expect(outputText).toContain("[Provision] Target Host:     127.0.0.1:27017");
       expect(outputText).toContain("[Provision] Target Database: manuai_test");
       expect(outputText).toContain("[Provision] Operator Email:  cli.hardened@plant.io");
+      expect(outputText).toContain("[Provision] Operator Role:   engineer");
       expect(outputText).toContain("[Provision] Account provisioned successfully!");
 
       // Verify second attempt on existing account throws and refuses overwrite
@@ -427,8 +541,10 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
         provisionUserCli({
           args: {
             email: "cli.hardened@plant.io",
+            role: "admin",
             uri: "mongodb://127.0.0.1:27017/manuai_test",
             "allow-local": true,
+            "target-db": "manuai_test",
             confirm: true,
           },
           envVars: {

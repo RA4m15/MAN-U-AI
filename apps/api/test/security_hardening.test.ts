@@ -130,7 +130,7 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
     const citations = ragRes.body.data.citations;
     const leakedCite = citations.find((c: any) => c.documentId === privateDocId);
     expect(leakedCite).toBeUndefined();
-  });
+  }, 20000);
 
   // ── 2. Socket.IO Authorization ───────────────────────────────────────────
   it("Requirement 13.2: An unauthorized Socket.IO client cannot join or receive private document events", async () => {

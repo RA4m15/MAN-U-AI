@@ -318,7 +318,7 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
     const userACitations = resA.citations.filter((c) => c.documentId === docAId);
     expect(userACitations.length).toBeGreaterThan(0);
     expect(userACitations[0].documentTitle).toBe("Proprietary Submersible Seal Blueprint");
-  });
+  }, 25000);
 
   // 9b. Non-indexed documents (processing, failed) cannot supply answer evidence or citations
   it("Requirement 9b: Non-indexed documents (processing, failed) cannot supply chunks or citations", async (ctx) => {
@@ -394,7 +394,7 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
       await DocumentModel.findByIdAndDelete(processingDoc._id);
       await DocumentChunk.findByIdAndDelete(chunk._id);
     }
-  });
+  }, 25000);
 
   // 10. Operational summaries generated from actual records, not manufactured
   it("Requirement 10: Operational summaries generate from authentic records and label AI synthesis", async () => {

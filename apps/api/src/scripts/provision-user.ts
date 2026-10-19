@@ -19,7 +19,8 @@ export function sanitizeMongoMessage(msg: string): string {
 
 /**
  * Parses and sanitizes a MongoDB URI into host and database components.
- * Throws if the URI is missing or invalid.
+ * Normalizes hostnames to detect all loopback and local addresses across uppercase,
+ * IPv4 subnet (127.0.0.0/8), and IPv6 variants.
  */
 export function parseAndSanitizeMongoTarget(uri: string): SanitizedTargetInfo {
   if (!uri || typeof uri !== "string" || !uri.trim()) {
@@ -31,20 +32,44 @@ export function parseAndSanitizeMongoTarget(uri: string): SanitizedTargetInfo {
     throw new Error("Invalid MongoDB URI format.");
   }
 
-  const host = match[1];
-  const database = match[2] || "admin";
+  const rawHost = match[1].trim();
+  const database = match[2]?.trim() || "admin";
 
-  const isLocal =
-    host.includes("localhost") ||
-    host.includes("127.0.0.1") ||
-    host.includes("::1") ||
-    host.startsWith("0.0.0.0");
+  // Normalize host: lowercase and strip IPv6 bracket enclosing or port numbers for address check
+  const normalizedHost = rawHost.toLowerCase();
 
-  return { host, database, isLocal };
+  // Strip port for IP/hostname matching (e.g. "localhost:27017" -> "localhost", "[::1]:27017" -> "::1")
+  let hostWithoutPort = normalizedHost;
+  if (normalizedHost.startsWith("[")) {
+    const closingBracket = normalizedHost.indexOf("]");
+    if (closingBracket !== -1) {
+      hostWithoutPort = normalizedHost.slice(1, closingBracket);
+    }
+  } else if ((normalizedHost.match(/:/g) || []).length === 1) {
+    // Exactly one colon: host with port, e.g. "localhost:27017" or "127.0.0.1:27017"
+    hostWithoutPort = normalizedHost.split(":")[0];
+  }
+
+  // Check IPv4 loopback (127.0.0.0/8), 0.0.0.0, localhost, and IPv6 loopback variants
+  const isIpv4Loopback = /^127\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}$/.test(hostWithoutPort);
+  const isIpv6Loopback =
+    hostWithoutPort === "::1" ||
+    hostWithoutPort === "0:0:0:0:0:0:0:1" ||
+    hostWithoutPort === "::" ||
+    hostWithoutPort === "0:0:0:0:0:0:0:0";
+  const isLocalhostDomain =
+    hostWithoutPort === "localhost" ||
+    hostWithoutPort === "0.0.0.0" ||
+    hostWithoutPort.endsWith(".localhost");
+
+  const isLocal = isIpv4Loopback || isIpv6Loopback || isLocalhostDomain;
+
+  return { host: rawHost, database, isLocal };
 }
 
 /**
  * Prompts for password with genuine terminal masking (asterisks) in interactive TTY mode.
+ * Fails closed in non-interactive environments unless PROVISION_PASSWORD is provided.
  * Restores terminal raw mode properly on completion, error, or interruption.
  */
 export async function promptMaskedPassword(
@@ -59,36 +84,11 @@ export async function promptMaskedPassword(
     const isTTY = !!anyInput.isTTY && typeof anyInput.setRawMode === "function";
 
     if (!isTTY) {
-      // Non-interactive fallback: read stream until newline / EOF
-      let data = "";
-      const onData = (chunk: Buffer | string) => {
-        data += chunk.toString();
-        const newlineIdx = data.indexOf("\n");
-        if (newlineIdx !== -1) {
-          cleanup();
-          resolve(data.slice(0, newlineIdx).replace(/\r$/, ""));
-        }
-      };
-      const onEnd = () => {
-        cleanup();
-        resolve(data.replace(/[\r\n]+$/, ""));
-      };
-      const onError = (err: Error) => {
-        cleanup();
-        reject(err);
-      };
-      const cleanup = () => {
-        input.removeListener("data", onData);
-        input.removeListener("end", onEnd);
-        input.removeListener("error", onError);
-      };
-
-      input.on("data", onData);
-      input.on("end", onEnd);
-      input.on("error", onError);
-      if (typeof anyInput.resume === "function") {
-        anyInput.resume();
-      }
+      reject(
+        new Error(
+          "Interactive password masking requires a TTY terminal. In non-interactive environments (CI, scripts, or automated tests), supply the initial password via the PROVISION_PASSWORD environment variable."
+        )
+      );
       return;
     }
 
@@ -201,20 +201,35 @@ export async function provisionUserCli(options: ProvisionUserCliOptions): Promis
     );
   }
 
-  const email = (args.email as string) || (args.e as string) || "";
-  const name = (args.name as string) || (args.n as string) || "";
-  const role = (args.role as string) || (args.r as string) || "admin";
+  const email = ((args.email as string) || (args.e as string) || "").trim();
+  const name = ((args.name as string) || (args.n as string) || "").trim();
+  const roleArg = ((args.role as string) || (args.r as string) || "").trim();
   const confirm = args.confirm === true;
   const allowLocal = args["allow-local"] === true;
-  const targetDbConfirm = (args["target-db"] as string) || "";
+  const targetDbConfirm = ((args["target-db"] as string) || (args.d as string) || "").trim();
 
   if (!email) {
     throw new Error(
-      "Error: --email=<email> is required.\nUsage: npm run provision-user -- --email=operator@plant.io --role=admin [--name=\"Operator Name\"] [--uri=<connection-string>] [--confirm]"
+      "Error: --email=<email> is required.\nUsage: npm run provision-user -- --email=operator@plant.io --role=admin --target-db=<dbname> [--name=\"Operator Name\"] [--uri=<connection-string>] [--confirm]"
     );
   }
 
-  // B. Fail-closed on database selection (NO default localhost fallback)
+  // B. Make missing --role a validation error; require explicitly supplied allowed role
+  if (!roleArg) {
+    throw new Error(
+      "Error: --role=<role> is required. Allowed roles are: admin, engineer, viewer.\nUsage: npm run provision-user -- --email=operator@plant.io --role=admin --target-db=<dbname> --confirm"
+    );
+  }
+
+  const allowedRoles = ["admin", "engineer", "viewer"];
+  if (!allowedRoles.includes(roleArg.toLowerCase())) {
+    throw new Error(
+      `Error: Invalid role "${roleArg}". Allowed roles are: ${allowedRoles.join(", ")}.`
+    );
+  }
+  const role = roleArg.toLowerCase() as "admin" | "engineer" | "viewer";
+
+  // C. Fail-closed on database selection (NO default localhost fallback)
   const rawUri = (args.uri as string) || envVars.TARGET_MONGODB_URI || envVars.MONGODB_URI || "";
   if (!rawUri) {
     throw new Error(
@@ -231,10 +246,16 @@ export async function provisionUserCli(options: ProvisionUserCliOptions): Promis
     );
   }
 
-  // Verify explicit database name confirmation if provided
-  if (targetDbConfirm && target.database.toLowerCase() !== targetDbConfirm.toLowerCase()) {
+  // D. Require explicit --target-db confirmation matching the database parsed from the URI
+  if (!targetDbConfirm) {
     throw new Error(
-      `Target database mismatch: URI specifies database "${target.database}" but --target-db confirmation required "${targetDbConfirm}".`
+      `Error: Explicit --target-db=<database-name> confirmation is required before any writes.\nTarget database parsed from URI is "${target.database}". You must pass --target-db="${target.database}" to confirm your intention.`
+    );
+  }
+
+  if (target.database.toLowerCase() !== targetDbConfirm.toLowerCase()) {
+    throw new Error(
+      `Target database mismatch: URI specifies database "${target.database}" but --target-db confirmation specified "${targetDbConfirm}". Provisioning aborted to protect against targeting the wrong database.`
     );
   }
 
@@ -245,15 +266,22 @@ export async function provisionUserCli(options: ProvisionUserCliOptions): Promis
     );
   }
 
-  // C. Display sanitized target information
+  // E. Display sanitized target information
   output.write(`[Provision] Target Host:     ${target.host}\n`);
   output.write(`[Provision] Target Database: ${target.database}\n`);
   output.write(`[Provision] Operator Email:  ${email}\n`);
   output.write(`[Provision] Operator Role:   ${role}\n`);
 
-  // D. Obtain password securely
+  // F. Obtain password securely (fail closed in non-interactive environments without PROVISION_PASSWORD)
   let password = envVars.PROVISION_PASSWORD || "";
   if (!password) {
+    const anyInput = input as any;
+    const isTTY = !!anyInput.isTTY && typeof anyInput.setRawMode === "function";
+    if (!isTTY) {
+      throw new Error(
+        "Non-interactive terminal detected without secure password input. In non-interactive environments, supply the initial password securely via the PROVISION_PASSWORD environment variable. Piped unmasked stdin and command-line arguments are disallowed."
+      );
+    }
     password = await promptMaskedPassword("Enter initial password (min 8 chars): ", input, output);
   }
 
@@ -261,7 +289,7 @@ export async function provisionUserCli(options: ProvisionUserCliOptions): Promis
     throw new Error("Password must be at least 8 characters long.");
   }
 
-  // E. Connect to the specified database
+  // G. Connect to the specified database
   output.write(`[Provision] Connecting to database...\n`);
   try {
     if (mongoose.connection.readyState !== 0) {
@@ -285,7 +313,7 @@ export async function provisionUserCli(options: ProvisionUserCliOptions): Promis
     const result = await provisionUser({
       email,
       name: name || undefined,
-      role: role as any,
+      role,
       password,
       confirm,
       expectedDatabase: target.database,
