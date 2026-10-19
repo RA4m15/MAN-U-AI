@@ -12,6 +12,8 @@ import { requireAuth, requireRole, AuthenticatedRequest } from "../middlewares/a
 import { uploadLimiter } from "../middlewares/rateLimiters";
 import { emitDocumentProgress, emitDocumentStatus, emitAuditEvent } from "../index";
 import { sanitizeError } from "./settings.routes";
+import { extractStructuredErrorInfo, logStructuredError } from "../utils/errorReporting";
+import { env } from "../config/env";
 
 export const documentsRouter: Router = Router();
 
@@ -323,17 +325,31 @@ documentsRouter.post(
         documentCreated = true;
       } catch (dbErr) {
         // Safe partial-failure cleanup: storage succeeded but DB persistence failed
-        console.error("[Documents] Database persistence failed after file storage, cleaning up orphaned file:", dbErr);
+        const dbInfo = extractStructuredErrorInfo(dbErr, "database_persistence", req);
+        logStructuredError(dbInfo, {
+          title,
+          revision,
+          filename: req.file?.originalname,
+          sizeBytes: storageResult?.sizeBytes,
+          storagePath: savedStoragePath,
+        });
+
         if (savedStoragePath) {
           try {
             await storageService.deleteFile(savedStoragePath, savedStorageProvider);
           } catch (cleanErr) {
-            console.warn("[Documents] Failed to delete orphaned file after DB failure:", cleanErr);
+            console.warn("[Documents] Failed to delete orphaned file after DB failure:", sanitizeError(cleanErr));
           }
         }
         return res.status(503).json({
           success: false,
-          error: { code: "DATABASE_PERSISTENCE_FAILED", message: "Failed to persist document metadata to database" },
+          error: {
+            code: "DATABASE_PERSISTENCE_FAILED",
+            message: "Failed to persist document metadata to database",
+            details: dbInfo.sanitizedMessage,
+            stage: dbInfo.stage,
+            requestId: dbInfo.requestId,
+          },
         });
       }
 
@@ -392,12 +408,27 @@ documentsRouter.post(
         try {
           await storageService.deleteFile(savedStoragePath, savedStorageProvider);
         } catch (cleanErr) {
-          console.warn("[Documents] Failed to delete orphaned file after general error:", cleanErr);
+          console.warn("[Documents] Failed to delete orphaned file after general error:", sanitizeError(cleanErr));
         }
       }
-      return res.status(500).json({
+
+      const info = extractStructuredErrorInfo(err, "storage_upload", req);
+      logStructuredError(info, {
+        filename: req.file?.originalname,
+        sizeBytes: req.file?.size,
+        mimetype: req.file?.mimetype,
+        storageProvider: env.STORAGE_PROVIDER,
+      });
+
+      return res.status(info.httpStatus).json({
         success: false,
-        error: { code: "UPLOAD_FAILED", message: "Failed to store or process document", details: String(err) },
+        error: {
+          code: info.errorCode,
+          message: "Failed to store or process document",
+          details: info.sanitizedMessage,
+          stage: info.stage,
+          requestId: info.requestId,
+        },
       });
     }
   }

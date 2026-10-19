@@ -45,17 +45,23 @@ export class LocalStorageService implements IStorageAdapter {
   }
 
   async saveFile(originalFilename: string, buffer: Buffer): Promise<SaveFileResult> {
-    this.ensureDir();
-    const ext = path.extname(originalFilename);
-    const safeName = `${uuidv4()}${ext}`;
-    const destination = path.join(this.uploadDir, safeName);
+    try {
+      this.ensureDir();
+      const ext = path.extname(originalFilename);
+      const safeName = `${uuidv4()}${ext}`;
+      const destination = path.join(this.uploadDir, safeName);
 
-    await fs.promises.writeFile(destination, buffer);
-    return {
-      storagePath: safeName,
-      sizeBytes: buffer.length,
-      storageProvider: "local",
-    };
+      await fs.promises.writeFile(destination, buffer);
+      return {
+        storagePath: safeName,
+        sizeBytes: buffer.length,
+        storageProvider: "local",
+      };
+    } catch (fsErr: any) {
+      const customErr = new Error(`Local filesystem write failed: ${fsErr?.message || String(fsErr)}`);
+      (customErr as any).code = "LOCAL_STORAGE_WRITE_FAILED";
+      throw customErr;
+    }
   }
 
   getFileStream(storagePath: string): fs.ReadStream {
@@ -168,10 +174,21 @@ export class CloudinaryStorageService implements IStorageAdapter {
         secure: true,
       });
     } else if (env.CLOUDINARY_URL) {
-      cloudinary.config({
-        cloudinary_url: env.CLOUDINARY_URL,
-        secure: true,
-      });
+      process.env.CLOUDINARY_URL = env.CLOUDINARY_URL;
+      const match = env.CLOUDINARY_URL.match(/^cloudinary:\/\/([^:]+):([^@]+)@([^/?#]+)/i);
+      if (match) {
+        cloudinary.config({
+          cloud_name: match[3],
+          api_key: match[1],
+          api_secret: match[2],
+          secure: true,
+        });
+      } else {
+        cloudinary.config({
+          cloudinary_url: env.CLOUDINARY_URL,
+          secure: true,
+        });
+      }
     }
   }
 
@@ -190,7 +207,15 @@ export class CloudinaryStorageService implements IStorageAdapter {
         },
         (error, result) => {
           if (error || !result) {
-            return reject(error || new Error("Cloudinary upload failed with empty result"));
+            const rawMsg = error && typeof error === "object"
+              ? (error as any).message || JSON.stringify(error)
+              : String(error || "Cloudinary upload failed with empty result");
+            const httpCode = error && typeof (error as any).http_code === "number" ? (error as any).http_code : 502;
+            const customErr = new Error(`Cloudinary storage upload failed (${httpCode}): ${rawMsg}`);
+            (customErr as any).code = "STORAGE_PROVIDER_ERROR";
+            (customErr as any).httpStatus = httpCode;
+            (customErr as any).originalError = error;
+            return reject(customErr);
           }
           resolve({
             storagePath: result.public_id,
@@ -302,7 +327,8 @@ export class CloudinaryStorageService implements IStorageAdapter {
         { resource_type: "raw", type: "authenticated" },
         (error, result) => {
           if (error) {
-            return reject(error);
+            const rawMsg = typeof error === "object" ? (error as any).message || JSON.stringify(error) : String(error);
+            return reject(new Error(`Cloudinary file deletion failed: ${rawMsg}`));
           }
           resolve();
         }

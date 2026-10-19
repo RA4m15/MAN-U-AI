@@ -2030,3 +2030,64 @@ Live probe of `https://man-u-ai.onrender.com/health/ready` at commit `58124cb`:
 ```
 - **Liveness Probe (`/health/live`)**: `HTTP 200 OK` (1ms response time, `uptime: 11s`).
 - **Readiness Probe (`/health/ready`)**: `HTTP 503 Service Unavailable` (2ms response time, 0 bytes hanging eliminated).
+
+---
+
+## 32. STAGE 5.5: DIAGNOSE AND FIX PDF UPLOAD 500 ERROR
+
+### 1. Root Cause Analysis of `details: "[object Object]"` and Missing Logs
+
+When a user submitted `POST /api/v1/documents/upload`, the server returned `HTTP 500 Internal Server Error` with body:
+```json
+{
+  "success": false,
+  "error": {
+    "code": "UPLOAD_FAILED",
+    "message": "Failed to store or process document",
+    "details": "[object Object]"
+  }
+}
+```
+
+Detailed tracing of the upload pipeline revealed three contributing defects:
+1. **Unhelpful `String(err)` on Plain Objects**:
+   - In `apps/api/src/routes/documents.routes.ts`, the upload error handler did:
+     `error: { code: "UPLOAD_FAILED", message: "Failed to store or process document", details: String(err) }`
+   - When the underlying storage adapter (specifically the Cloudinary SDK or custom storage provider) rejected or returned a plain JavaScript object (e.g., `{ message: "Must supply cloud_name", http_code: 400 }` or `{ message: "Invalid API key or secret", http_code: 401 }`), JavaScript evaluates `String({ message: "..." })` as `"[object Object]"`.
+2. **Missing Application Error Logging**:
+   - The outer `catch (err: unknown)` block in `documents.routes.ts` did not call `console.error(err)`.
+   - Consequently, when storage upload failed, zero lines were written to the standard error stream or Render dashboard logs.
+3. **Cloudinary SDK Initialization with `CLOUDINARY_URL`**:
+   - In `apps/api/src/services/storage.service.ts`, `CloudinaryStorageService` previously called `cloudinary.config({ cloudinary_url: env.CLOUDINARY_URL })`.
+   - The Cloudinary Node.js SDK v2 ignores the `cloudinary_url` property when passed inside an options object to `cloudinary.config()`, leaving `cloud_name`, `api_key`, and `api_secret` as `undefined` unless `process.env.CLOUDINARY_URL` is set or the URL is explicitly parsed.
+
+### 2. Code Remediations Implemented
+
+1. **Structured Error Reporting Helper (`apps/api/src/utils/errorReporting.ts`)**:
+   - Implemented `extractStructuredErrorInfo(err, stage, req)`:
+     - Extracts error class/name, message, code, HTTP status, pipeline stage, and correlation request ID.
+     - Inspects plain objects (`obj.message`, `obj.error`, `obj.http_code`, etc.) so `"[object Object]"` is never produced.
+     - Sanitizes error messages through `sanitizeError()`, redacting connection strings, tokens, secrets, API keys, and internal filesystem paths.
+     - Maps upstream storage authentication/configuration failures (HTTP 401/403) to HTTP 502 `STORAGE_PROVIDER_AUTH_FAILED` rather than generic 500.
+   - Implemented `logStructuredError(info, context)`:
+     - Writes one structured entry to `console.error` containing Request ID, Stage, Error Name, Code, sanitized message, context (filename, size, mimetype, provider), and sanitized stack trace.
+     - Wrapped in try/catch so logging failures can never hide the response.
+2. **Request Correlation ID Middleware (`apps/api/src/app.ts`)**:
+   - Generates or preserves `X-Request-Id` and binds `(req as any).id` for end-to-end request tracing.
+3. **Storage Adapter Error Normalization (`apps/api/src/services/storage.service.ts`)**:
+   - `CloudinaryStorageService`: Explicitly parses `CLOUDINARY_URL` regex `cloudinary://<api_key>:<api_secret>@<cloud_name>` and populates `process.env.CLOUDINARY_URL`.
+   - Wraps upload errors in genuine `Error` instances containing HTTP code, sanitized message, and `code: "STORAGE_PROVIDER_ERROR"`.
+   - `LocalStorageService`: Catches filesystem write failures and wraps with `code: "LOCAL_STORAGE_WRITE_FAILED"`.
+4. **Document Upload Pipeline Hardening (`apps/api/src/routes/documents.routes.ts`)**:
+   - Integrates `extractStructuredErrorInfo` and `logStructuredError` into both the database persistence catch block and the general storage upload catch block.
+   - Returns structured error response with stable code, safe message, detailed sanitized description, stage, and request ID.
+5. **Frontend Error Display Enhancement (`apps/web/src/pages/KnowledgeLibraryPage.tsx`)**:
+   - Displays both `error.message` and `error.details` in the UI banner if present.
+
+### 3. Automated Validation & Test Suite
+
+- **API Tests (`npm --prefix apps/api test`)**: 15 test files passed, **190/190 tests passed** (+8 new regression tests in `test/stage5_upload_diagnostics.test.ts`).
+  - Covers: valid PDF upload (202 processing), invalid PDF signature (400), plain object error extraction without `[object Object]`, secret sanitization, structured server logging, database persistence cleanup (503), storage auth failure (502), and zero stack leakage.
+- **Web Frontend Tests (`npm --prefix apps/web test`)**: 5 test files passed, **30/30 tests passed**.
+- **Monorepo Build (`pnpm run build`)**: `@man-u-ai/shared`, `@man-u-ai/api`, and `@man-u-ai/web` all compiled cleanly with exit code 0.
+- **Git Diff Whitespace Hygiene (`git diff --check`)**: Clean, 0 errors.

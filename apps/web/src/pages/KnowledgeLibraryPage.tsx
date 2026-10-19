@@ -147,7 +147,10 @@ export function KnowledgeLibraryPage() {
       }
     } catch (err: any) {
       console.error("[Upload Error]:", err);
-      const msg = err.response?.data?.error?.message || err.message || "Failed to upload document.";
+      const errData = err.response?.data?.error;
+      const msg = errData
+        ? (errData.details ? `${errData.message} (${errData.details})` : errData.message)
+        : (err.message || "Failed to upload document.");
       setUploadError(msg);
     } finally {
       setIsUploading(false);

@@ -21,6 +21,14 @@ export const app = express();
 // Enable trust proxy for Render reverse proxy and accurate IP detection
 app.set("trust proxy", 1);
 
+// Request correlation ID tracking
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const reqId = (req.headers["x-request-id"] as string) || `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  (req as any).id = reqId;
+  res.setHeader("X-Request-Id", reqId);
+  next();
+});
+
 // Response timing diagnostic header
 app.use((req: Request, res: Response, next: NextFunction) => {
   const start = Date.now();
