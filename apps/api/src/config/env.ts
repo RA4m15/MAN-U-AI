@@ -44,7 +44,10 @@ const envSchema = z.object({
   CLOUDINARY_API_KEY: z.string().optional().default(""),
   CLOUDINARY_API_SECRET: z.string().optional().default(""),
   CLOUDINARY_URL: z.string().optional().default(""),
-  GEMINI_API_KEY: z.string().optional().default(""),
+  GEMINI_API_KEY: z
+    .string()
+    .optional()
+    .default(process.env.NODE_ENV === "test" ? "test-placeholder-gemini-key" : ""),
   GEMINI_MODEL: z.string().default("gemini-3-flash-preview"),
   GEMINI_FALLBACK_MODELS: z.string().default("gemini-3.6-flash,gemini-3.8-flash"),
   GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-001"),
