@@ -96,8 +96,13 @@ export async function seedDatabase() {
       }
 
       // Seed baseline document and chunks if empty
-      const docCount = await DocumentModel.countDocuments();
-      if (docCount === 0) {
+      const baselineFilenames = [
+        "slurry_pump_manual_rev4.pdf",
+        "sop_loto_hydraulic_press.pdf",
+        "rotary_compressor_manual.pdf",
+      ];
+      const baselineDocCount = await DocumentModel.countDocuments({ filename: { $in: baselineFilenames } });
+      if (baselineDocCount === 0) {
         console.log("[Seed] Seeding authorized equipment manuals and SOPs...");
         const anyUser = await User.findOne();
         const uploaderId = leadEngineer?._id || adminUser?._id || anyUser?._id || new mongoose.Types.ObjectId();
@@ -195,14 +200,10 @@ export async function seedDatabase() {
       }
 
       // Ensure baseline document permissions exist strictly for baseline seeded equipment manuals
-      const permCount = await DocumentPermission.countDocuments();
-      if (permCount === 0) {
-        const baselineFilenames = [
-          "slurry_pump_manual_rev4.pdf",
-          "sop_loto_hydraulic_press.pdf",
-          "rotary_compressor_manual.pdf",
-        ];
-        const docs = await DocumentModel.find({ filename: { $in: baselineFilenames } });
+      const docs = await DocumentModel.find({ filename: { $in: baselineFilenames } });
+      const seededDocIds = docs.map((d) => d._id);
+      const permCount = await DocumentPermission.countDocuments({ documentId: { $in: seededDocIds } });
+      if (permCount === 0 && docs.length > 0) {
         for (const doc of docs) {
           await DocumentPermission.create({
             documentId: doc._id,

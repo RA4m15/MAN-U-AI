@@ -129,9 +129,11 @@ describe("Production Corrections & Security Audits", () => {
   it("Requirement 3.1: Production mode with a configured client and VITEST set throws and never returns fallback", async () => {
     const originalEnv = env.NODE_ENV;
     const originalVitest = process.env.VITEST;
+    const originalApiKey = env.GEMINI_API_KEY;
     try {
       (env as any).NODE_ENV = "production";
       process.env.VITEST = "true";
+      (env as any).GEMINI_API_KEY = "test-configured-api-key";
 
       const testGeminiService = new GeminiService();
       expect(testGeminiService.isLiveClientConfigured()).toBe(true);
@@ -142,6 +144,7 @@ describe("Production Corrections & Security Audits", () => {
       ).rejects.toThrow(/prohibited in production|failed in production/);
     } finally {
       (env as any).NODE_ENV = originalEnv;
+      (env as any).GEMINI_API_KEY = originalApiKey;
       if (originalVitest !== undefined) process.env.VITEST = originalVitest;
     }
   });
