@@ -195,16 +195,66 @@ Live generative synthesis could not be completed. The following verified excerpt
 ${retrieved.map((r, i) => `[${i + 1}] **${r.chunk.documentTitle}** (Page ${r.chunk.page}, ${r.chunk.section || "General"}):\n> ${r.chunk.text}`).join("\n\n")}`;
     }
 
-    // 7. Extract verifiable citations strictly from the retrieved pool
-    const citations: CitationDTO[] = retrieved.map((r, i) => ({
-      id: `cite-${r.chunk.id}-${i}`,
-      documentId: r.chunk.documentId,
-      documentTitle: r.chunk.documentTitle,
-      revision: r.chunk.revision,
-      page: r.chunk.page,
-      section: r.chunk.section,
-      excerpt: r.chunk.text.slice(0, 220) + (r.chunk.text.length > 220 ? "..." : ""),
-    }));
+    // 7. Extract verifiable citations strictly from the retrieved pool, attaching genuine visual figures when available
+    const figureMap = new Map<string, any[]>();
+    if (isConnectedToMongo) {
+      try {
+        const { DocumentFigure } = await import("../models");
+        const docOids = retrieved.map((r) =>
+          mongoose.Types.ObjectId.isValid(r.chunk.documentId) && r.chunk.documentId.length === 24
+            ? new mongoose.Types.ObjectId(r.chunk.documentId)
+            : r.chunk.documentId
+        );
+        const pages = retrieved.map((r) => r.chunk.page);
+
+        const figures = await DocumentFigure.find({
+          documentId: { $in: docOids },
+          page: { $in: pages },
+          status: "extracted",
+        });
+
+        for (const fig of figures) {
+          const key = `${fig.documentId.toString()}_${fig.page}`;
+          const existing = figureMap.get(key) || [];
+          existing.push({
+            id: fig._id.toString(),
+            documentId: fig.documentId.toString(),
+            documentTitle: fig.documentTitle,
+            revision: fig.revision,
+            page: fig.page,
+            figureId: fig.figureId,
+            title: fig.title,
+            caption: fig.caption,
+            storagePath: fig.storagePath,
+            storageProvider: fig.storageProvider,
+            mimeType: fig.mimeType,
+            sizeBytes: fig.sizeBytes,
+            dimensions: fig.dimensions,
+            status: fig.status,
+            associatedChunkIds: fig.associatedChunkIds || [],
+            createdAt: fig.createdAt?.toISOString(),
+          });
+          figureMap.set(key, existing);
+        }
+      } catch (figErr) {
+        console.warn("[RagService] Could not lookup figures for citations:", figErr);
+      }
+    }
+
+    const citations: CitationDTO[] = retrieved.map((r, i) => {
+      const key = `${r.chunk.documentId}_${r.chunk.page}`;
+      const matchingFigures = figureMap.get(key);
+      return {
+        id: `cite-${r.chunk.id}-${i}`,
+        documentId: r.chunk.documentId,
+        documentTitle: r.chunk.documentTitle,
+        revision: r.chunk.revision,
+        page: r.chunk.page,
+        section: r.chunk.section,
+        excerpt: r.chunk.text.slice(0, 220) + (r.chunk.text.length > 220 ? "..." : ""),
+        ...(matchingFigures && matchingFigures.length > 0 ? { figures: matchingFigures } : {}),
+      };
+    });
 
 
     // 8. Persist audit trail if MongoDB is connected

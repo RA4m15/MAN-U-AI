@@ -144,6 +144,10 @@ export const documentsApi = {
     }),
   status: (id: string) =>
     apiClient.get(`/documents/${id}/status`),
+  figures: (id: string, page?: number) =>
+    apiClient.get(`/documents/${id}/figures`, { params: page ? { page } : undefined }),
+  figureImageUrl: (id: string, figureId: string) =>
+    `${BASE_URL}/documents/${id}/figures/${figureId}/image`,
   delete: (id: string) =>
     apiClient.delete(`/documents/${id}`),
 };

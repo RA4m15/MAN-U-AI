@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document as MongooseDocument } from "mongoose";
 import bcrypt from "bcryptjs";
-import type { UserRole, DocumentStatus, JobStatus, MessageRole } from "@man-u-ai/shared";
+import type { UserRole, DocumentStatus, JobStatus, MessageRole, FigureStatus } from "@man-u-ai/shared";
 
 // ── 1. User Model ──────────────────────────────────────────────────────────
 export interface IUser extends MongooseDocument {
@@ -121,6 +121,7 @@ export interface IDocumentChunk extends MongooseDocument {
   text: string;
   embedding: number[];
   tokenCount: number;
+  figureIds?: string[];
   createdAt: Date;
 }
 
@@ -134,6 +135,7 @@ const DocumentChunkSchema = new Schema<IDocumentChunk>(
     text: { type: String, required: true },
     embedding: { type: [Number], required: true },
     tokenCount: { type: Number, default: 0 },
+    figureIds: [{ type: String }],
   },
   { timestamps: true }
 );
@@ -144,6 +146,64 @@ DocumentChunkSchema.index({ text: "text" });
 DocumentChunkSchema.index({ createdAt: -1 });
 
 export const DocumentChunk = mongoose.model<IDocumentChunk>("DocumentChunk", DocumentChunkSchema);
+
+// ── 4b. Document Figure Model (Multimodal Visual Metadata & References) ─────
+export interface IDocumentFigure extends MongooseDocument {
+  documentId: mongoose.Types.ObjectId;
+  documentTitle: string;
+  revision: string;
+  page: number;
+  figureId: string;
+  title?: string;
+  caption?: string;
+  storagePath?: string;
+  storageProvider?: "local" | "cloudinary" | "s3" | "gcs";
+  mimeType?: string;
+  sizeBytes?: number;
+  dimensions?: { width: number; height: number };
+  status: FigureStatus;
+  processingError?: string;
+  associatedChunkIds: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const DocumentFigureSchema = new Schema<IDocumentFigure>(
+  {
+    documentId: { type: Schema.Types.ObjectId, ref: "Document", required: true, index: true },
+    documentTitle: { type: String, required: true },
+    revision: { type: String, default: "v1.0" },
+    page: { type: Number, required: true },
+    figureId: { type: String, required: true },
+    title: { type: String },
+    caption: { type: String },
+    storagePath: { type: String },
+    storageProvider: {
+      type: String,
+      enum: ["local", "cloudinary", "s3", "gcs"],
+      default: "local",
+    },
+    mimeType: { type: String },
+    sizeBytes: { type: Number },
+    dimensions: {
+      width: { type: Number },
+      height: { type: Number },
+    },
+    status: {
+      type: String,
+      enum: ["pending", "extracted", "failed", "unavailable"],
+      default: "pending",
+    },
+    processingError: { type: String },
+    associatedChunkIds: [{ type: String }],
+  },
+  { timestamps: true }
+);
+
+DocumentFigureSchema.index({ documentId: 1, page: 1 });
+DocumentFigureSchema.index({ documentId: 1, figureId: 1 });
+
+export const DocumentFigure = mongoose.model<IDocumentFigure>("DocumentFigure", DocumentFigureSchema);
 
 // ── 5. Document Permission Model ───────────────────────────────────────────
 export interface IDocumentPermission extends MongooseDocument {

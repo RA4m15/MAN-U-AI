@@ -78,6 +78,28 @@ export interface ProcessingJobDTO {
 
 export type MessageRole = "user" | "assistant" | "system";
 
+export type FigureStatus = "pending" | "extracted" | "failed" | "unavailable";
+
+export interface DocumentFigureDTO {
+  id: string;
+  documentId: string;
+  documentTitle: string;
+  revision: string;
+  page: number;
+  figureId: string;
+  title?: string;
+  caption?: string;
+  storagePath?: string;
+  storageProvider?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  dimensions?: { width: number; height: number };
+  status: FigureStatus;
+  processingError?: string;
+  associatedChunkIds: string[];
+  createdAt?: string;
+}
+
 export interface CitationDTO {
   id: string;
   documentId: string;
@@ -86,6 +108,7 @@ export interface CitationDTO {
   page: number;
   section?: string;
   excerpt: string;
+  figures?: DocumentFigureDTO[];
 }
 
 export interface MessageDTO {

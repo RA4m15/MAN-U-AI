@@ -1,12 +1,13 @@
 import mongoose from "mongoose";
 import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
-import { DocumentModel, DocumentChunk, DocumentPermission, AuditEvent } from "../models";
+import { DocumentModel, DocumentChunk, DocumentPermission, AuditEvent, DocumentFigure } from "../models";
 
 import { storageService } from "../services/storage.service";
 import { pdfService, isValidPdfSignature } from "../services/pdf.service";
 import { geminiService } from "../services/gemini.service";
 import { vectorService } from "../services/vector.service";
+import { visualService } from "../services/visual.service";
 import { isConnectedToMongo } from "../config/database";
 import { requireAuth, requireRole, AuthenticatedRequest } from "../middlewares/auth";
 import { uploadLimiter } from "../middlewares/rateLimiters";
@@ -244,8 +245,110 @@ documentsRouter.get("/:id/chunks", requireAuth, async (req: AuthenticatedRequest
       section: c.section,
       text: c.text,
       tokenCount: c.tokenCount,
+      figureIds: (c as any).figureIds || [],
     })),
   });
+});
+
+// GET /documents/:id/figures - Get all extracted figures and tables for this document (authorized only)
+documentsRouter.get("/:id/figures", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const id = String(req.params.id);
+  const { authorized, doc } = await isUserAuthorizedForDocument(req.user?.id, req.user?.role, id);
+  if (!doc) {
+    return res.status(404).json({
+      success: false,
+      error: { code: "NOT_FOUND", message: "Document not found" },
+    });
+  }
+  if (!authorized) {
+    return res.status(403).json({
+      success: false,
+      error: { code: "FORBIDDEN", message: "Access to document figures denied" },
+    });
+  }
+
+  const page = req.query.page ? parseInt(String(req.query.page), 10) : undefined;
+  const query: any = { documentId: doc._id };
+  if (page && !isNaN(page)) {
+    query.page = page;
+  }
+
+  const figures = await DocumentFigure.find(query).sort({ page: 1, figureId: 1 });
+  return res.json({
+    success: true,
+    data: figures.map((f) => ({
+      id: f._id.toString(),
+      documentId: f.documentId.toString(),
+      documentTitle: f.documentTitle,
+      revision: f.revision,
+      page: f.page,
+      figureId: f.figureId,
+      title: f.title,
+      caption: f.caption,
+      storagePath: f.storagePath,
+      storageProvider: f.storageProvider,
+      mimeType: f.mimeType,
+      sizeBytes: f.sizeBytes,
+      dimensions: f.dimensions,
+      status: f.status,
+      processingError: f.processingError,
+      associatedChunkIds: f.associatedChunkIds || [],
+      createdAt: f.createdAt?.toISOString(),
+    })),
+  });
+});
+
+// GET /documents/:id/figures/:figureId/image - Stream genuine figure image (authorized only)
+documentsRouter.get("/:id/figures/:figureId/image", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const id = String(req.params.id);
+  const figureParam = String(req.params.figureId);
+  const { authorized, doc } = await isUserAuthorizedForDocument(req.user?.id, req.user?.role, id);
+  if (!doc) {
+    return res.status(404).json({
+      success: false,
+      error: { code: "NOT_FOUND", message: "Document not found" },
+    });
+  }
+  if (!authorized) {
+    return res.status(403).json({
+      success: false,
+      error: { code: "FORBIDDEN", message: "Access to document figure image denied" },
+    });
+  }
+
+  const figureOid = toMongoObjectId(figureParam);
+  const figure = await DocumentFigure.findOne({
+    documentId: doc._id,
+    $or: [{ _id: figureOid }, { figureId: figureParam }],
+  });
+
+  if (!figure || figure.status !== "extracted" || !figure.storagePath) {
+    return res.status(404).json({
+      success: false,
+      error: {
+        code: "FIGURE_NOT_FOUND",
+        message: "Visual figure image not found or processing incomplete",
+      },
+    });
+  }
+
+  try {
+    const stream = await storageService.getFileStream(figure.storagePath, figure.storageProvider);
+    res.setHeader("Content-Type", figure.mimeType || "image/jpeg");
+    if (figure.sizeBytes) {
+      res.setHeader("Content-Length", figure.sizeBytes);
+    }
+    return stream.pipe(res);
+  } catch (streamErr: any) {
+    console.error(`[Figures] Error streaming figure image ${figureParam}:`, streamErr);
+    return res.status(404).json({
+      success: false,
+      error: {
+        code: "FIGURE_IMAGE_UNAVAILABLE",
+        message: "Figure image file is missing or unavailable in storage",
+      },
+    });
+  }
 });
 
 // GET /documents/:id/file - Stream raw document PDF (authorized only)
@@ -639,19 +742,85 @@ export async function processDocumentAsync(docId: string, title: string, revisio
 
     emitDocumentProgress(docId, 60, `Generating vector embeddings for ${extraction.chunks.length} chunks...`, uploaderId);
 
-    // Required pre-cleanup: ensure existing chunks are purged before re-indexing to prevent duplicate/stale chunks
+    // Required pre-cleanup: ensure existing chunks and figures are purged before re-indexing
     if (!isConnectedToMongo) {
       throw new Error("Database unavailable: cannot verify or clear existing chunk state before indexing.");
     }
     try {
       await vectorService.deleteDocumentChunks(docId);
+      const existingFigures = await DocumentFigure.find({ documentId: docOid });
+      for (const fig of existingFigures) {
+        if (fig.storagePath) {
+          try {
+            await storageService.deleteFile(fig.storagePath, fig.storageProvider);
+          } catch {
+            // best-effort cleanup
+          }
+        }
+      }
+      await DocumentFigure.deleteMany({ documentId: docOid });
     } catch (cleanupErr: any) {
       throw new Error(`Failed to clear existing chunks before indexing: ${cleanupErr?.message || cleanupErr}`);
+    }
+
+    // Bounded multimodal visual figure extraction
+    const pageTextMap = new Map<number, string>();
+    for (const chunk of extraction.chunks) {
+      const existing = pageTextMap.get(chunk.page) || "";
+      pageTextMap.set(chunk.page, existing ? `${existing}\n\n${chunk.text}` : chunk.text);
+    }
+
+    const extractedFigures = visualService.extractFiguresFromPdf(buffer, extraction.pageCount, pageTextMap);
+    const pageFigureIdsMap = new Map<number, string[]>();
+
+    for (const figItem of extractedFigures) {
+      let savedStoragePath: string | undefined;
+      let savedProvider: "local" | "cloudinary" | "s3" | "gcs" = "local";
+
+      if (figItem.status === "extracted" && figItem.buffer) {
+        try {
+          const ext = figItem.mimeType === "image/png" ? "png" : "jpg";
+          const safeFigName = `${docId}_fig_p${figItem.page}_${figItem.figureId.replace(/[^a-zA-Z0-9_-]/g, "_")}.${ext}`;
+          const saveResult = await storageService.saveFile(safeFigName, figItem.buffer);
+          savedStoragePath = saveResult.storagePath;
+          savedProvider = saveResult.storageProvider;
+        } catch (saveErr: any) {
+          figItem.status = "failed";
+          figItem.processingError = `Storage write failed for figure ${figItem.figureId}: ${saveErr?.message || String(saveErr)}`;
+        }
+      }
+
+      try {
+        const createdFig = await DocumentFigure.create({
+          documentId: docOid,
+          documentTitle: title,
+          revision,
+          page: figItem.page,
+          figureId: figItem.figureId,
+          title: figItem.title,
+          caption: figItem.caption,
+          storagePath: savedStoragePath,
+          storageProvider: savedProvider,
+          mimeType: figItem.mimeType,
+          sizeBytes: figItem.sizeBytes,
+          dimensions: figItem.width && figItem.height ? { width: figItem.width, height: figItem.height } : undefined,
+          status: figItem.status,
+          processingError: figItem.processingError,
+          associatedChunkIds: [],
+        });
+
+        const list = pageFigureIdsMap.get(figItem.page) || [];
+        list.push(createdFig._id.toString());
+        pageFigureIdsMap.set(figItem.page, list);
+      } catch (dbFigErr) {
+        console.warn(`[Ingestion] Failed to persist figure metadata for ${figItem.figureId}:`, dbFigErr);
+      }
     }
 
     let chunkIndex = 0;
     for (const chunk of extraction.chunks) {
       const embedding = await geminiService.generateEmbedding(chunk.text);
+      const chunkFigureIds = pageFigureIdsMap.get(chunk.page) || [];
       await vectorService.indexChunk({
         documentId: docOid.toString(),
         documentTitle: title,
@@ -660,6 +829,7 @@ export async function processDocumentAsync(docId: string, title: string, revisio
         section: chunk.section,
         text: chunk.text,
         embedding,
+        figureIds: chunkFigureIds,
       });
       chunkIndex++;
       const progress = 60 + Math.floor((chunkIndex / extraction.chunks.length) * 35);
@@ -682,14 +852,27 @@ export async function processDocumentAsync(docId: string, title: string, revisio
 
     emitDocumentProgress(docId, 100, "Indexing completed successfully", uploaderId);
     emitDocumentStatus(docId, "indexed", extraction.pageCount, undefined, uploaderId);
-    console.log(`[Ingestion Complete] ${title} indexed with ${extraction.chunks.length} chunks (OCR: ${extraction.ocrPerformed ? "performed" : "not needed"}).`);
+    console.log(
+      `[Ingestion Complete] ${title} indexed with ${extraction.chunks.length} chunks and ${extractedFigures.length} visual figures (OCR: ${extraction.ocrPerformed ? "performed" : "not needed"}).`
+    );
   } catch (err: any) {
     console.error(`[Ingestion Failed for ${docId}]:`, err);
     let cleanupError: unknown = null;
 
-    // Independent step 1: Always delete every chunk for this document so partial chunks never remain in memory or DB
+    // Independent step 1: Always delete every chunk and figure for this document so partial assets never remain
     try {
       await vectorService.deleteDocumentChunks(docId);
+      const failedFigures = await DocumentFigure.find({ documentId: docOid });
+      for (const fig of failedFigures) {
+        if (fig.storagePath) {
+          try {
+            await storageService.deleteFile(fig.storagePath, fig.storageProvider);
+          } catch {
+            // best effort cleanup
+          }
+        }
+      }
+      await DocumentFigure.deleteMany({ documentId: docOid });
     } catch (cleanupErr) {
       cleanupError = cleanupErr;
       console.error(`[Ingestion Cleanup Error for ${docId}]:`, cleanupErr);

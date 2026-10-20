@@ -14,6 +14,7 @@ export interface ScoredChunk {
     page: number;
     section?: string;
     text: string;
+    figureIds?: string[];
   };
   score: number;
 }
@@ -107,6 +108,7 @@ export class VectorService {
       section?: string;
       text: string;
       embedding: number[];
+      figureIds?: string[];
     },
     options?: { requireDb?: boolean; allowMemoryFallback?: boolean }
   ): Promise<void> {
@@ -141,6 +143,7 @@ export class VectorService {
         section: chunk.section,
         text: chunk.text,
         embedding: chunk.embedding,
+        figureIds: chunk.figureIds || [],
         tokenCount: Math.ceil(chunk.text.length / 4),
       });
 
@@ -289,6 +292,7 @@ export class VectorService {
             section: c.section,
             text: c.text,
             embedding: c.embedding,
+            figureIds: (c as any).figureIds || [],
           }));
         }
       } catch (err) {
@@ -395,6 +399,7 @@ export class VectorService {
           page: c.page,
           section: c.section,
           text: c.text,
+          figureIds: (c as any).figureIds || [],
         },
         score: hybridScore,
       };

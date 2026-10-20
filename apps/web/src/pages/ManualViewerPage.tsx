@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   ChevronLeft,
@@ -22,6 +22,7 @@ import {
   Sliders,
   CheckCircle2,
   Loader2,
+  ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { documentsApi } from "@/lib/api";
@@ -29,8 +30,10 @@ import { documentsApi } from "@/lib/api";
 export function ManualViewerPage() {
   const { documentId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [currentPage, setCurrentPage] = useState(1);
+  const initialPage = parseInt(searchParams.get("page") || "1", 10);
+  const [currentPage, setCurrentPage] = useState(!isNaN(initialPage) && initialPage > 0 ? initialPage : 1);
   const [zoomLevel, setZoomLevel] = useState(100);
   const [activeTab, setActiveTab] = useState<"analysis" | "chunks" | "safety">("chunks");
   const [searchInDoc, setSearchInDoc] = useState("");
@@ -49,8 +52,29 @@ export function ManualViewerPage() {
     enabled: Boolean(documentId),
   });
 
+  // Fetch real figures from backend
+  const { data: figuresResp, isLoading: figuresLoading } = useQuery({
+    queryKey: ["document-figures", documentId],
+    queryFn: () => documentsApi.figures(documentId || "default"),
+    enabled: Boolean(documentId),
+  });
+
   const doc = docResp?.data?.data;
   const chunks: any[] = chunksResp?.data?.data || [];
+  const figures: any[] = figuresResp?.data?.data || [];
+
+  // Group figures by page number
+  const figuresPageMap = useMemo(() => {
+    const map = new Map<number, any[]>();
+    for (const fig of figures) {
+      const p = fig.page || 1;
+      if (!map.has(p)) map.set(p, []);
+      map.get(p)!.push(fig);
+    }
+    return map;
+  }, [figures]);
+
+  const activePageFigures = figuresPageMap.get(currentPage) || [];
 
   // Group chunks by page number
   const pageMap = useMemo(() => {
@@ -310,31 +334,47 @@ export function ManualViewerPage() {
                 </div>
               )}
 
-              {/* Technical Schematic Diagram Demonstration Asset */}
-              <div className="bg-surface-2 rounded-lg border border-hairline p-4 relative">
-                <div className="flex items-center justify-between mb-2 text-2xs font-mono text-ink-tertiary">
-                  <span>SCHEMATIC CROSS-SECTION</span>
-                  <span className="badge-muted text-2xs">Demonstration Figure</span>
+              {/* Genuine Extracted Technical Figures & Schematics */}
+              {activePageFigures.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between text-2xs font-mono text-primary font-semibold">
+                    <span className="flex items-center gap-1.5">
+                      <ImageIcon size={13} />
+                      TECHNICAL FIGURES & SCHEMATICS ({activePageFigures.length})
+                    </span>
+                    <span className="badge-primary text-2xs">Page {currentPage} Evidence</span>
+                  </div>
+                  {activePageFigures.map((fig) => (
+                    <div key={fig.id || fig.figureId} className="bg-surface-2 rounded-lg border border-hairline p-4 space-y-3">
+                      <div className="flex items-center justify-between text-2xs font-mono text-ink">
+                        <span className="font-bold text-primary">{fig.figureId}</span>
+                        {fig.dimensions && (
+                          <span className="text-ink-tertiary">{fig.dimensions.width} × {fig.dimensions.height} px</span>
+                        )}
+                      </div>
+                      {fig.caption && (
+                        <p className="text-xs text-ink-subtle italic">"{fig.caption}"</p>
+                      )}
+                      {fig.status === "extracted" && fig.storagePath ? (
+                        <div className="w-full rounded-md border border-hairline overflow-hidden bg-black/20 flex items-center justify-center p-2">
+                          <img
+                            src={documentsApi.figureImageUrl(documentId || "", fig.figureId)}
+                            alt={fig.caption || fig.figureId}
+                            className="max-h-96 max-w-full object-contain rounded"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = "none";
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="p-3 rounded bg-surface-3/50 text-2xs text-ink-tertiary">
+                          Image data could not be rendered: {fig.processingError || "Corrupted image stream"}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                <div className="w-full h-44 bg-surface-3/60 rounded flex items-center justify-center border border-dashed border-hairline relative overflow-hidden">
-                  <svg className="w-full h-full text-primary/40 p-4" viewBox="0 0 400 140" fill="none" stroke="currentColor">
-                    <line x1="20" y1="70" x2="380" y2="70" strokeWidth="3" strokeDasharray="6 3" />
-                    <rect x="60" y="30" width="80" height="80" rx="4" strokeWidth="2" />
-                    <text x="75" y="65" fill="currentColor" stroke="none" fontSize="9" fontFamily="monospace">HOUSING</text>
-                    <rect x="160" y="38" width="40" height="64" rx="2" strokeWidth="1.5" />
-                    <text x="165" y="74" fill="#828fff" stroke="none" fontSize="8" fontFamily="monospace">GLAND (M12)</text>
-                    <rect x="220" y="45" width="25" height="50" rx="1" strokeWidth="2" stroke="#5e6ad2" fill="rgba(94,106,210,0.2)" />
-                    <rect x="250" y="45" width="25" height="50" rx="1" strokeWidth="2" stroke="#27a644" fill="rgba(39,166,68,0.2)" />
-                    <path d="M 290 55 L 340 55 L 340 85 L 290 85" strokeWidth="1.5" />
-                    <circle cx="237" cy="45" r="4" fill="#ef4444" />
-                    <line x1="237" y1="45" x2="270" y2="20" stroke="#ef4444" strokeWidth="1" />
-                    <text x="275" y="22" fill="#ef4444" stroke="none" fontSize="8" fontFamily="monospace">TORQUE: 45 N·m</text>
-                  </svg>
-                </div>
-                <p className="text-2xs text-ink-tertiary mt-2">
-                  * System Demonstration Asset: Illustrative assembly cross-section for mechanical rebuilds.
-                </p>
-              </div>
+              )}
             </div>
 
             {/* Page Footer */}

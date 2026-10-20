@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Send,
@@ -20,6 +20,8 @@ import {
   ThumbsDown,
   Copy,
   RotateCcw,
+  ImageIcon,
+  ExternalLink,
 } from "lucide-react";
 import { chatApi, conversationsApi, feedbackApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -540,6 +542,23 @@ function MessageBubble({
                     )}
                     {citation.excerpt && (
                       <p className="text-2xs text-ink-tertiary mt-1 italic line-clamp-2">"{citation.excerpt}"</p>
+                    )}
+                    {citation.figures && citation.figures.length > 0 && (
+                      <div className="mt-2 pt-1.5 border-t border-hairline/60 flex flex-wrap gap-2">
+                        {citation.figures.map((fig) => (
+                          <Link
+                            key={fig.id || fig.figureId}
+                            to={`/manuals/${citation.documentId}?page=${citation.page}`}
+                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded bg-surface-3/80 border border-hairline text-2xs text-primary font-medium hover:bg-surface-3 transition-colors"
+                            title={fig.caption ? `View ${fig.figureId}: ${fig.caption}` : `View ${fig.figureId} on Page ${citation.page}`}
+                          >
+                            <ImageIcon size={11} className="text-primary flex-shrink-0" />
+                            <span className="font-semibold">{fig.figureId}</span>
+                            {fig.title && <span className="text-ink-subtle truncate max-w-[140px]">— {fig.title}</span>}
+                            <ExternalLink size={10} className="text-ink-tertiary ml-0.5" />
+                          </Link>
+                        ))}
+                      </div>
                     )}
                   </div>
                 </div>
