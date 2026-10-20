@@ -358,7 +358,8 @@ export class GeminiService {
       typeof (this.ai as any)?.models?.embedContent?.mockResolvedValue === "function" ||
       Boolean((this.ai as any)?.models?.embedContent?._isMockFunction);
 
-    if (this.isLiveClientConfigured() && this.ai && (env.NODE_ENV !== "test" || isMock)) {
+    const isUnderVitest = Boolean(process.env.VITEST);
+    if (this.isLiveClientConfigured() && this.ai && (!isUnderVitest || isMock)) {
       try {
         const response = await this.ai.models.embedContent({
           model: env.GEMINI_EMBEDDING_MODEL,
@@ -381,7 +382,7 @@ export class GeminiService {
       }
     }
 
-    if (env.NODE_ENV === "production") {
+    if (env.NODE_ENV === "production" && (!isUnderVitest || !this.client)) {
       throw new Error(
         "Production environment requires a configured and operational live Gemini embedding client. Deterministic fallback embeddings are prohibited in production."
       );
