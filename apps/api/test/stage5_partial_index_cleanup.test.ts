@@ -769,4 +769,59 @@ describe("Stage 5 — Task 1A: Partial-Index Cleanup & Safe Retrieval Suite", ()
       setIsConnectedToMongo(true);
     }
   });
+
+  // Case 16: When deleteDocumentChunks fails during unresolved OCR, document does not become needs_ocr or indexed, and cleanup failure is reported
+  it("Case 16: When deleteDocumentChunks fails during unresolved OCR, document does not become needs_ocr or indexed, and cleanup failure is reported", async () => {
+    mockParseBehavior = {
+      numpages: 1,
+      text: " ", // low text triggers unresolved OCR
+    };
+
+    vi.spyOn(geminiService, "isLiveClientConfigured").mockReturnValue(false);
+    const statusSpy = vi.spyOn(socketEvents, "emitDocumentStatus");
+
+    const doc = await DocumentModel.create({
+      title: "OCR Cleanup Failure Doc",
+      filename: "ocr_cleanup_fail.pdf",
+      storagePath: "mock/ocr_cleanup_fail.pdf",
+      fileType: "application/pdf",
+      mimeType: "application/pdf",
+      uploadedById: new mongoose.Types.ObjectId(),
+      sizeBytes: validDummyPdf.length,
+      status: "processing",
+    });
+
+    // Simulate deleteDocumentChunks failure during unresolved OCR
+    vi.spyOn(vectorService, "deleteDocumentChunks").mockRejectedValueOnce(
+      new Error("Simulated database failure during OCR chunk purge")
+    );
+
+    try {
+      await processDocumentAsync(doc._id.toString(), doc.title, "Rev 1.0", validDummyPdf);
+
+      const updated = await DocumentModel.findById(doc._id);
+      // Invariant 1: Document must be "failed", NEVER "needs_ocr" or "indexed"
+      expect(updated?.status).toBe("failed");
+      expect(updated?.status).not.toBe("needs_ocr");
+      expect(updated?.status).not.toBe("indexed");
+
+      // Invariant 2: Processing error clearly reports that chunk cleanup failed and preserves error detail
+      expect(updated?.processingError).toContain("chunk cleanup");
+      expect(updated?.processingError).toContain("Simulated database failure during OCR chunk purge");
+
+      // Invariant 3: No needs_ocr or indexed socket events are emitted
+      const needsOcrCalls = statusSpy.mock.calls.filter((c) => c[1] === "needs_ocr");
+      expect(needsOcrCalls).toHaveLength(0);
+
+      const indexedCalls = statusSpy.mock.calls.filter((c) => c[1] === "indexed");
+      expect(indexedCalls).toHaveLength(0);
+
+      // Invariant 4: Failed status event was emitted
+      const failedCalls = statusSpy.mock.calls.filter((c) => c[1] === "failed");
+      expect(failedCalls.length).toBeGreaterThanOrEqual(1);
+      expect(failedCalls[0][3]).toContain("chunk cleanup");
+    } finally {
+      await DocumentModel.findByIdAndDelete(doc._id);
+    }
+  });
 });

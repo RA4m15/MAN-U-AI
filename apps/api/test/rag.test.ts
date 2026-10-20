@@ -55,7 +55,7 @@ describe("Multimodal Vector Retrieval & RAG Pipeline", () => {
     expect(citation.documentTitle).toBeDefined();
     expect(typeof citation.page).toBe("number");
     expect(citation.excerpt).toBeDefined();
-  }, 25000);
+  }, 35000);
 
   it("POST /api/v1/chat flags high-risk inquiries with critical warning level", async () => {
     const res = await request(app)

@@ -597,8 +597,10 @@ export async function processDocumentAsync(docId: string, title: string, revisio
       // Clean up any existing or partial chunks (in-memory and MongoDB)
       try {
         await vectorService.deleteDocumentChunks(docId);
-      } catch (cleanupErr) {
-        console.warn(`[Ingestion Cleanup Error for ${docId}]:`, cleanupErr);
+      } catch (cleanupErr: any) {
+        const sanitizedCleanupMsg = sanitizeError(cleanupErr?.message || cleanupErr);
+        console.warn(`[Ingestion Cleanup Error for ${docId}]:`, sanitizedCleanupMsg);
+        throw new Error(`Document chunk cleanup failed during unresolved OCR handling: ${sanitizedCleanupMsg}`);
       }
 
       // Invariant: needs_ocr status transition is strictly conditional on confirmed persistence in database

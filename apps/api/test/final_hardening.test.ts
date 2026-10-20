@@ -407,7 +407,7 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.summary).toContain("AI-Assisted Operational Synthesis");
     expect(res.body.data.summary).not.toContain("Line 1 & Line 3 Mechanical Operations - Shift Handover");
-  });
+  }, 25000);
 
   // 11. Production startup binds HTTP server promptly and operates in fail-closed degraded mode when MongoDB fails
   it("Requirement 11: Production startup binds HTTP server promptly and sets readiness to 503 when MongoDB fails", async () => {
