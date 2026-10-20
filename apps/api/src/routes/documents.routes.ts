@@ -607,22 +607,67 @@ documentsRouter.delete(
             });
           }
 
-          try {
-            await storageService.deleteFile(doc.storagePath, doc.storageProvider);
-          } catch (e) {
-            console.warn("[Documents] File cleanup warning:", e);
+          const storageWarnings: string[] = [];
+
+          // 1. Delete original PDF file
+          if (doc.storagePath) {
+            try {
+              await storageService.deleteFile(doc.storagePath, doc.storageProvider);
+            } catch (e: any) {
+              const warnMsg = `Failed to delete document PDF (${doc.storagePath}): ${e?.message || e}`;
+              console.warn("[Documents] File cleanup warning:", warnMsg);
+              storageWarnings.push(warnMsg);
+            }
           }
+
+          // 2. Delete all associated DocumentFigure storage files and database records
+          try {
+            const figures = await DocumentFigure.find({ documentId: doc._id });
+            for (const fig of figures) {
+              if (fig.storagePath) {
+                try {
+                  await storageService.deleteFile(fig.storagePath, fig.storageProvider);
+                } catch (figErr: any) {
+                  const warnMsg = `Failed to delete figure image asset (${fig.figureId} @ ${fig.storagePath}): ${figErr?.message || figErr}`;
+                  console.warn("[Documents]", warnMsg);
+                  storageWarnings.push(warnMsg);
+                }
+              }
+            }
+            await DocumentFigure.deleteMany({ documentId: doc._id });
+          } catch (figDbErr: any) {
+            console.warn("[Documents] Failed to purge DocumentFigure records:", figDbErr);
+            storageWarnings.push(`Failed to purge figure metadata records: ${figDbErr?.message || figDbErr}`);
+          }
+
           await vectorService.deleteDocumentChunks(id);
           await DocumentModel.findByIdAndDelete(id);
 
-          await AuditEvent.create({
-            userId: req.user?.id,
-            userEmail: req.user?.email,
-            action: "doc_delete",
-            resourceType: "Document",
-            resourceId: id,
-            details: { title: doc.title },
-          });
+          try {
+            await AuditEvent.create({
+              userId: toMongoObjectId(req.user?.id),
+              userEmail: req.user?.email,
+              action: "doc_delete",
+              resourceType: "Document",
+              resourceId: id,
+              details: {
+                title: doc.title,
+                storageWarnings: storageWarnings.length > 0 ? storageWarnings : undefined,
+              },
+            });
+          } catch (auditErr) {
+            console.warn("[Documents] Non-fatal audit log failure on delete:", auditErr);
+          }
+
+          if (storageWarnings.length > 0) {
+            return res.json({
+              success: true,
+              data: {
+                message: "Document deleted with storage cleanup warnings",
+                storageWarnings,
+              },
+            });
+          }
 
           return res.json({ success: true, data: { message: "Document deleted successfully" } });
         }
@@ -697,13 +742,33 @@ export async function processDocumentAsync(docId: string, title: string, revisio
         `[Ingestion Needs OCR] Document ${docId} ("${title}") requires OCR but usable text is unresolved: ${actionableOcrError}`
       );
 
-      // Clean up any existing or partial chunks (in-memory and MongoDB)
+      // Clean up any existing or partial chunks and figures (in-memory and MongoDB)
+      const ocrStorageCleanupErrors: string[] = [];
       try {
         await vectorService.deleteDocumentChunks(docId);
+        const staleFigures = await DocumentFigure.find({ documentId: docOid });
+        for (const fig of staleFigures) {
+          if (fig.storagePath) {
+            try {
+              await storageService.deleteFile(fig.storagePath, fig.storageProvider);
+            } catch (storageErr: any) {
+              const warn = `Failed to delete stale figure storage asset (${fig.figureId} @ ${fig.storagePath}): ${storageErr?.message || storageErr}`;
+              ocrStorageCleanupErrors.push(warn);
+              console.warn(`[Ingestion OCR Cleanup Warning for ${docId}]:`, warn);
+            }
+          }
+        }
+        await DocumentFigure.deleteMany({ documentId: docOid });
       } catch (cleanupErr: any) {
         const sanitizedCleanupMsg = sanitizeError(cleanupErr?.message || cleanupErr);
         console.warn(`[Ingestion Cleanup Error for ${docId}]:`, sanitizedCleanupMsg);
         throw new Error(`Document chunk cleanup failed during unresolved OCR handling: ${sanitizedCleanupMsg}`);
+      }
+
+      if (ocrStorageCleanupErrors.length > 0) {
+        console.warn(
+          `[Ingestion OCR Cleanup Observability for ${docId}]: Encountered ${ocrStorageCleanupErrors.length} storage asset deletion failure(s): ${ocrStorageCleanupErrors.join("; ")}`
+        );
       }
 
       // Invariant: needs_ocr status transition is strictly conditional on confirmed persistence in database
@@ -753,8 +818,8 @@ export async function processDocumentAsync(docId: string, title: string, revisio
         if (fig.storagePath) {
           try {
             await storageService.deleteFile(fig.storagePath, fig.storageProvider);
-          } catch {
-            // best-effort cleanup
+          } catch (storageErr: any) {
+            console.warn(`[Ingestion Pre-cleanup Warning for ${docId}]: Failed to delete figure asset (${fig.figureId} @ ${fig.storagePath}):`, storageErr);
           }
         }
       }
@@ -770,7 +835,12 @@ export async function processDocumentAsync(docId: string, title: string, revisio
       pageTextMap.set(chunk.page, existing ? `${existing}\n\n${chunk.text}` : chunk.text);
     }
 
-    const extractedFigures = visualService.extractFiguresFromPdf(buffer, extraction.pageCount, pageTextMap);
+    let extractedFigures: any[] = [];
+    try {
+      extractedFigures = await visualService.extractFiguresFromPdf(buffer, extraction.pageCount, pageTextMap);
+    } catch (visErr) {
+      console.warn(`[Ingestion Visual Error for ${docId}]:`, visErr);
+    }
     const pageFigureIdsMap = new Map<number, string[]>();
 
     for (const figItem of extractedFigures) {
@@ -860,6 +930,7 @@ export async function processDocumentAsync(docId: string, title: string, revisio
     let cleanupError: unknown = null;
 
     // Independent step 1: Always delete every chunk and figure for this document so partial assets never remain
+    const failureStorageCleanupErrors: string[] = [];
     try {
       await vectorService.deleteDocumentChunks(docId);
       const failedFigures = await DocumentFigure.find({ documentId: docOid });
@@ -867,8 +938,10 @@ export async function processDocumentAsync(docId: string, title: string, revisio
         if (fig.storagePath) {
           try {
             await storageService.deleteFile(fig.storagePath, fig.storageProvider);
-          } catch {
-            // best effort cleanup
+          } catch (cleanErr: any) {
+            const warn = `Failed to delete figure asset on ingestion abort (${fig.figureId} @ ${fig.storagePath}): ${cleanErr?.message || cleanErr}`;
+            failureStorageCleanupErrors.push(warn);
+            console.warn(`[Ingestion Failure Cleanup Warning for ${docId}]:`, warn);
           }
         }
       }
@@ -876,6 +949,12 @@ export async function processDocumentAsync(docId: string, title: string, revisio
     } catch (cleanupErr) {
       cleanupError = cleanupErr;
       console.error(`[Ingestion Cleanup Error for ${docId}]:`, cleanupErr);
+    }
+
+    if (failureStorageCleanupErrors.length > 0) {
+      console.warn(
+        `[Ingestion Failure Cleanup Observability for ${docId}]: Encountered ${failureStorageCleanupErrors.length} storage asset deletion failure(s): ${failureStorageCleanupErrors.join("; ")}`
+      );
     }
 
     const safeErrorMessage = sanitizeError(
