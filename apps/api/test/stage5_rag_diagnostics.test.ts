@@ -93,6 +93,7 @@ describe("Stage 5.5b & 5.6: Multimodal RAG Pipeline Diagnostics & Quota Handling
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const originalNodeEnv = env.NODE_ENV;
     (env as any).NODE_ENV = "production";
+    vi.spyOn(geminiService, "generateEmbedding").mockResolvedValueOnce(new Array(768).fill(0.01));
 
     vi.spyOn(vectorService, "searchSimilar").mockResolvedValueOnce([
       {

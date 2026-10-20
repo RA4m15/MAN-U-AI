@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -124,6 +124,86 @@ describe("Production Corrections & Security Audits", () => {
     } finally {
       (env as any).NODE_ENV = originalEnv;
     }
+  });
+
+  it("Requirement 3.1: Production mode with a configured client and VITEST set throws and never returns fallback", async () => {
+    const originalEnv = env.NODE_ENV;
+    const originalVitest = process.env.VITEST;
+    try {
+      (env as any).NODE_ENV = "production";
+      process.env.VITEST = "true";
+
+      const testGeminiService = new GeminiService();
+      expect(testGeminiService.isLiveClientConfigured()).toBe(true);
+
+      // In production mode with unmocked client under Vitest, must throw rather than returning deterministic fallback
+      await expect(
+        testGeminiService.generateEmbedding("Feedwater pump motor vibration harmonics")
+      ).rejects.toThrow(/prohibited in production|failed in production/);
+    } finally {
+      (env as any).NODE_ENV = originalEnv;
+      if (originalVitest !== undefined) process.env.VITEST = originalVitest;
+    }
+  });
+
+  it("Requirement 3.2: Production mode when a live embedding call fails throws explicit error", async () => {
+    const originalEnv = env.NODE_ENV;
+    try {
+      (env as any).NODE_ENV = "production";
+
+      const testGeminiService = new GeminiService();
+      (testGeminiService as any).ai = {
+        models: {
+          embedContent: vi.fn().mockRejectedValue(new Error("Upstream quota exceeded (429)")),
+        },
+      };
+
+      await expect(
+        testGeminiService.generateEmbedding("Compressor seal differential pressure")
+      ).rejects.toThrow(/Live Gemini embedding generation failed in production: Upstream quota exceeded \(429\)/);
+    } finally {
+      (env as any).NODE_ENV = originalEnv;
+    }
+  });
+
+  it("Requirement 3.3: Vitest mode with an unmocked client prevents real remote requests and returns fallback", async () => {
+    const testGeminiService = new GeminiService();
+    let remoteInvoked = false;
+
+    // Provide an unmocked raw function (not vi.fn) to verify it is never invoked
+    (testGeminiService as any).ai = {
+      models: {
+        embedContent: () => {
+          remoteInvoked = true;
+          throw new Error("UNMOCKED_REMOTE_NETWORK_CALL_ATTEMPTED");
+        },
+      },
+    };
+
+    const result = await testGeminiService.generateEmbedding("Hydraulic accumulator pre-charge");
+    expect(remoteInvoked).toBe(false);
+    expect(Array.isArray(result)).toBe(true);
+    expect(result.length).toBe(768);
+    expect(testGeminiService.getLastProvider()).toBe("deterministic-fallback");
+  });
+
+  it("Requirement 3.4: Vitest mode with a mocked embedding client executes the mock successfully", async () => {
+    const testGeminiService = new GeminiService();
+    const mockVector = new Array(768).fill(0.42);
+    const mockEmbedContent = vi.fn().mockResolvedValue({
+      embedding: { values: mockVector },
+    });
+
+    (testGeminiService as any).ai = {
+      models: {
+        embedContent: mockEmbedContent,
+      },
+    };
+
+    const result = await testGeminiService.generateEmbedding("Boiler safety valve lift threshold");
+    expect(mockEmbedContent).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(mockVector);
+    expect(testGeminiService.getLastProvider()).toBe("live-gemini");
   });
 
   // ── 4. Wildcard CORS Rejection in Production ──────────────────────────────

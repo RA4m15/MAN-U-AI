@@ -382,7 +382,7 @@ export class GeminiService {
       }
     }
 
-    if (env.NODE_ENV === "production" && (!isUnderVitest || !this.client)) {
+    if (env.NODE_ENV === "production") {
       throw new Error(
         "Production environment requires a configured and operational live Gemini embedding client. Deterministic fallback embeddings are prohibited in production."
       );
