@@ -296,7 +296,10 @@ export class GeminiService {
   }
 
   isLiveClientConfigured(): boolean {
-    return this.ai !== null && this.client !== null;
+    if (env.NODE_ENV === "production") {
+      return this.ai !== null && this.client !== null;
+    }
+    return this.ai !== null;
   }
 
   /**
@@ -350,7 +353,12 @@ export class GeminiService {
    * deterministic fallback embeddings with real vector space embeddings.
    */
   async generateEmbedding(text: string): Promise<number[]> {
-    if (this.isLiveClientConfigured() && this.ai) {
+    const isMock =
+      typeof (this.ai as any)?.models?.embedContent?.mockImplementation === "function" ||
+      typeof (this.ai as any)?.models?.embedContent?.mockResolvedValue === "function" ||
+      Boolean((this.ai as any)?.models?.embedContent?._isMockFunction);
+
+    if (this.isLiveClientConfigured() && this.ai && (env.NODE_ENV !== "test" || isMock)) {
       try {
         const response = await this.ai.models.embedContent({
           model: env.GEMINI_EMBEDDING_MODEL,

@@ -48,7 +48,7 @@ const envSchema = z.object({
     .string()
     .optional()
     .default(process.env.NODE_ENV === "test" ? "test-placeholder-gemini-key" : ""),
-  GEMINI_MODEL: z.string().default("gemini-3-flash-preview"),
+  GEMINI_MODEL: z.string().default("gemini-3.8-flash"),
   GEMINI_FALLBACK_MODELS: z.string().default("gemini-3.6-flash,gemini-3.8-flash"),
   GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-001"),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
