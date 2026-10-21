@@ -123,6 +123,8 @@ export interface MessageDTO {
 export interface ConversationDTO {
   id: string;
   title: string;
+  equipmentId?: string;
+  equipmentName?: string;
   lastMessageAt: string;
   messageCount: number;
   createdAt: string;
@@ -130,6 +132,7 @@ export interface ConversationDTO {
 
 export const SendMessageSchema = z.object({
   content: z.string().min(1).max(8000),
+  equipmentId: z.string().optional(),
   attachmentIds: z.array(z.string()).optional().default([]),
 });
 export type SendMessageInput = z.infer<typeof SendMessageSchema>;

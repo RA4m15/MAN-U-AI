@@ -85,11 +85,74 @@ export class RagService {
       );
     }
 
-    // 2. Stage: Query Embedding Generation
+    // 2. Stage: Equipment Context & Session History Resolution
+    let equipmentContext: {
+      id: string;
+      name: string;
+      type: string;
+      model?: string;
+      manufacturer?: string;
+      serialNumber?: string;
+      location?: string;
+      documentIds?: string[];
+    } | undefined;
+
+    if (isConnectedToMongo && equipmentId && mongoose.Types.ObjectId.isValid(equipmentId)) {
+      try {
+        const { Equipment } = await import("../models");
+        const eq = await Equipment.findById(equipmentId);
+        if (eq) {
+          equipmentContext = {
+            id: eq._id.toString(),
+            name: eq.name,
+            type: eq.type,
+            model: eq.model,
+            manufacturer: eq.manufacturer,
+            serialNumber: eq.serialNumber,
+            location: eq.location,
+            documentIds: (eq.documentIds || []).map((d: any) => d.toString()),
+          };
+          console.log(
+            `[RAG Pipeline] [Request ID: ${reqId}] [Stage: equipment_context] Loaded equipment context: ${eq.name} (${eq.model || "Unknown Model"})`
+          );
+        }
+      } catch (eqErr) {
+        console.warn(`[RAG Pipeline] [Request ID: ${reqId}] Could not load equipment context:`, eqErr);
+      }
+    }
+
+    let sessionHistory: Array<{ role: "user" | "assistant"; content: string }> = [];
+    if (isConnectedToMongo && conversationId && mongoose.Types.ObjectId.isValid(conversationId)) {
+      try {
+        const { Message } = await import("../models");
+        const pastMsgs = await Message.find({ conversationId }).sort({ createdAt: 1 }).limit(10);
+        sessionHistory = pastMsgs.map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        }));
+        console.log(
+          `[RAG Pipeline] [Request ID: ${reqId}] [Stage: session_context] Loaded ${sessionHistory.length} previous messages for conversation ${conversationId}`
+        );
+      } catch (histErr) {
+        console.warn(`[RAG Pipeline] [Request ID: ${reqId}] Could not load session history:`, histErr);
+      }
+    }
+
+    // 3. Stage: Query Augmentation & Embedding Generation
+    let searchQuery = query;
+    if (equipmentContext) {
+      const lowerQuery = query.toLowerCase();
+      const hasName = lowerQuery.includes(equipmentContext.name.toLowerCase());
+      const hasModel = equipmentContext.model && lowerQuery.includes(equipmentContext.model.toLowerCase());
+      if (!hasName && !hasModel) {
+        searchQuery = `${equipmentContext.name} ${equipmentContext.model || ""} ${query}`.trim();
+      }
+    }
+
     let queryEmbedding: number[];
     try {
       console.log(`[RAG Pipeline] [Request ID: ${reqId}] [Stage: query_embedding] Generating query embedding via ${env.GEMINI_EMBEDDING_MODEL}`);
-      queryEmbedding = await geminiService.generateEmbedding(query);
+      queryEmbedding = await geminiService.generateEmbedding(searchQuery);
     } catch (embErr) {
       (embErr as any).stage = "query_embedding";
       throw embErr;
@@ -99,12 +162,12 @@ export class RagService {
     const { settingsService } = await import("./settings.service");
     const activeSettings = await settingsService.getEffectiveSettings();
 
-    // 3. Stage: Vector & Keyword Hybrid Retrieval
+    // 4. Stage: Vector & Keyword Hybrid Retrieval
     let retrieved: ScoredChunk[];
     try {
       retrieved = await vectorService.searchSimilar(
         queryEmbedding,
-        query,
+        searchQuery,
         activeSettings.topK,
         activeSettings.similarityThreshold,
         permittedDocIds
@@ -117,12 +180,15 @@ export class RagService {
       throw retErr;
     }
 
-    // 4. Stage: Insufficient Evidence Check
+    // 5. Stage: Insufficient Evidence Check
     if (retrieved.length === 0) {
       console.log(`[RAG Pipeline] [Request ID: ${reqId}] [Stage: evidence_evaluation] Retrieval returned 0 chunks; returning grounded insufficient evidence response`);
+      const limitationMessage = equipmentContext
+        ? `I could not locate sufficient verified documentation in your authorized knowledge index for **${equipmentContext.name}**${equipmentContext.model ? ` (${equipmentContext.model})` : ""} regarding your reported symptom or inquiry. Please verify the equipment model and symptom details, or upload the relevant manufacturer technical manual or SOP to proceed safely.`
+        : "I could not locate sufficient verified documentation in your authorized knowledge index to answer this inquiry safely. Please upload the relevant equipment manual or check with a certified plant supervisor.";
+
       return {
-        answer:
-          "I could not locate sufficient verified documentation in your authorized knowledge index to answer this inquiry safely. Please upload the relevant equipment manual or check with a certified plant supervisor.",
+        answer: limitationMessage,
         citations: [],
         warningLevel: "none",
         confidenceScore: 0.1,
@@ -130,18 +196,56 @@ export class RagService {
       };
     }
 
-    // 5. Determine safety severity level based on query keywords
+    // 6. Determine safety severity level based on query, session history, and retrieved instructions
     const lowerQuery = query.toLowerCase();
+    const historyText = sessionHistory.map((m) => m.content.toLowerCase()).join(" ");
+    const retrievedText = retrieved.map((r) => r.chunk.text.toLowerCase()).join(" ");
+    const combinedSafetyContext = `${lowerQuery} ${historyText} ${retrievedText}`;
+
+    const isBypassRequested =
+      lowerQuery.includes("bypass") ||
+      lowerQuery.includes("defeat") ||
+      lowerQuery.includes("override") ||
+      lowerQuery.includes("jump out") ||
+      lowerQuery.includes("disable safety") ||
+      lowerQuery.includes("bridge interlock") ||
+      historyText.includes("bypass") ||
+      historyText.includes("defeat");
+
     const isCritical =
-      lowerQuery.includes("loto") ||
-      lowerQuery.includes("lockout") ||
-      lowerQuery.includes("high voltage") ||
-      lowerQuery.includes("ammonia") ||
-      lowerQuery.includes("hydraulic bleed");
+      isBypassRequested ||
+      combinedSafetyContext.includes("loto") ||
+      combinedSafetyContext.includes("lockout") ||
+      combinedSafetyContext.includes("tagout") ||
+      combinedSafetyContext.includes("de-energiz") ||
+      combinedSafetyContext.includes("isolation") ||
+      combinedSafetyContext.includes("isolate") ||
+      combinedSafetyContext.includes("high voltage") ||
+      combinedSafetyContext.includes("480v") ||
+      combinedSafetyContext.includes("arc flash") ||
+      combinedSafetyContext.includes("electrical shock") ||
+      combinedSafetyContext.includes("live circuit") ||
+      combinedSafetyContext.includes("energized") ||
+      combinedSafetyContext.includes("ammonia") ||
+      combinedSafetyContext.includes("chlorine") ||
+      combinedSafetyContext.includes("acid") ||
+      combinedSafetyContext.includes("toxic") ||
+      combinedSafetyContext.includes("hydraulic bleed") ||
+      combinedSafetyContext.includes("high pressure") ||
+      combinedSafetyContext.includes("pressurized") ||
+      combinedSafetyContext.includes("stored energy") ||
+      combinedSafetyContext.includes("spring loaded") ||
+      combinedSafetyContext.includes("accumulator") ||
+      combinedSafetyContext.includes("interlock") ||
+      combinedSafetyContext.includes("safety switch") ||
+      combinedSafetyContext.includes("guard") ||
+      combinedSafetyContext.includes("pinch point") ||
+      combinedSafetyContext.includes("rotating assembly") ||
+      combinedSafetyContext.includes("confined space");
 
     const warningLevel = isCritical ? "critical" : "caution";
 
-    // 6. Construct grounded system prompt
+    // 7. Construct grounded system prompt for interactive troubleshooting
     const evidenceBlocks = retrieved
       .map(
         (r, i) =>
@@ -149,27 +253,66 @@ export class RagService {
       )
       .join("\n\n");
 
-    const prompt = `You are MAN-U-AI, an expert Industrial Reliability Engineering AI Copilot.
-You answer questions regarding equipment manuals, SOPs, fault codes, schematics, and maintenance procedures.
+    let equipmentSection = "";
+    if (equipmentContext) {
+      equipmentSection = `\nACTIVE EQUIPMENT IDENTITY & DIAGNOSTIC CONTEXT:\n- Equipment Name: ${equipmentContext.name}\n- Machine Type: ${equipmentContext.type}\n- Model: ${equipmentContext.model || "Not specified"}\n- Manufacturer: ${equipmentContext.manufacturer || "Not specified"}\n- Serial Number: ${equipmentContext.serialNumber || "Not recorded"}\n- Location: ${equipmentContext.location || "Not recorded"}\n`;
+    }
 
-IMPORTANT SAFETY INSTRUCTIONS:
-1. All facts and procedures MUST be grounded in the retrieved evidence below.
-2. Structure technical answers with:
-   - Required Safety Precautions & LOTO verification (if applicable)
-   - Step-by-Step Numbered Technical Procedures
-   - Verifiable Specifications (Torques, Tolerances, Lubricants)
-3. Never fabricate page numbers, document titles, or torque specifications.
-4. Highlight warnings prominently.
+    let historySection = "";
+    if (sessionHistory.length > 0) {
+      historySection =
+        `\nDIAGNOSTIC SESSION HISTORY (PREVIOUS CHECKS & OBSERVATIONS):\n` +
+        sessionHistory
+          .map((m) => `${m.role === "user" ? "TECHNICIAN" : "COPILOT"}: ${m.content}`)
+          .join("\n\n") +
+        `\n`;
+    }
 
+    const prompt = `You are MAN-U-AI, an expert Industrial Reliability Engineering AI Copilot assisting technicians with evidence-grounded interactive troubleshooting.
+${equipmentSection}${historySection}
 RETRIEVED DOCUMENT EVIDENCE:
 ${evidenceBlocks}
 
-USER QUESTION:
+TECHNICIAN'S CURRENT INPUT:
 ${query}
 
-Respond in clean GitHub Markdown:`;
+MANDATORY RULES FOR EVIDENCE-GROUNDED INTERACTIVE TROUBLESHOOTING:
+1. Grounding & Zero Fabrication:
+   - Ground all diagnostic instructions, technical parameters, tolerances, torques, and fault codes strictly in the RETRIEVED DOCUMENT EVIDENCE above.
+   - NEVER fabricate manual instructions, torque ratings, wire numbers, or diagnostic findings.
+   - You may ONLY cite source documents and page numbers that actually exist in the RETRIEVED DOCUMENT EVIDENCE above. Never invent external standards or document citations.
 
-    // 7. Stage: Generative Answer Synthesis
+2. Interactive Sequential Guidance (One Step at a Time):
+   - Do NOT output an entire multi-step repair procedure at once.
+   - Present ONE actionable diagnostic check, inspection, or measurement at a time.
+   - State clearly:
+     a) What specific action to take.
+     b) Exactly what to observe, measure, or listen for (including acceptable vs abnormal criteria).
+     c) Prompt the technician to perform this check and report back the observation before choosing the next step.
+   - Wait for the user's result before advancing to subsequent steps.
+
+3. Session Context & Completed Checks:
+   - Carry forward all symptoms, completed checks, and test results from the DIAGNOSTIC SESSION HISTORY above.
+   - Do NOT ask the technician to repeat checks they have already completed.
+   - Do NOT mark a step as completed until the user confirms its result.
+
+4. Safety & Interlocks First:
+   - Surface relevant source-backed warnings and Lockout/Tagout (LOTO) energy isolation requirements BEFORE any potentially hazardous procedure.
+   - NEVER instruct users to bypass safety interlocks, defeat guards, bridge limit switches, or operate machinery in an unsafe state.
+   - If the technician mentions or requests bypassing an interlock or safety guard, STRICTLY REFUSE and mandate qualified isolation procedures.
+   - Prioritize safe, non-invasive checks (visual inspection, error code display, surface temperature, vibration listening, pressure gauges) before recommending invasive teardown.
+
+5. Handling Uncertainty & Distinguishing Hypotheses:
+   - Clearly distinguish between confirmed facts (directly documented in the manual) and diagnostic hypotheses.
+   - Label preliminary root causes as "Diagnostic Hypothesis (Unconfirmed — Requires Verification)". Never declare an unverified hypothesis as a confirmed diagnosis.
+   - If retrieval does not provide sufficient evidence to pinpoint the issue or verify a safe procedure:
+     a) Explicitly state the documentation limitation.
+     b) Ask a targeted clarification (e.g. asking for equipment model, nameplate rating, or specific fault code) rather than guessing.
+     c) If documentation is silent on a hazardous repair, abstain from guessing and recommend consulting an authorized OEM specialist.
+
+Respond in clean, professional GitHub Markdown:`;
+
+    // 8. Stage: Generative Answer Synthesis
     let answer: string;
     try {
       console.log(
@@ -188,14 +331,36 @@ Respond in clean GitHub Markdown:`;
       if (env.NODE_ENV === "production") {
         throw err;
       }
+      const firstChunk = retrieved[0]?.chunk;
+      let safetyHeader = "";
+      if (isBypassRequested) {
+        safetyHeader = `> ⛔ **CRITICAL SAFETY VIOLATION PREVENTED:**\n> Safety interlocks, limit switches, and physical guards must **NEVER** be bypassed, bridged, or defeated. All inspections must follow authorized Lockout/Tagout (LOTO) isolation protocols with zero-energy verification.\n\n`;
+      } else if (isCritical) {
+        safetyHeader = `> ⚠️ **CRITICAL SAFETY MANDATE:** Ensure equipment is properly isolated and verified at zero energy state before undertaking physical inspections.\n\n`;
+      }
+
       answer = `[NOTICE: AI Generative Service Unavailable — Grounded Documentation Mode]
 
-Live generative synthesis could not be completed. The following verified excerpts were retrieved from authorized plant documentation:
+${safetyHeader}### Grounded Technical Diagnostic Guidance
+${equipmentContext ? `**Equipment:** ${equipmentContext.name}${equipmentContext.model ? ` (${equipmentContext.model})` : ""}\n` : ""}
+**Diagnostic Hypothesis (Preliminary — Unconfirmed):**
+The following preliminary hypothesis is derived directly from authorized technical documentation. This hypothesis is unconfirmed until physical observations are verified.
 
+**Recommended Non-Invasive Diagnostic Step:**
+Based on verified documentation from **${firstChunk?.documentTitle}** (Page ${firstChunk?.page}, Section: ${firstChunk?.section || "General"}):
+
+> ${firstChunk?.text}
+
+**Action Required:**
+Please perform the check described above and observe the specified condition. **Do not perform any invasive teardown until the preliminary check is completed and confirmed.**
+
+*Report your observation back to the assistant to determine the subsequent diagnostic step.*
+
+#### Verified Documentation Excerpts:
 ${retrieved.map((r, i) => `[${i + 1}] **${r.chunk.documentTitle}** (Page ${r.chunk.page}, ${r.chunk.section || "General"}):\n> ${r.chunk.text}`).join("\n\n")}`;
     }
 
-    // 7. Extract verifiable citations strictly from the retrieved pool, attaching genuine visual figures when available
+    // 9. Extract verifiable citations strictly from the retrieved pool, attaching genuine visual figures when available
     const figureMap = new Map<string, any[]>();
     if (isConnectedToMongo) {
       try {
@@ -256,8 +421,7 @@ ${retrieved.map((r, i) => `[${i + 1}] **${r.chunk.documentTitle}** (Page ${r.chu
       };
     });
 
-
-    // 8. Persist audit trail if MongoDB is connected
+    // 10. Persist audit trail if MongoDB is connected
     if (isConnectedToMongo) {
       try {
         await AuditEvent.create({
@@ -269,9 +433,9 @@ ${retrieved.map((r, i) => `[${i + 1}] **${r.chunk.documentTitle}** (Page ${r.chu
             query,
             warningLevel,
             citationsCount: citations.length,
+            equipmentId: equipmentContext?.id,
           },
         });
-
       } catch (err) {
         console.warn("[RagService] Could not log audit event to MongoDB:", err);
       }

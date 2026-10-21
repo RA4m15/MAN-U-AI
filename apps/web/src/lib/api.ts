@@ -118,8 +118,8 @@ export const usersApi = {
 export const conversationsApi = {
   list: (page = 1, limit = 20) =>
     apiClient.get("/conversations", { params: { page, limit } }),
-  create: (title?: string) =>
-    apiClient.post("/conversations", { title }),
+  create: (title?: string, equipmentId?: string) =>
+    apiClient.post("/conversations", { title, equipmentId }),
   get: (id: string) =>
     apiClient.get(`/conversations/${id}`),
   messages: (id: string) =>

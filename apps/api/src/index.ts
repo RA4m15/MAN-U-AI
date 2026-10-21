@@ -55,15 +55,18 @@ async function canUserAccessDocument(userId: string, role: string, docId: string
     const doc = await DocumentModel.findById(docId);
     if (!doc) return false;
 
+    const { toMongoObjectId } = await import("./routes/documents.routes");
+    const userOid = toMongoObjectId(userId);
+
     // The user who uploaded the document has access
-    if (doc.uploadedById && doc.uploadedById.toString() === userId) {
+    if (doc.uploadedById && (doc.uploadedById.toString() === userId || doc.uploadedById.toString() === userOid.toString())) {
       return true;
     }
 
     // Check explicit permissions
     const permission = await DocumentPermission.findOne({
       documentId: doc._id,
-      $or: [{ userId }, { role }],
+      $or: [{ userId: userOid }, ...(role ? [{ role }] : [])],
       canRead: true,
     });
 

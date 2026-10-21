@@ -168,7 +168,7 @@ export function EquipmentPage() {
 
   const handleTroubleshoot = (eq: EquipmentItem) => {
     navigate(
-      `/?query=Diagnose+and+troubleshoot+operational+procedures+and+specifications+for+${encodeURIComponent(
+      `/?equipmentId=${encodeURIComponent(eq.id)}&query=Diagnose+and+troubleshoot+operational+procedures+and+specifications+for+${encodeURIComponent(
         eq.name
       )}+(${encodeURIComponent(eq.model)})+manufactured+by+${encodeURIComponent(
         eq.manufacturer

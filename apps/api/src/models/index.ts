@@ -260,6 +260,7 @@ export const ProcessingJob = mongoose.model<IProcessingJob>("ProcessingJob", Pro
 export interface IConversation extends MongooseDocument {
   userId: mongoose.Types.ObjectId;
   title: string;
+  equipmentId?: mongoose.Types.ObjectId;
   lastMessageAt: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -269,6 +270,7 @@ const ConversationSchema = new Schema<IConversation>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     title: { type: String, default: "New Technical Ingestion" },
+    equipmentId: { type: Schema.Types.ObjectId, ref: "Equipment" },
     lastMessageAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

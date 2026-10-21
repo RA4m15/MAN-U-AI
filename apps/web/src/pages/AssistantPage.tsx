@@ -3,7 +3,6 @@ import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Send,
-  Paperclip,
   Mic,
   MicOff,
   Bot,
@@ -19,11 +18,12 @@ import {
   ThumbsUp,
   ThumbsDown,
   Copy,
-  RotateCcw,
   ImageIcon,
   ExternalLink,
+  Cpu,
+  X,
 } from "lucide-react";
-import { chatApi, conversationsApi, feedbackApi } from "@/lib/api";
+import { chatApi, conversationsApi, feedbackApi, equipmentApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { CitationDTO } from "@man-u-ai/shared";
 
@@ -70,6 +70,7 @@ export function AssistantPage() {
   const queryClient = useQueryClient();
 
   const [input, setInput] = useState("");
+  const [activeEquipmentId, setActiveEquipmentId] = useState<string | null>(searchParams.get("equipmentId"));
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -81,8 +82,40 @@ export function AssistantPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
 
+  // Fetch equipment details when target equipment is active
+  const { data: equipmentResp } = useQuery({
+    queryKey: ["equipment-detail", activeEquipmentId],
+    queryFn: () => (activeEquipmentId ? equipmentApi.get(activeEquipmentId) : null),
+    enabled: Boolean(activeEquipmentId),
+  });
+  const activeEquipment = equipmentResp?.data?.data;
+
+  // Fetch current conversation details to verify authoritative equipment association
+  const { data: convDetailResp } = useQuery({
+    queryKey: ["conversation-detail", conversationId],
+    queryFn: () => (conversationId ? conversationsApi.get(conversationId) : null),
+    enabled: Boolean(conversationId),
+  });
+  const currentConversation = convDetailResp?.data?.data;
+  const boundEquipmentId = currentConversation?.equipmentId || null;
+
+  // Detect whether active equipment differs from conversation's bound equipment
+  const isEquipmentMismatch = Boolean(
+    conversationId &&
+      boundEquipmentId &&
+      activeEquipmentId &&
+      boundEquipmentId !== activeEquipmentId
+  );
+
+  // Sync conversation's bound equipment to active equipment when opening a conversation
+  useEffect(() => {
+    if (boundEquipmentId && !searchParams.get("equipmentId")) {
+      setActiveEquipmentId(boundEquipmentId);
+    }
+  }, [boundEquipmentId, searchParams]);
+
   // Fetch real conversation messages from backend
-  const { data: serverMessages = [], isLoading: isLoadingHistory } = useQuery<Message[]>({
+  const { data: serverMessages = [] } = useQuery<Message[]>({
     queryKey: ["messages", conversationId],
     queryFn: async (): Promise<Message[]> => {
       if (!conversationId) return [];
@@ -103,7 +136,6 @@ export function AssistantPage() {
     enabled: Boolean(conversationId),
   });
 
-
   // Sync messages
   const activeMessages = conversationId ? serverMessages : localMessages;
   const isNewChat = activeMessages.length === 0;
@@ -114,7 +146,11 @@ export function AssistantPage() {
     if (q && !input) {
       setInput(q);
     }
-  }, [searchParams]);
+    const eqId = searchParams.get("equipmentId");
+    if (eqId && eqId !== activeEquipmentId) {
+      setActiveEquipmentId(eqId);
+    }
+  }, [searchParams, input, activeEquipmentId]);
 
   // Auto-scroll
   useEffect(() => {
@@ -144,10 +180,10 @@ export function AssistantPage() {
     let activeConvId = conversationId;
 
     try {
-      // 1. If starting a new conversation, create record in MongoDB
-      if (!activeConvId) {
+      // 1. If starting a new conversation or if equipment was switched, create a new isolated conversation
+      if (!activeConvId || isEquipmentMismatch) {
         const convTitle = content.length > 40 ? content.slice(0, 40) + "..." : content;
-        const convRes = await conversationsApi.create(convTitle);
+        const convRes = await conversationsApi.create(convTitle, activeEquipmentId || undefined);
         if (convRes.data?.success && convRes.data.data?.id) {
           activeConvId = convRes.data.data.id;
         }
@@ -163,7 +199,7 @@ export function AssistantPage() {
       setLocalMessages((prev) => [...prev, userMsg]);
 
       // 3. Send to real backend RAG pipeline (/api/v1/chat)
-      const res = await chatApi.ask(activeConvId || "default-session", content);
+      const res = await chatApi.ask(activeConvId || "default-session", content, activeEquipmentId || undefined);
 
       if (res.data?.success && res.data.data) {
         const assistantMsg: Message = {
@@ -178,6 +214,7 @@ export function AssistantPage() {
         if (activeConvId && activeConvId !== conversationId) {
           // Navigate to new conversation URL and invalidate conversation lists
           queryClient.invalidateQueries({ queryKey: ["conversations"] });
+          queryClient.invalidateQueries({ queryKey: ["conversation-detail", activeConvId] });
           navigate(`/chat/${activeConvId}`, { replace: true });
         } else if (conversationId) {
           queryClient.invalidateQueries({ queryKey: ["messages", conversationId] });
@@ -231,7 +268,7 @@ export function AssistantPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, conversationId, navigate, queryClient]);
+  }, [input, isLoading, conversationId, activeEquipmentId, isEquipmentMismatch, navigate, queryClient]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -303,6 +340,72 @@ export function AssistantPage() {
 
   return (
     <div className="flex flex-col h-full bg-canvas">
+      {/* Active Diagnostic Target Banner */}
+      {activeEquipment && (
+        <div className="flex-shrink-0 px-4 md:px-8 pt-4 pb-1">
+          <div className="max-w-3xl mx-auto flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-surface-1 border border-primary/40 shadow-sm text-xs text-ink animate-fade-in">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-6 h-6 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Cpu size={13} className="text-primary" />
+              </div>
+              <div className="truncate">
+                <span className="font-semibold text-primary uppercase text-2xs tracking-wider mr-1.5">
+                  Diagnostic Target:
+                </span>
+                <span className="font-medium text-ink">
+                  {activeEquipment.name}
+                  {activeEquipment.model ? ` (${activeEquipment.model})` : ""}
+                </span>
+                {activeEquipment.manufacturer && (
+                  <span className="text-ink-tertiary ml-1.5">· {activeEquipment.manufacturer}</span>
+                )}
+                {activeEquipment.location && (
+                  <span className="text-ink-tertiary ml-1.5">· {activeEquipment.location}</span>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => setActiveEquipmentId(null)}
+              className="btn-icon p-1 text-ink-tertiary hover:text-ink ml-2 flex-shrink-0"
+              title="Clear equipment diagnostic target"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Equipment Switch / Mismatch Notice ── */}
+      {isEquipmentMismatch && (
+        <div className="flex-shrink-0 px-4 md:px-8 pt-2 pb-1">
+          <div className="max-w-3xl mx-auto flex items-center justify-between p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200 animate-fade-in">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle size={15} className="text-amber-400 flex-shrink-0" />
+              <div>
+                <span className="font-semibold text-amber-300">Target Equipment Changed: </span>
+                This conversation is locked to{" "}
+                <span className="font-medium underline">
+                  {currentConversation?.equipmentName || "previous equipment"}
+                </span>
+                . A new session is required to isolate diagnostic logs for{" "}
+                <span className="font-medium underline">
+                  {activeEquipment ? `${activeEquipment.name}${activeEquipment.model ? ` (${activeEquipment.model})` : ""}` : "the new equipment"}
+                </span>
+                .
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                navigate(`/chat${activeEquipmentId ? `?equipmentId=${encodeURIComponent(activeEquipmentId)}` : ""}`);
+              }}
+              className="px-3 py-1.5 rounded-lg bg-amber-500 text-surface-0 font-medium text-xs hover:bg-amber-400 transition-colors ml-3 flex-shrink-0 shadow-sm"
+            >
+              Start New Session
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Messages Area ───────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto scrollbar-none px-4 md:px-8 py-6">
         {isNewChat ? (
