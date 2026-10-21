@@ -2,12 +2,20 @@ import { GoogleGenAI } from "@google/genai";
 import { env } from "../config/env";
 import { SUPPORTED_MODELS, getModelCapabilities } from "./settings.service";
 
+export interface VisualInputPart {
+  data: Buffer;
+  mimeType: string;
+  figureId?: string;
+  title?: string;
+}
+
 export interface GenerationOptions {
   model?: string;
   temperature?: number;
   topP?: number;
   topK?: number;
   systemInstruction?: string;
+  images?: VisualInputPart[];
 }
 
 /**
@@ -450,9 +458,25 @@ export class GeminiService {
         attemptedModels.push(candidateModel);
         try {
           const generationConfig = buildModelGenerationConfig(candidateModel, options);
+          const validImages =
+            options?.images?.filter((img) => img && Buffer.isBuffer(img.data) && img.data.length > 0) || [];
+
+          const payloadContents: any =
+            validImages.length > 0
+              ? [
+                  ...validImages.map((img) => ({
+                    inlineData: {
+                      data: img.data.toString("base64"),
+                      mimeType: img.mimeType || "image/jpeg",
+                    },
+                  })),
+                  { text: prompt },
+                ]
+              : prompt;
+
           const payload: Record<string, any> = {
             model: candidateModel,
-            contents: prompt,
+            contents: payloadContents,
           };
           if (generationConfig) {
             payload.config = generationConfig;

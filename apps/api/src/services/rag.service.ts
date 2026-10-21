@@ -1,11 +1,91 @@
 import mongoose from "mongoose";
-import { geminiService } from "./gemini.service";
+import { geminiService, VisualInputPart } from "./gemini.service";
 import { vectorService, ScoredChunk } from "./vector.service";
-import { Message, Conversation, AuditEvent } from "../models";
+import { AuditEvent } from "../models";
 
 import { isConnectedToMongo } from "../config/database";
 import { env } from "../config/env";
 import type { CitationDTO } from "@man-u-ai/shared";
+
+/**
+ * Detects whether buffer corresponds to a supported image format (JPEG, PNG, WebP)
+ * and verifies it against the declared MIME type. Returns normalized MIME type or null if invalid/unsupported.
+ */
+export function detectSupportedImageMimeType(buffer: Buffer, declaredMime?: string): string | null {
+  if (!buffer || buffer.length < 12) return null;
+
+  let detected: "image/jpeg" | "image/png" | "image/webp" | null = null;
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    detected = "image/jpeg";
+  } else if (
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    detected = "image/png";
+  } else if (
+    buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
+    buffer.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    detected = "image/webp";
+  }
+
+  if (!detected) {
+    return null;
+  }
+
+  // If a declared MIME type exists, verify compatibility
+  if (declaredMime) {
+    const norm = declaredMime.toLowerCase().trim();
+    const isJpeg = (norm === "image/jpeg" || norm === "image/jpg") && detected === "image/jpeg";
+    const isPng = norm === "image/png" && detected === "image/png";
+    const isWebp = norm === "image/webp" && detected === "image/webp";
+    if (!isJpeg && !isPng && !isWebp) {
+      console.warn(
+        `[RAG Pipeline] Declared figure MIME '${declaredMime}' does not match detected format '${detected}'. Using detected format.`
+      );
+    }
+  }
+
+  return detected;
+}
+
+/**
+ * Reads a readable stream incrementally into a Buffer, enforcing a strict maximum size limit (default 5 MB).
+ * Destroys the stream immediately if limit is exceeded to free underlying file/socket handles.
+ */
+export async function streamToBuffer(stream: NodeJS.ReadableStream, maxBytes = 5 * 1024 * 1024): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  try {
+    for await (const chunk of stream) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      totalBytes += buf.length;
+      if (totalBytes > maxBytes) {
+        if (typeof (stream as any).destroy === "function") {
+          (stream as any).destroy();
+        }
+        throw new Error(`Figure file exceeded maximum buffer size limit of ${maxBytes} bytes`);
+      }
+      chunks.push(buf);
+    }
+  } catch (err) {
+    if (typeof (stream as any).destroy === "function" && !(stream as any).destroyed) {
+      try {
+        (stream as any).destroy();
+      } catch {
+        // ignore destroy errors
+      }
+    }
+    throw err;
+  }
+  return Buffer.concat(chunks);
+}
 
 export interface RagResponse {
   answer: string;
@@ -245,6 +325,203 @@ export class RagService {
 
     const warningLevel = isCritical ? "critical" : "caution";
 
+    // 6b. Stage: Multimodal Figure Retrieval & Relevance Association
+    let relevantFigures: any[] = [];
+    let visualParts: VisualInputPart[] = [];
+    const figureCitationMap = new Map<string, any[]>();
+
+    if (isConnectedToMongo && retrieved.length > 0) {
+      try {
+        const { DocumentFigure } = await import("../models");
+        const { storageService } = await import("./storage.service");
+
+        const docOids = retrieved.map((r) =>
+          mongoose.Types.ObjectId.isValid(r.chunk.documentId) && r.chunk.documentId.length === 24
+            ? new mongoose.Types.ObjectId(r.chunk.documentId)
+            : r.chunk.documentId
+        );
+
+        let allowedDocFilter: any = { $in: docOids };
+        if (permittedDocIds !== undefined) {
+          const allowedDocOids = permittedDocIds
+            .filter((id) => docOids.some((d) => d.toString() === id))
+            .map((id) => (mongoose.Types.ObjectId.isValid(id) && id.length === 24 ? new mongoose.Types.ObjectId(id) : id));
+          allowedDocFilter = { $in: allowedDocOids };
+        }
+
+        const pages = Array.from(new Set(retrieved.map((r) => r.chunk.page)));
+
+        const candidateFigures = await DocumentFigure.find({
+          documentId: allowedDocFilter,
+          page: { $in: pages },
+          status: "extracted",
+        });
+
+        console.log(
+          `[RAG Pipeline] [Request ID: ${reqId}] [Stage: multimodal_retrieval] Found ${candidateFigures.length} candidate figures across ${pages.length} retrieved pages`
+        );
+
+        const scoredFigures: Array<{ fig: any; score: number; matchedChunkId?: string }> = [];
+        const queryTerms = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 2);
+        const visualIntentRegex = /\b(diagram|figure|schematic|drawing|exploded|wiring|layout|parts|assembly|illustration|connector|pinout|circuit|chart|view|image|photo)\b/i;
+        const hasVisualIntent = visualIntentRegex.test(query);
+
+        for (const fig of candidateFigures) {
+          let score = 0;
+          let matchedChunkId: string | undefined = undefined;
+
+          // Check query keyword overlap with figure title/caption/figureId
+          const figText = `${fig.figureId} ${fig.title || ""} ${fig.caption || ""}`.toLowerCase();
+          let queryKeywordMatches = 0;
+          for (const term of queryTerms) {
+            if (figText.includes(term)) {
+              queryKeywordMatches++;
+            }
+          }
+
+          for (const r of retrieved) {
+            if (r.chunk.documentId !== fig.documentId.toString()) continue;
+
+            const isTopChunk = r.chunk.id === retrieved[0]?.chunk.id;
+
+            // Direct chunk association
+            if (fig.associatedChunkIds && fig.associatedChunkIds.includes(r.chunk.id)) {
+              score += isTopChunk ? 10 : 5;
+              matchedChunkId = r.chunk.id;
+            }
+            if (r.chunk.figureIds && (r.chunk.figureIds.includes(fig.figureId) || r.chunk.figureIds.includes(fig._id.toString()))) {
+              score += isTopChunk ? 10 : 5;
+              matchedChunkId = r.chunk.id;
+            }
+
+            // Direct textual mention of figureId in chunk text or section
+            const escapedFigId = fig.figureId.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+            const figMentionRegex = new RegExp(`\\b${escapedFigId}\\b`, "i");
+            if (figMentionRegex.test(r.chunk.text) || (r.chunk.section && figMentionRegex.test(r.chunk.section))) {
+              score += isTopChunk ? 8 : 4;
+              matchedChunkId = r.chunk.id;
+            }
+
+            // Same page as retrieved chunk
+            if (r.chunk.page === fig.page) {
+              score += isTopChunk ? 3 : 1;
+              if (!matchedChunkId) matchedChunkId = r.chunk.id;
+            }
+          }
+
+          if (queryKeywordMatches > 0) {
+            score += queryKeywordMatches * 4;
+          }
+
+          if (hasVisualIntent && score > 0) {
+            score += 5;
+          }
+
+          // Strict relevance filter: must meet minimum relevance threshold and have topical link
+          if (score >= 8 && (queryKeywordMatches > 0 || hasVisualIntent || matchedChunkId === retrieved[0]?.chunk.id)) {
+            scoredFigures.push({ fig, score, matchedChunkId });
+          }
+        }
+
+        // Prioritize figures belonging to the primary top-retrieved document, then by relevance score
+        const primaryDocId = retrieved[0]?.chunk.documentId;
+        scoredFigures.sort((a, b) => {
+          const aIsPrimary = a.fig.documentId.toString() === primaryDocId ? 1 : 0;
+          const bIsPrimary = b.fig.documentId.toString() === primaryDocId ? 1 : 0;
+          if (aIsPrimary !== bIsPrimary) return bIsPrimary - aIsPrimary;
+          return b.score - a.score;
+        });
+
+        // Populate citations for all genuine scored figures meeting relevance threshold
+        for (const item of scoredFigures) {
+          const fig = item.fig;
+          if (!fig.storagePath) continue;
+
+          const figureDto = {
+            id: fig._id.toString(),
+            documentId: fig.documentId.toString(),
+            documentTitle: fig.documentTitle,
+            revision: fig.revision,
+            page: fig.page,
+            figureId: fig.figureId,
+            title: fig.title,
+            caption: fig.caption,
+            storagePath: fig.storagePath,
+            storageProvider: fig.storageProvider,
+            mimeType: fig.mimeType,
+            sizeBytes: fig.sizeBytes,
+            dimensions: fig.dimensions,
+            status: fig.status,
+            associatedChunkIds: fig.associatedChunkIds || [],
+            createdAt: fig.createdAt?.toISOString(),
+          };
+
+          const pageKey = `${fig.documentId.toString()}_${fig.page}`;
+          const pageList = figureCitationMap.get(pageKey) || [];
+          if (!pageList.some((f) => f.id === figureDto.id)) {
+            pageList.push(figureDto);
+            figureCitationMap.set(pageKey, pageList);
+          }
+
+          if (item.matchedChunkId) {
+            const chunkList = figureCitationMap.get(item.matchedChunkId) || [];
+            if (!chunkList.some((f) => f.id === figureDto.id)) {
+              chunkList.push(figureDto);
+              figureCitationMap.set(item.matchedChunkId, chunkList);
+            }
+          }
+        }
+
+        // Bounded selection: limit to top figures for multimodal AI visual input (prioritizing primary document)
+        // A figure is selected for visual LLM input ONLY IF:
+        // 1. The user explicitly inquired about a diagram/figure/schematic (hasVisualIntent), OR
+        // 2. The primary top-scoring evidence chunk directly references/associates with this figure.
+        const selected = scoredFigures
+          .filter(
+            (s) =>
+              (!primaryDocId || s.fig.documentId.toString() === primaryDocId) &&
+              (hasVisualIntent || s.matchedChunkId === retrieved[0]?.chunk.id)
+          )
+          .slice(0, 2);
+
+        for (const item of selected) {
+          const fig = item.fig;
+          if (!fig.storagePath) continue;
+
+          try {
+            const stream = await storageService.getFileStream(fig.storagePath, fig.storageProvider);
+            const imageBuffer = await streamToBuffer(stream, 5 * 1024 * 1024);
+            const verifiedMime = detectSupportedImageMimeType(imageBuffer, fig.mimeType);
+
+            if (!verifiedMime) {
+              console.warn(
+                `[RAG Pipeline] Skipping figure ${fig.figureId}: unsupported or invalid image format.`
+              );
+              continue;
+            }
+
+            visualParts.push({
+              data: imageBuffer,
+              mimeType: verifiedMime,
+              figureId: fig.figureId,
+              title: fig.title,
+            });
+
+            // Only attach figure to prompt context if the image loaded and validated successfully
+            relevantFigures.push(fig);
+          } catch (loadErr) {
+            console.warn(`[RAG Pipeline] Failed to load image asset for figure ${fig.figureId} (${fig.storagePath}):`, loadErr);
+          }
+        }
+
+        console.log(
+          `[RAG Pipeline] [Request ID: ${reqId}] [Stage: multimodal_retrieval] Attached ${visualParts.length} verified figure image(s) for visual AI comprehension`
+        );
+      } catch (figErr) {
+        console.warn(`[RAG Pipeline] [Request ID: ${reqId}] Multimodal figure retrieval error:`, figErr);
+      }
+    }
+
     // 7. Construct grounded system prompt for interactive troubleshooting
     const evidenceBlocks = retrieved
       .map(
@@ -252,6 +529,19 @@ export class RagService {
           `[EVIDENCE ${i + 1}] Source: "${r.chunk.documentTitle}" (Rev: ${r.chunk.revision}), Page ${r.chunk.page}, Section: "${r.chunk.section || "General"}"\nContent: "${r.chunk.text}"`
       )
       .join("\n\n");
+
+    let figureSection = "";
+    if (relevantFigures.length > 0) {
+      figureSection =
+        `\nATTACHED TECHNICAL FIGURES & SCHEMATICS:\n` +
+        relevantFigures
+          .map(
+            (f, idx) =>
+              `[FIGURE ${idx + 1}] Source: "${f.documentTitle}" (Rev: ${f.revision}), Page ${f.page}, Figure ID: "${f.figureId}", Title: "${f.title || "Untitled"}"\nCaption: "${f.caption || "None"}"\nDimensions: ${f.dimensions?.width || "?"}x${f.dimensions?.height || "?"} px, Format: ${f.mimeType || "image/jpeg"}`
+          )
+          .join("\n\n") +
+        `\n`;
+    }
 
     let equipmentSection = "";
     if (equipmentContext) {
@@ -272,7 +562,7 @@ export class RagService {
 ${equipmentSection}${historySection}
 RETRIEVED DOCUMENT EVIDENCE:
 ${evidenceBlocks}
-
+${figureSection}
 TECHNICIAN'S CURRENT INPUT:
 ${query}
 
@@ -310,18 +600,31 @@ MANDATORY RULES FOR EVIDENCE-GROUNDED INTERACTIVE TROUBLESHOOTING:
      b) Ask a targeted clarification (e.g. asking for equipment model, nameplate rating, or specific fault code) rather than guessing.
      c) If documentation is silent on a hazardous repair, abstain from guessing and recommend consulting an authorized OEM specialist.
 
+${relevantFigures.length > 0 ? `6. Multimodal & Figure-Aware Grounding (Strict Rules):
+   - You have been provided with authentic extracted figure images/schematics matching the retrieved manual pages.
+   - Ground visual observations ONLY in what is directly legible and visible in the attached figures.
+   - When referencing a figure, always cite its exact Figure ID, Document, and Page number (e.g. "[Figure 1 on Page 16 of SP-400 Manual]").
+   - Distinguish visible observations from interpretations:
+     * Label direct visual readings as "Direct Visual Observation from [Figure ID]".
+     * Label deductions or procedural steps as "Procedural Guidance from Manual Text".
+   - ZERO FABRICATION: NEVER hallucinate, guess, or invent component labels, terminal/pin numbers, wire colors, arrow directions, valve positions, or dimensions that are illegible or not present in the figure.
+   - If an image is unreadable, blurry, or lacks a specific requested detail, explicitly state that the detail is not legible in the figure and rely strictly on the manual text or ask for clarification.` : `6. Figure Mentions in Text (No Figures Attached):
+   - No figure or schematic images are attached to this query.
+   - If manual excerpts mention figures or schematics, refer to them strictly as textual manual references. Do NOT claim to have visually examined or observed any figure or diagram.`}
+
 Respond in clean, professional GitHub Markdown:`;
 
     // 8. Stage: Generative Answer Synthesis
     let answer: string;
     try {
       console.log(
-        `[RAG Pipeline] [Request ID: ${reqId}] [Stage: model_generation] Requesting generation with model '${activeSettings.selectedModel}' (evidence chunks: ${retrieved.length})`
+        `[RAG Pipeline] [Request ID: ${reqId}] [Stage: model_generation] Requesting generation with model '${activeSettings.selectedModel}' (evidence chunks: ${retrieved.length}, images: ${visualParts.length})`
       );
       answer = await geminiService.generateAnswer(prompt, {
         model: activeSettings.selectedModel,
         temperature: activeSettings.temperature,
         systemInstruction: "You are an industrial maintenance AI assistant. Ground all claims in the provided documentation.",
+        images: visualParts.length > 0 ? visualParts : undefined,
       });
       console.log(
         `[RAG Pipeline] [Request ID: ${reqId}] [Stage: model_generation] Model provider called successfully (provider: ${geminiService.getLastProvider()})`
@@ -337,6 +640,19 @@ Respond in clean, professional GitHub Markdown:`;
         safetyHeader = `> ⛔ **CRITICAL SAFETY VIOLATION PREVENTED:**\n> Safety interlocks, limit switches, and physical guards must **NEVER** be bypassed, bridged, or defeated. All inspections must follow authorized Lockout/Tagout (LOTO) isolation protocols with zero-energy verification.\n\n`;
       } else if (isCritical) {
         safetyHeader = `> ⚠️ **CRITICAL SAFETY MANDATE:** Ensure equipment is properly isolated and verified at zero energy state before undertaking physical inspections.\n\n`;
+      }
+
+      let figureNotice = "";
+      if (relevantFigures.length > 0) {
+        figureNotice =
+          `\n#### Associated Technical Figures (Manual Page Reference):\n` +
+          relevantFigures
+            .map(
+              (fig) =>
+                `- **${fig.figureId}** (Page ${fig.page}): ${fig.title || fig.caption || "Technical diagram"} [Document: ${fig.documentTitle}]`
+            )
+            .join("\n") +
+          `\n*(Generative visual analysis unavailable in offline fallback mode. Please inspect the manual figure directly.)*\n`;
       }
 
       answer = `[NOTICE: AI Generative Service Unavailable — Grounded Documentation Mode]
@@ -355,60 +671,18 @@ Based on verified documentation from **${firstChunk?.documentTitle}** (Page ${fi
 Please perform the check described above and observe the specified condition. **Do not perform any invasive teardown until the preliminary check is completed and confirmed.**
 
 *Report your observation back to the assistant to determine the subsequent diagnostic step.*
-
+${figureNotice}
 #### Verified Documentation Excerpts:
 ${retrieved.map((r, i) => `[${i + 1}] **${r.chunk.documentTitle}** (Page ${r.chunk.page}, ${r.chunk.section || "General"}):\n> ${r.chunk.text}`).join("\n\n")}`;
     }
 
     // 9. Extract verifiable citations strictly from the retrieved pool, attaching genuine visual figures when available
-    const figureMap = new Map<string, any[]>();
-    if (isConnectedToMongo) {
-      try {
-        const { DocumentFigure } = await import("../models");
-        const docOids = retrieved.map((r) =>
-          mongoose.Types.ObjectId.isValid(r.chunk.documentId) && r.chunk.documentId.length === 24
-            ? new mongoose.Types.ObjectId(r.chunk.documentId)
-            : r.chunk.documentId
-        );
-        const pages = retrieved.map((r) => r.chunk.page);
-
-        const figures = await DocumentFigure.find({
-          documentId: { $in: docOids },
-          page: { $in: pages },
-          status: "extracted",
-        });
-
-        for (const fig of figures) {
-          const key = `${fig.documentId.toString()}_${fig.page}`;
-          const existing = figureMap.get(key) || [];
-          existing.push({
-            id: fig._id.toString(),
-            documentId: fig.documentId.toString(),
-            documentTitle: fig.documentTitle,
-            revision: fig.revision,
-            page: fig.page,
-            figureId: fig.figureId,
-            title: fig.title,
-            caption: fig.caption,
-            storagePath: fig.storagePath,
-            storageProvider: fig.storageProvider,
-            mimeType: fig.mimeType,
-            sizeBytes: fig.sizeBytes,
-            dimensions: fig.dimensions,
-            status: fig.status,
-            associatedChunkIds: fig.associatedChunkIds || [],
-            createdAt: fig.createdAt?.toISOString(),
-          });
-          figureMap.set(key, existing);
-        }
-      } catch (figErr) {
-        console.warn("[RagService] Could not lookup figures for citations:", figErr);
-      }
-    }
-
     const citations: CitationDTO[] = retrieved.map((r, i) => {
-      const key = `${r.chunk.documentId}_${r.chunk.page}`;
-      const matchingFigures = figureMap.get(key);
+      const pageKey = `${r.chunk.documentId}_${r.chunk.page}`;
+      const matchingFigures =
+        figureCitationMap.get(r.chunk.id) ||
+        figureCitationMap.get(pageKey);
+
       return {
         id: `cite-${r.chunk.id}-${i}`,
         documentId: r.chunk.documentId,
