@@ -78,6 +78,7 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
       // Verify active models are present and retired models are completely absent
       expect(res.body.data.supportedModels).toContain("gemini-3.8-flash");
       expect(res.body.data.supportedModels).toContain("gemini-3.6-flash");
+      expect(res.body.data.supportedModels).toContain("gemini-3.5-flash-lite");
       expect(res.body.data.supportedModels).toContain("gemini-4-argon");
       expect(res.body.data.supportedModels).not.toContain("gemini-1.5-flash");
       expect(res.body.data.supportedModels).not.toContain("gemini-1.5-pro");
@@ -891,7 +892,7 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
   describe("8. Model-Specific Generation Configuration & Sampling Consistency (Stage 4.1.2)", () => {
     it("getModelCapabilities() matches the official support rules for every allowed model", () => {
       // Modern Gemini models omit sampling parameters (temperature, top_p, top_k)
-      for (const model of ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-4-argon"] as const) {
+      for (const model of ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-4-argon"] as const) {
         const caps = getModelCapabilities(model);
         expect(caps.supportsTemperature).toBe(false);
         expect(caps.supportsTopP).toBe(false);
@@ -912,7 +913,7 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
     });
 
     it("buildModelGenerationConfig() never emits unsupported parameters for any allowed model", () => {
-      const allowedModels = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-4-argon"] as const;
+      const allowedModels = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-4-argon"] as const;
 
       for (const model of allowedModels) {
         const config = buildModelGenerationConfig(model, {
@@ -1076,6 +1077,11 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
         supportsGenerationTopK: false,
       });
       expect(res.body.data.modelCapabilities["gemini-3.6-flash"]).toEqual({
+        supportsTemperature: false,
+        supportsTopP: false,
+        supportsGenerationTopK: false,
+      });
+      expect(res.body.data.modelCapabilities["gemini-3.5-flash-lite"]).toEqual({
         supportsTemperature: false,
         supportsTopP: false,
         supportsGenerationTopK: false,

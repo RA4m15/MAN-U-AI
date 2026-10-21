@@ -127,7 +127,7 @@ export function analyzeProviderError(err: unknown): QuotaFailureInfo {
     if (retryInfo?.retryDelay) {
       const match = String(retryInfo.retryDelay).match(/^([0-9]+(?:\.[0-9]+)?)s?$/);
       if (match) {
-        retryDelaySeconds = Math.round(parseFloat(match[1]));
+        retryDelaySeconds = parseFloat(match[1]);
       }
     }
   }
@@ -146,9 +146,11 @@ export function analyzeProviderError(err: unknown): QuotaFailureInfo {
     /is not supported|is no longer available|model not found|permission denied|access denied/i.test(rawMessage);
 
   // Check for Provider Outage / High Demand (503)
+  // Must NOT match if error is a model-unavailable or access-denied error
   const isProviderOutage =
-    status === 503 ||
-    /high demand|Spikes in demand|overloaded|service unavailable|temporarily unavailable/i.test(rawMessage);
+    !isModelUnavailable &&
+    (status === 503 ||
+      /high demand|Spikes in demand|overloaded|service unavailable|temporarily unavailable/i.test(rawMessage));
 
   let category: QuotaFailureInfo["category"] = "unknown";
   let safeMessage = "An unexpected error occurred during AI generation. Please try again later.";
@@ -198,7 +200,7 @@ export class ModelQuotaTracker {
       // Models with zero quota on active tier stay disabled
       cooldownMs = 24 * 60 * 60 * 1000;
     } else if (analysis.retryDelaySeconds && analysis.retryDelaySeconds > 0) {
-      cooldownMs = Math.min(analysis.retryDelaySeconds * 1000, 24 * 60 * 60 * 1000);
+      cooldownMs = Math.min(Math.round(analysis.retryDelaySeconds * 1000), 24 * 60 * 60 * 1000);
     } else if (analysis.isQuotaExhausted) {
       cooldownMs = 10 * 60 * 1000;
     } else if (analysis.isProviderOutage) {
@@ -456,46 +458,77 @@ export class GeminiService {
         }
 
         attemptedModels.push(candidateModel);
-        try {
-          const generationConfig = buildModelGenerationConfig(candidateModel, options);
-          const validImages =
-            options?.images?.filter((img) => img && Buffer.isBuffer(img.data) && img.data.length > 0) || [];
+        const generationConfig = buildModelGenerationConfig(candidateModel, options);
+        const validImages =
+          options?.images?.filter((img) => img && Buffer.isBuffer(img.data) && img.data.length > 0) || [];
 
-          const payloadContents: any =
-            validImages.length > 0
-              ? [
-                  ...validImages.map((img) => ({
-                    inlineData: {
-                      data: img.data.toString("base64"),
-                      mimeType: img.mimeType || "image/jpeg",
-                    },
-                  })),
-                  { text: prompt },
-                ]
-              : prompt;
+        const payloadContents: any =
+          validImages.length > 0
+            ? [
+                ...validImages.map((img) => ({
+                  inlineData: {
+                    data: img.data.toString("base64"),
+                    mimeType: img.mimeType || "image/jpeg",
+                  },
+                })),
+                { text: prompt },
+              ]
+            : prompt;
 
-          const payload: Record<string, any> = {
-            model: candidateModel,
-            contents: payloadContents,
-          };
-          if (generationConfig) {
-            payload.config = generationConfig;
+        const payload: Record<string, any> = {
+          model: candidateModel,
+          contents: payloadContents,
+        };
+        if (generationConfig) {
+          payload.config = generationConfig;
+        }
+
+        // Bounded retry: at most 1 retry for transient HTTP 503 / provider-outage errors
+        const MAX_RETRIES = 1;
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            const response = await (this.ai!.models.generateContent as any)(payload);
+
+            const text = response.text;
+            if (text && text.trim().length > 0) {
+              modelQuotaTracker.recordSuccess(candidateModel);
+              this.lastProvider = "live-gemini";
+              return text;
+            }
+            throw new Error(`Empty response received from model '${candidateModel}'`);
+          } catch (err) {
+            lastError = err;
+            const analysis = analyzeProviderError(err);
+
+            // Never retry HTTP 429/quota exhaustion or zero-quota models.
+            // Respect explicit provider retry-delay guidance: if delay exceeds bounded retry budget (~1s), move to next candidate.
+            const hasExceededRetryDelay =
+              typeof analysis.retryDelaySeconds === "number" && analysis.retryDelaySeconds > 1;
+
+            const isTransientOutage =
+              analysis.category === "provider_outage" &&
+              analysis.isProviderOutage &&
+              !analysis.isModelUnavailable &&
+              !analysis.isQuotaExhausted &&
+              !analysis.isZeroQuota;
+
+            if (isTransientOutage && attempt < MAX_RETRIES && !hasExceededRetryDelay) {
+              const backoffMs = 500 + Math.floor(Math.random() * 201); // 500–700 ms jittered backoff
+              console.warn(
+                `[GeminiService] Model '${candidateModel}' encountered transient 503 provider outage (attempt ${attempt + 1}/${MAX_RETRIES + 1}). Retrying in ${backoffMs}ms...`
+              );
+              await new Promise((resolve) => setTimeout(resolve, backoffMs));
+              continue;
+            }
+
+            // Retry exhausted or non-retryable error (e.g. 429 quota exhaustion, zero quota, or second 503 failure):
+            // Apply cooldown via modelQuotaTracker now that the permitted retry has failed or was ineligible
+            lastAnalysis = modelQuotaTracker.recordFailure(candidateModel, err);
+            console.warn(
+              `[GeminiService] Model '${candidateModel}' failed (${lastAnalysis.category}): ${lastAnalysis.safeMessage}. Trying next candidate model...`
+            );
+            break;
           }
-
-          const response = await (this.ai!.models.generateContent as any)(payload);
-
-          const text = response.text;
-          if (text && text.trim().length > 0) {
-            modelQuotaTracker.recordSuccess(candidateModel);
-            this.lastProvider = "live-gemini";
-            return text;
-          }
-        } catch (err) {
-          lastError = err;
-          lastAnalysis = modelQuotaTracker.recordFailure(candidateModel, err);
-          console.warn(
-            `[GeminiService] Model '${candidateModel}' failed (${lastAnalysis.category}): ${lastAnalysis.safeMessage}. Trying next candidate model...`
-          );
         }
       }
 

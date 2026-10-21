@@ -404,7 +404,7 @@ describe("Stage 5.5b & 5.6: Multimodal RAG Pipeline Diagnostics & Quota Handling
     // Mark all models in cooldown
     const err = new Error("Quota exceeded");
     (err as any).status = 429;
-    for (const m of ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-4-argon"]) {
+    for (const m of ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3-flash-preview", "gemini-3.5-flash-lite", "gemini-4-argon"]) {
       modelQuotaTracker.recordFailure(m, err);
     }
 
