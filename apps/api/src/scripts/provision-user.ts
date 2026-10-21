@@ -1,8 +1,57 @@
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-dotenv.config();
+import path from "path";
+import fs from "fs";
 
-import { provisionUser, ProvisionedUserResult } from "../services/provision.service";
+/**
+ * Canonical root .env locator for development, CLI scripts, and compiled execution.
+ * Discovers the repository root marked by pnpm-workspace.yaml or .git.
+ * Returns null if no repository root marker is found to prevent accidental cwd fallbacks.
+ */
+export function findCanonicalRootEnvPath(startDir: string = __dirname): string | null {
+  let curr = startDir;
+  while (curr && curr !== path.dirname(curr)) {
+    const workspaceMarker = path.join(curr, "pnpm-workspace.yaml");
+    const gitMarker = path.join(curr, ".git");
+    if (fs.existsSync(workspaceMarker) || fs.existsSync(gitMarker)) {
+      return path.join(curr, ".env");
+    }
+    curr = path.dirname(curr);
+  }
+  return null;
+}
+
+/**
+ * Loads the environment from the canonical root .env if it exists.
+ * If the canonical root .env does not exist or no root marker is found, no fallback to
+ * subfolder .env or process.cwd()/.env is performed, preserving environment variables
+ * already supplied by the runtime.
+ */
+export function loadCanonicalRootEnv(startDir: string = __dirname): { loaded: boolean; path: string | null } {
+  const envPath = findCanonicalRootEnvPath(startDir);
+  if (envPath && fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    return { loaded: true, path: envPath };
+  }
+  return { loaded: false, path: envPath };
+}
+
+// 1. Immediately establish canonical environment configuration at startup
+loadCanonicalRootEnv();
+
+// 2. Type-only import erased at compile time to avoid module hoisting
+import type { ProvisionedUserResult } from "../services/provision.service";
+export type { ProvisionedUserResult };
+
+// 3. Deferred module loader ensuring loadCanonicalRootEnv() executes before application modules initialize
+let _provisionUserFn: typeof import("../services/provision.service").provisionUser | null = null;
+export async function getProvisionUser(): Promise<typeof import("../services/provision.service").provisionUser> {
+  if (!_provisionUserFn) {
+    const service = await import("../services/provision.service");
+    _provisionUserFn = service.provisionUser;
+  }
+  return _provisionUserFn;
+}
 
 export interface SanitizedTargetInfo {
   host: string;
@@ -420,7 +469,8 @@ export async function provisionUserCli(options: ProvisionUserCliOptions): Promis
   }
 
   try {
-    const result = await provisionUser({
+    const provision = await getProvisionUser();
+    const result = await provision({
       email,
       name: name || undefined,
       role,

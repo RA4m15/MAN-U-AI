@@ -1,7 +1,10 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
+import fs from "fs";
+import path from "path";
+import os from "os";
 import { EventEmitter } from "events";
 import { PassThrough } from "stream";
 import { app } from "../src/app";
@@ -15,6 +18,9 @@ import {
   parseArgs,
   sanitizeMongoMessage,
   provisionUserCli,
+  findCanonicalRootEnvPath,
+  loadCanonicalRootEnv,
+  getProvisionUser,
 } from "../src/scripts/provision-user";
 
 describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
@@ -716,6 +722,289 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
       expect(outputText).toContain("[Provision] Target Host:     127.0.0.1:27017");
       expect(outputText).toContain("[Provision] Target Database: manuai_test");
       expect(outputText).toContain("[Provision] Account provisioned successfully!");
+    });
+  });
+
+  describe("Canonical Root .env Resolution & Precedence (findCanonicalRootEnvPath & loadCanonicalRootEnv)", () => {
+    let testTempDir: string;
+    const trackedDirs: string[] = [];
+
+    beforeEach(() => {
+      testTempDir = fs.mkdtempSync(path.join(os.tmpdir(), "manuai-env-test-"));
+      trackedDirs.push(testTempDir);
+    });
+
+    afterEach(() => {
+      if (testTempDir && fs.existsSync(testTempDir)) {
+        try {
+          fs.rmSync(testTempDir, { recursive: true, force: true });
+        } catch {
+          // Non-fatal cleanup
+        }
+      }
+    });
+
+    afterAll(() => {
+      for (const dir of trackedDirs) {
+        if (fs.existsSync(dir)) {
+          try {
+            fs.rmSync(dir, { recursive: true, force: true });
+          } catch {
+            // Non-fatal cleanup
+          }
+        }
+      }
+    });
+
+    it("Scenario A: Only repository-root .env exists — correctly selects root .env", () => {
+      // Mock repository root with pnpm-workspace.yaml marker and root .env
+      const rootDir = path.join(testTempDir, "repo-root");
+      const nestedScriptDir = path.join(rootDir, "apps", "api", "src", "scripts");
+      fs.mkdirSync(nestedScriptDir, { recursive: true });
+
+      fs.writeFileSync(path.join(rootDir, "pnpm-workspace.yaml"), "packages:\n  - 'apps/*'\n");
+      const rootEnvPath = path.join(rootDir, ".env");
+      fs.writeFileSync(rootEnvPath, "MONGODB_URI=mongodb+srv://root-user:secret@cluster0.mongodb.net/manuai\n");
+
+      const selectedPath = findCanonicalRootEnvPath(nestedScriptDir);
+      expect(selectedPath).toBe(rootEnvPath);
+      expect(fs.existsSync(selectedPath)).toBe(true);
+    });
+
+    it("Scenario B: Both repository-root and apps/api/.env exist — enforces canonical root precedence", () => {
+      const rootDir = path.join(testTempDir, "repo-precedence");
+      const apiDir = path.join(rootDir, "apps", "api");
+      const nestedScriptDir = path.join(apiDir, "src", "scripts");
+      fs.mkdirSync(nestedScriptDir, { recursive: true });
+
+      // Root marked by .git and root .env
+      fs.mkdirSync(path.join(rootDir, ".git"));
+      const rootEnvPath = path.join(rootDir, ".env");
+      fs.writeFileSync(rootEnvPath, "MONGODB_URI=mongodb+srv://canonical-root@cluster0.mongodb.net/manuai\n");
+
+      // Accidental or local .env inside apps/api/
+      const subpackageEnvPath = path.join(apiDir, ".env");
+      fs.writeFileSync(subpackageEnvPath, "MONGODB_URI=mongodb://localhost:27017/accidental_db\n");
+
+      // Script executing from apps/api/src/scripts must NOT stop at apps/api/.env
+      // It must strictly ascend to the workspace root marker
+      const selectedPath = findCanonicalRootEnvPath(nestedScriptDir);
+      expect(selectedPath).toBe(rootEnvPath);
+      expect(selectedPath).not.toBe(subpackageEnvPath);
+    });
+
+    it("Scenario C: No .env exists — returns canonical root path and reports non-existent", () => {
+      const rootDir = path.join(testTempDir, "repo-no-env");
+      const nestedScriptDir = path.join(rootDir, "apps", "api", "src", "scripts");
+      fs.mkdirSync(nestedScriptDir, { recursive: true });
+
+      fs.writeFileSync(path.join(rootDir, "pnpm-workspace.yaml"), "packages:\n  - 'apps/*'\n");
+
+      const selectedPath = findCanonicalRootEnvPath(nestedScriptDir);
+      expect(selectedPath).toBe(path.join(rootDir, ".env"));
+      // Verified that no .env file exists to load
+      expect(fs.existsSync(selectedPath)).toBe(false);
+    });
+
+    it("Scenario D: Root has marker but no root .env, while apps/api/.env exists — subfolder .env is NOT selected", () => {
+      const rootDir = path.join(testTempDir, "repo-root-no-env");
+      const apiDir = path.join(rootDir, "apps", "api");
+      const nestedScriptDir = path.join(apiDir, "src", "scripts");
+      fs.mkdirSync(nestedScriptDir, { recursive: true });
+      fs.writeFileSync(path.join(rootDir, "pnpm-workspace.yaml"), "packages:\n  - 'apps/*'\n");
+
+      const subpackageEnvPath = path.join(apiDir, ".env");
+      fs.writeFileSync(subpackageEnvPath, "MONGODB_URI=mongodb://localhost:27017/accidental_subpackage_db\n");
+
+      const selectedPath = findCanonicalRootEnvPath(nestedScriptDir);
+      expect(selectedPath).toBe(path.join(rootDir, ".env"));
+      expect(selectedPath).not.toBe(subpackageEnvPath);
+      expect(fs.existsSync(selectedPath)).toBe(false);
+
+      const result = loadCanonicalRootEnv(nestedScriptDir);
+      expect(result.loaded).toBe(false);
+      expect(result.path).toBe(path.join(rootDir, ".env"));
+    });
+
+    it("Scenario E: Preserves runtime environment variables when root .env is absent and does not load subfolder .env", () => {
+      const originalCustomVar = process.env.MANUAI_TEST_RUNTIME_VAR;
+      try {
+        process.env.MANUAI_TEST_RUNTIME_VAR = "supplied-by-container-runtime";
+
+        const rootDir = path.join(testTempDir, "repo-runtime-preserve");
+        const apiDir = path.join(rootDir, "apps", "api");
+        const nestedScriptDir = path.join(apiDir, "src", "scripts");
+        fs.mkdirSync(nestedScriptDir, { recursive: true });
+        fs.writeFileSync(path.join(rootDir, "pnpm-workspace.yaml"), "packages:\n  - 'apps/*'\n");
+
+        // Subpackage .env attempts to define the same variable or another variable
+        const subpackageEnvPath = path.join(apiDir, ".env");
+        fs.writeFileSync(
+          subpackageEnvPath,
+          "MANUAI_TEST_RUNTIME_VAR=overwritten-by-subpackage\nMANUAI_SUBFOLDER_LEAK=should_not_exist\n"
+        );
+
+        const result = loadCanonicalRootEnv(nestedScriptDir);
+        expect(result.loaded).toBe(false);
+        // Runtime value is preserved
+        expect(process.env.MANUAI_TEST_RUNTIME_VAR).toBe("supplied-by-container-runtime");
+        // Subfolder variable was NOT loaded
+        expect(process.env.MANUAI_SUBFOLDER_LEAK).toBeUndefined();
+      } finally {
+        if (originalCustomVar !== undefined) {
+          process.env.MANUAI_TEST_RUNTIME_VAR = originalCustomVar;
+        } else {
+          delete process.env.MANUAI_TEST_RUNTIME_VAR;
+        }
+        delete process.env.MANUAI_SUBFOLDER_LEAK;
+      }
+    });
+
+    it("Scenario F: No workspace marker exists — returns null, ignores cwd/local .env, retains runtime env, and fails closed", async () => {
+      const originalCwd = process.cwd();
+      const originalUri = process.env.MANUAI_TEST_RUNTIME_URI;
+      const originalTargetUri = process.env.TARGET_MONGODB_URI;
+
+      try {
+        const isolatedDir = path.join(testTempDir, "repo-isolated-no-marker");
+        const nestedScriptDir = path.join(isolatedDir, "apps", "api", "src", "scripts");
+        fs.mkdirSync(nestedScriptDir, { recursive: true });
+
+        // Place an accidental .env directly in isolatedDir and change process.cwd() to it
+        // This strictly proves that even when an arbitrary process.cwd()/.env exists, it is NOT loaded
+        const unintendedCwdEnv = path.join(isolatedDir, ".env");
+        fs.writeFileSync(
+          unintendedCwdEnv,
+          "TARGET_MONGODB_URI=mongodb://localhost:27017/accidental_cwd_db\nMANUAI_UNINTENDED_CWD_LEAK=should_not_load\n"
+        );
+
+        process.chdir(isolatedDir);
+        expect(process.cwd()).toBe(isolatedDir);
+        expect(fs.existsSync(path.resolve(process.cwd(), ".env"))).toBe(true);
+
+        delete process.env.MANUAI_UNINTENDED_CWD_LEAK;
+
+        // 1. findCanonicalRootEnvPath returns null when no marker is found anywhere in ancestor tree
+        const selectedPath = findCanonicalRootEnvPath(nestedScriptDir);
+        expect(selectedPath).toBeNull();
+
+        // 2. loadCanonicalRootEnv returns { loaded: false, path: null } and does NOT load process.cwd()/.env
+        const result = loadCanonicalRootEnv(nestedScriptDir);
+        expect(result.loaded).toBe(false);
+        expect(result.path).toBeNull();
+        expect(process.env.MANUAI_UNINTENDED_CWD_LEAK).toBeUndefined();
+
+        // 3. Runtime environment variables are preserved if present
+        process.env.MANUAI_TEST_RUNTIME_URI = "mongodb+srv://runtime-supplied:pass@cluster0.mongodb.net/manuai";
+        loadCanonicalRootEnv(nestedScriptDir);
+        expect(process.env.MANUAI_TEST_RUNTIME_URI).toBe("mongodb+srv://runtime-supplied:pass@cluster0.mongodb.net/manuai");
+
+        // 4. In non-interactive mode without runtime URI, CLI fails closed
+        await expect(
+          provisionUserCli({
+            args: { email: "cli@plant.io", role: "viewer" },
+            envVars: {},
+          })
+        ).rejects.toThrow("Target database URI is required");
+      } finally {
+        process.chdir(originalCwd);
+        if (originalUri !== undefined) {
+          process.env.MANUAI_TEST_RUNTIME_URI = originalUri;
+        } else {
+          delete process.env.MANUAI_TEST_RUNTIME_URI;
+        }
+        if (originalTargetUri !== undefined) {
+          process.env.TARGET_MONGODB_URI = originalTargetUri;
+        } else {
+          delete process.env.TARGET_MONGODB_URI;
+        }
+        delete process.env.MANUAI_UNINTENDED_CWD_LEAK;
+      }
+    });
+
+    it("Scenario G: Script startup call establishes environment before provision.service initializes", async () => {
+      const testEnvVarKey = "BOOTSTRAP_STARTUP_VERIFIED_VAR";
+      const testEnvVarVal = "established_by_startup_call";
+      const originalEnvVal = process.env[testEnvVarKey];
+
+      try {
+        // 1. Reset module cache and install a test-only mock for environment loader dependencies
+        vi.resetModules();
+        delete process.env[testEnvVarKey];
+
+        let dotenvConfigCallCount = 0;
+        let dotenvConfigArgs: any = null;
+
+        // 2. Make mocked dotenv.config() synchronously establish unique test variable when canonical root .env is loaded
+        const mockConfig = vi.fn((opts?: any) => {
+          dotenvConfigCallCount++;
+          dotenvConfigArgs = opts;
+          process.env[testEnvVarKey] = testEnvVarVal;
+          return { parsed: { [testEnvVarKey]: testEnvVarVal } };
+        });
+
+        vi.doMock("dotenv", () => ({
+          default: { config: mockConfig },
+          config: mockConfig,
+        }));
+
+        // 3. Mock provision.service so its module factory captures that variable at the instant the service initializes
+        let serviceInitCount = 0;
+        let capturedVarAtServiceInit: string | undefined = undefined;
+
+        vi.doMock("../src/services/provision.service", () => {
+          serviceInitCount++;
+          capturedVarAtServiceInit = process.env[testEnvVarKey];
+          return {
+            provisionUser: vi.fn().mockResolvedValue({ id: "mock-user-id", email: "operator@plant.io" }),
+          };
+        });
+
+        // 4. Import provision-user.ts (its top-level startup call executes immediately)
+        // Note: We do NOT manually call loadCanonicalRootEnv() in this test!
+        const { getProvisionUser } = await import("../src/scripts/provision-user");
+
+        // The script's startup loadCanonicalRootEnv() MUST have executed dotenv.config()
+        expect(dotenvConfigCallCount).toBeGreaterThan(0);
+        expect(dotenvConfigArgs).not.toBeNull();
+        expect(dotenvConfigArgs?.path).toMatch(/\.env$/);
+        expect(process.env[testEnvVarKey]).toBe(testEnvVarVal);
+
+        // However, provision.service must NOT have initialized yet (deferred loading)
+        expect(serviceInitCount).toBe(0);
+        expect(capturedVarAtServiceInit).toBeUndefined();
+
+        // Now call getProvisionUser(), triggering deferred dynamic import
+        const provisionFn = await getProvisionUser();
+        expect(typeof provisionFn).toBe("function");
+
+        // 5. Assert that the variable was established before the mocked service initialized
+        expect(serviceInitCount).toBe(1);
+        expect(capturedVarAtServiceInit).toBe(testEnvVarVal);
+      } finally {
+        // 6. Restore original environment variable value if it existed, otherwise delete it
+        if (originalEnvVal !== undefined) {
+          process.env[testEnvVarKey] = originalEnvVal;
+        } else {
+          delete process.env[testEnvVarKey];
+        }
+
+        // Restore all mocks and module cache even if an assertion failed
+        vi.doUnmock("../src/services/provision.service");
+        vi.doUnmock("dotenv");
+        vi.restoreAllMocks();
+        vi.resetModules();
+      }
+    });
+
+    it("Real Environment: Resolves to the genuine repository-root .env from the current project", () => {
+      const resolved = findCanonicalRootEnvPath();
+      expect(resolved).not.toBeNull();
+      expect(resolved!.endsWith(".env")).toBe(true);
+      expect(fs.existsSync(resolved!)).toBe(true);
+      // Confirmed it points to the workspace root containing pnpm-workspace.yaml
+      const resolvedDir = path.dirname(resolved!);
+      expect(fs.existsSync(path.join(resolvedDir, "pnpm-workspace.yaml"))).toBe(true);
     });
   });
 });
