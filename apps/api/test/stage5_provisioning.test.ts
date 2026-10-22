@@ -926,6 +926,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
       const testEnvVarKey = "BOOTSTRAP_STARTUP_VERIFIED_VAR";
       const testEnvVarVal = "established_by_startup_call";
       const originalEnvVal = process.env[testEnvVarKey];
+      let fsSpy: any = null;
 
       try {
         // 1. Reset module cache and install a test-only mock for environment loader dependencies
@@ -948,7 +949,18 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
           config: mockConfig,
         }));
 
-        // 3. Mock provision.service so its module factory captures that variable at the instant the service initializes
+        // 3. Ensure canonical root .env is recognized as present in clean CI checkouts where .env is gitignored
+        const canonicalEnvPath = findCanonicalRootEnvPath();
+        const originalExistsSync = fs.existsSync.bind(fs);
+        fsSpy = vi.spyOn(fs, "existsSync").mockImplementation((targetPath: fs.PathLike) => {
+          const resolvedTarget = path.resolve(String(targetPath));
+          if (canonicalEnvPath && resolvedTarget === path.resolve(canonicalEnvPath)) {
+            return true;
+          }
+          return originalExistsSync(targetPath);
+        });
+
+        // 4. Mock provision.service so its module factory captures that variable at the instant the service initializes
         let serviceInitCount = 0;
         let capturedVarAtServiceInit: string | undefined = undefined;
 
@@ -960,7 +972,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
           };
         });
 
-        // 4. Import provision-user.ts (its top-level startup call executes immediately)
+        // 5. Import provision-user.ts (its top-level startup call executes immediately)
         // Note: We do NOT manually call loadCanonicalRootEnv() in this test!
         const { getProvisionUser } = await import("../src/scripts/provision-user");
 
@@ -978,11 +990,15 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
         const provisionFn = await getProvisionUser();
         expect(typeof provisionFn).toBe("function");
 
-        // 5. Assert that the variable was established before the mocked service initialized
+        // 6. Assert that the variable was established before the mocked service initialized
         expect(serviceInitCount).toBe(1);
         expect(capturedVarAtServiceInit).toBe(testEnvVarVal);
       } finally {
-        // 6. Restore original environment variable value if it existed, otherwise delete it
+        if (fsSpy) {
+          fsSpy.mockRestore();
+        }
+
+        // 7. Restore original environment variable value if it existed, otherwise delete it
         if (originalEnvVal !== undefined) {
           process.env[testEnvVarKey] = originalEnvVal;
         } else {
@@ -998,13 +1014,27 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
     });
 
     it("Real Environment: Resolves to the genuine repository-root .env from the current project", () => {
+      // 1. Genuine project resolution contract: discovers workspace root without assuming untracked .env exists in git
       const resolved = findCanonicalRootEnvPath();
       expect(resolved).not.toBeNull();
       expect(resolved!.endsWith(".env")).toBe(true);
-      expect(fs.existsSync(resolved!)).toBe(true);
+
       // Confirmed it points to the workspace root containing pnpm-workspace.yaml
       const resolvedDir = path.dirname(resolved!);
       expect(fs.existsSync(path.join(resolvedDir, "pnpm-workspace.yaml"))).toBe(true);
+      expect(resolved).toBe(path.join(resolvedDir, ".env"));
+
+      // 2. Controlled fixture: verifies path-resolution and file existence contract independently of local untracked files
+      const fixtureRootDir = path.join(testTempDir, "controlled-root-env-fixture");
+      const fixtureScriptDir = path.join(fixtureRootDir, "apps", "api", "src", "scripts");
+      fs.mkdirSync(fixtureScriptDir, { recursive: true });
+      fs.writeFileSync(path.join(fixtureRootDir, "pnpm-workspace.yaml"), "packages:\n  - 'apps/*'\n");
+      const fixtureEnvPath = path.join(fixtureRootDir, ".env");
+      fs.writeFileSync(fixtureEnvPath, "FIXTURE_KEY=fixture_value\n");
+
+      const fixtureResolved = findCanonicalRootEnvPath(fixtureScriptDir);
+      expect(fixtureResolved).toBe(fixtureEnvPath);
+      expect(fs.existsSync(fixtureResolved!)).toBe(true);
     });
   });
 });
