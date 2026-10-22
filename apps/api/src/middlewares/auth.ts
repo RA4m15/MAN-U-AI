@@ -38,26 +38,72 @@ export async function requireAuth(
       name: string;
     };
 
-    if (isConnectedToMongo && mongoose.Types.ObjectId.isValid(decoded.id)) {
-      const user = await User.findById(decoded.id);
-      if (user) {
-        req.user = {
-          id: user._id.toString(),
-          email: user.email,
-          name: user.name,
-          role: user.role,
-        };
-        return next();
+    const VALID_ROLES: readonly UserRole[] = ["admin", "engineer", "viewer"] as const;
+    const sanitizeRole = (r: unknown): UserRole => {
+      if (typeof r === "string" && (VALID_ROLES as readonly string[]).includes(r)) {
+        return r as UserRole;
+      }
+      return "viewer";
+    };
+
+    if (isConnectedToMongo) {
+      if (decoded.id && mongoose.Types.ObjectId.isValid(decoded.id)) {
+        try {
+          const user = await User.findById(decoded.id);
+          if (!user) {
+            return res.status(401).json({
+              success: false,
+              error: { code: "USER_NOT_FOUND", message: "User account no longer exists or has been deactivated" },
+            });
+          }
+
+          req.user = {
+            id: user._id.toString(),
+            email: user.email,
+            name: user.name,
+            role: sanitizeRole(user.role),
+          };
+          return next();
+        } catch (dbErr) {
+          console.error("[Auth] Database query error during user verification:", dbErr);
+          return res.status(503).json({
+            success: false,
+            error: { code: "SERVICE_UNAVAILABLE", message: "Database query error during user verification" },
+          });
+        }
+      }
+
+      // If MongoDB is connected and decoded.id is not a valid ObjectId:
+      // In production or strict mode, reject since real accounts have valid ObjectIds
+      if (process.env.NODE_ENV !== "test" || process.env.STRICT_AUTH_TEST === "true") {
+        return res.status(401).json({
+          success: false,
+          error: { code: "USER_NOT_FOUND", message: "User account no longer exists or has been deactivated" },
+        });
       }
     }
 
+    // Permit payload-only fallback only when database is disconnected in safe offline/test mode (never in production)
+    if (!isConnectedToMongo) {
+      const isProduction = process.env.NODE_ENV === "production";
+      const isOfflineAuthPermitted =
+        !isProduction &&
+        (process.env.ALLOW_OFFLINE_AUTH === "true" ||
+          (process.env.NODE_ENV === "test" && process.env.ALLOW_OFFLINE_AUTH !== "false"));
 
-    // Valid signed JWT payload
+      if (!isOfflineAuthPermitted) {
+        return res.status(503).json({
+          success: false,
+          error: { code: "SERVICE_UNAVAILABLE", message: "Authentication database is disconnected" },
+        });
+      }
+    }
+
     req.user = {
-      id: decoded.id,
-      email: decoded.email,
-      name: decoded.name || "Engineer",
-      role: decoded.role || "engineer",
+      id: decoded.id || "offline-user",
+      email: decoded.email || "offline@plant.local",
+      name: decoded.name || "Offline User",
+      role: sanitizeRole(decoded.role),
     };
     return next();
   } catch (err) {

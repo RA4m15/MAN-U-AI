@@ -35,18 +35,27 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
       env.JWT_SECRET,
       { expiresIn: "1h" }
     );
+    const engineerUserId = new mongoose.Types.ObjectId().toString();
+    const viewerUserId = new mongoose.Types.ObjectId().toString();
+
     engineerToken = jwt.sign(
-      { id: new mongoose.Types.ObjectId().toString(), email: "eng@plant.io", name: "Plant Engineer", role: "engineer" },
+      { id: engineerUserId, email: "eng@plant.io", name: "Plant Engineer", role: "engineer" },
       env.JWT_SECRET,
       { expiresIn: "1h" }
     );
     viewerToken = jwt.sign(
-      { id: new mongoose.Types.ObjectId().toString(), email: "viewer@plant.io", name: "Shopfloor Operator", role: "viewer" },
+      { id: viewerUserId, email: "viewer@plant.io", name: "Shopfloor Operator", role: "viewer" },
       env.JWT_SECRET,
       { expiresIn: "1h" }
     );
 
     if (isConnectedToMongo) {
+      await User.deleteMany({ email: { $in: ["admin@plant.io", "eng@plant.io", "viewer@plant.io"] } });
+      await User.create([
+        { _id: adminUserId, name: "Plant Admin", email: "admin@plant.io", passwordHash: "mock", role: "admin" },
+        { _id: engineerUserId, name: "Plant Engineer", email: "eng@plant.io", passwordHash: "mock", role: "engineer" },
+        { _id: viewerUserId, name: "Shopfloor Operator", email: "viewer@plant.io", passwordHash: "mock", role: "viewer" },
+      ]);
       await FacilitySettings.deleteMany({});
       settingsService.clearCache();
     }
@@ -54,6 +63,7 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
 
   afterAll(async () => {
     if (isConnectedToMongo) {
+      await User.deleteMany({ email: { $in: ["admin@plant.io", "eng@plant.io", "viewer@plant.io"] } });
       await FacilitySettings.deleteMany({});
       settingsService.clearCache();
     }

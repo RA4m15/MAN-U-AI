@@ -209,6 +209,231 @@ export function categorizeMongoError(err: unknown, uriMeta: { hasUri: boolean; u
   };
 }
 
+export interface MongoUriComponents {
+  uri: string;
+  scheme: string;
+  isSrv: boolean;
+  isAtlas: boolean;
+  hosts: string[];
+  rawHosts: string[];
+  database: string;
+}
+
+export function parseMongoUriComponents(uriStr: string): MongoUriComponents {
+  if (!uriStr || typeof uriStr !== "string" || uriStr.trim() === "") {
+    return {
+      uri: "",
+      scheme: "none",
+      isSrv: false,
+      isAtlas: false,
+      hosts: [],
+      rawHosts: [],
+      database: "",
+    };
+  }
+
+  const trimmed = uriStr.trim();
+  const schemeMatch = trimmed.match(/^mongodb(?:\+srv)?:\/\//i);
+  if (!schemeMatch) {
+    return {
+      uri: trimmed,
+      scheme: "invalid",
+      isSrv: false,
+      isAtlas: false,
+      hosts: [],
+      rawHosts: [],
+      database: "",
+    };
+  }
+
+  const scheme = schemeMatch[0].replace("://", "").toLowerCase();
+  const isSrv = scheme === "mongodb+srv";
+  const withoutScheme = trimmed.slice(schemeMatch[0].length);
+
+  const slashIdx = withoutScheme.indexOf("/");
+  const qIdx = withoutScheme.indexOf("?");
+  const firstDelimiter =
+    slashIdx !== -1 && qIdx !== -1 ? Math.min(slashIdx, qIdx) : slashIdx !== -1 ? slashIdx : qIdx;
+  const authorityPart = firstDelimiter !== -1 ? withoutScheme.slice(0, firstDelimiter) : withoutScheme;
+  const restPart = firstDelimiter !== -1 ? withoutScheme.slice(firstDelimiter) : "";
+
+  const atIndex = authorityPart.lastIndexOf("@");
+  const hostPart = atIndex !== -1 ? authorityPart.slice(atIndex + 1) : authorityPart;
+
+  let database = "";
+  if (restPart.startsWith("/")) {
+    const dbAndQuery = restPart.slice(1);
+    const endDbIdx = dbAndQuery.indexOf("?");
+    database = endDbIdx !== -1 ? dbAndQuery.slice(0, endDbIdx) : dbAndQuery;
+  }
+
+  const rawHosts = hostPart.split(",").map((h) => h.trim()).filter(Boolean);
+  const hosts: string[] = [];
+  let isAtlas = isSrv;
+
+  for (const rawHost of rawHosts) {
+    let hostname = rawHost;
+    if (hostname.startsWith("[")) {
+      const closeBracket = hostname.indexOf("]");
+      if (closeBracket !== -1) {
+        hostname = hostname.slice(1, closeBracket);
+      }
+    } else {
+      const lastColonIdx = hostname.lastIndexOf(":");
+      if (lastColonIdx !== -1) {
+        const potentialPort = hostname.slice(lastColonIdx + 1);
+        if (/^\d+$/.test(potentialPort)) {
+          hostname = hostname.slice(0, lastColonIdx);
+        }
+      }
+    }
+    const normalized = hostname.trim().toLowerCase();
+    if (normalized) {
+      hosts.push(normalized);
+      if (normalized.endsWith(".mongodb.net") || normalized === "mongodb.net") {
+        isAtlas = true;
+      }
+    }
+  }
+
+  return {
+    uri: trimmed,
+    scheme,
+    isSrv,
+    isAtlas,
+    hosts,
+    rawHosts,
+    database: database.trim(),
+  };
+}
+
+export function isLocalLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (normalized === "localhost") return true;
+  if (normalized === "::1" || normalized === "0:0:0:0:0:0:0:1") return true;
+  // IPv4 127.0.0.0/8 loopback range (127.0.0.1 to 127.255.255.254)
+  if (/^127(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/.test(normalized)) return true;
+  return false;
+}
+
+export const PROHIBITED_TEST_DATABASES = new Set([
+  "manuai",
+  "production",
+  "admin",
+  "config",
+  "local",
+  "prod",
+]);
+
+export interface TestDbValidationResult {
+  safe: boolean;
+  reason?: string;
+  components: MongoUriComponents;
+}
+
+export function validateTestDatabaseSafety(
+  uriStr: string,
+  options?: {
+    allowRemote?: boolean;
+    allowedHosts?: string[];
+  }
+): TestDbValidationResult {
+  const components = parseMongoUriComponents(uriStr);
+
+  if (components.scheme === "invalid" || components.hosts.length === 0) {
+    return {
+      safe: false,
+      reason: `Invalid MongoDB URI format: ${sanitizeMongoMessage(uriStr)}`,
+      components,
+    };
+  }
+
+  // 1. Atlas Live Cluster is NEVER permitted in test mode under any circumstance
+  if (components.isAtlas || components.isSrv) {
+    return {
+      safe: false,
+      reason: `Test suite attempted to connect to live production Atlas database (${sanitizeMongoMessage(uriStr)}). Tests must use a dedicated local test database (e.g. 'manuai_test').`,
+      components,
+    };
+  }
+
+  // 2. Database Name Validation: Prevent accidental connection to production or system databases
+  const dbName = components.database.toLowerCase();
+  if (!dbName) {
+    return {
+      safe: false,
+      reason: `Test database URI must specify an explicit target database name (e.g. 'manuai_test'): ${sanitizeMongoMessage(uriStr)}`,
+      components,
+    };
+  }
+
+  if (
+    !/^[a-zA-Z0-9_-]+$/.test(components.database) ||
+    PROHIBITED_TEST_DATABASES.has(dbName) ||
+    dbName.endsWith("_prod") ||
+    dbName.endsWith("_production") ||
+    dbName.startsWith("prod_") ||
+    dbName.includes("production")
+  ) {
+    return {
+      safe: false,
+      reason: `Test suite attempted to target prohibited or production database '${components.database}'. Tests must target a dedicated test database (e.g. 'manuai_test').`,
+      components,
+    };
+  }
+
+  // 3. Remote Host Policy: Default strictly to local loopback instances only
+  const allowRemoteOptIn =
+    options?.allowRemote ??
+    (process.env.ALLOW_REMOTE_TEST_DB === "true" || process.env.TEST_MONGODB_ALLOW_REMOTE === "true");
+
+  const customAllowedHosts = new Set(
+    (options?.allowedHosts || (process.env.TEST_MONGODB_ALLOWED_HOSTS || "").split(","))
+      .map((h) => h.trim().toLowerCase().replace(/^\[|\]$/g, ""))
+      .filter(Boolean)
+  );
+
+  for (const host of components.hosts) {
+    const isLoopback = isLocalLoopbackHost(host);
+    const isExplicitlyAllowedHost = customAllowedHosts.has(host);
+
+    if (!isLoopback && !isExplicitlyAllowedHost && !allowRemoteOptIn) {
+      return {
+        safe: false,
+        reason: `Test environment attempted to connect to remote MongoDB host '${host}' without explicit opt-in. Tests default to local instances (localhost / 127.0.0.1). To explicitly permit a remote or container test database, set ALLOW_REMOTE_TEST_DB=true or specify TEST_MONGODB_ALLOWED_HOSTS.`,
+        components,
+      };
+    }
+  }
+
+  return {
+    safe: true,
+    components,
+  };
+}
+
+export function assertSafeTestDatabase(
+  uriStr: string,
+  options?: {
+    allowRemote?: boolean;
+    allowedHosts?: string[];
+  }
+): MongoUriComponents {
+  const result = validateTestDatabaseSafety(uriStr, options);
+  if (!result.safe) {
+    throw new Error(`[Database Safety Violation] ${result.reason}`);
+  }
+  return result.components;
+}
+
+export function isTestMode(): boolean {
+  return (
+    process.env.NODE_ENV === "test" ||
+    process.env.VITEST === "true" ||
+    env.NODE_ENV === "test"
+  );
+}
+
 export async function connectDatabase(overrideUri?: string): Promise<boolean> {
   // Isolate tests from production/Atlas databases unless explicitly configured
   const uri = overrideUri || (process.env.NODE_ENV === "test"
@@ -223,14 +448,10 @@ export async function connectDatabase(overrideUri?: string): Promise<boolean> {
     lastAttemptAt: new Date().toISOString(),
   };
 
-  // Safety guard: Fail fast if test environment ever points to live production Atlas cluster
-  if (process.env.NODE_ENV === "test") {
-    const isLiveAtlas = uri.includes(".mongodb.net") || uri.includes("mongodb+srv:");
-    if (isLiveAtlas) {
-      throw new Error(
-        `[Database Safety Violation] Test suite attempted to connect to live production Atlas database (${sanitizeMongoMessage(uri)}). Tests must use a dedicated local test database (e.g. 'manuai_test').`
-      );
-    }
+  // Safety guard: Whenever running in test mode, the test database safety policy
+  // MUST execute and CANNOT be bypassed by any conflicting configuration value (e.g. env.NODE_ENV === "production").
+  if (isTestMode()) {
+    assertSafeTestDatabase(uri);
   }
 
   try {

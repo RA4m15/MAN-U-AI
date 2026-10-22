@@ -43,13 +43,24 @@ usersRouter.get("/", requireAuth, requireRole(["admin"]), async (req: Authentica
 usersRouter.post("/", requireAuth, requireRole(["admin"]), async (req: AuthenticatedRequest, res: Response) => {
   const parsed = RegisterSchema.safeParse(req.body);
   if (!parsed.success) {
+    const sanitizedIssues = parsed.error.issues.map((issue) => ({
+      field: issue.path.join("."),
+      message: issue.message,
+    }));
     return res.status(400).json({
       success: false,
-      error: { code: "VALIDATION_ERROR", message: "Invalid user details", details: parsed.error.issues },
+      error: { code: "VALIDATION_ERROR", message: "Invalid user details", details: sanitizedIssues },
     });
   }
 
   const { name, email, password, role } = parsed.data;
+
+  if (!password || typeof password !== "string" || password.trim().length < 8) {
+    return res.status(400).json({
+      success: false,
+      error: { code: "VALIDATION_ERROR", message: "Password is required and must be at least 8 characters" },
+    });
+  }
 
   if (isConnectedToMongo) {
     try {
@@ -58,7 +69,7 @@ usersRouter.post("/", requireAuth, requireRole(["admin"]), async (req: Authentic
         return res.status(409).json({ success: false, error: { code: "EXISTS", message: "User email already exists" } });
       }
 
-      const passwordHash = await bcrypt.hash(password || "Industry2025!", 10);
+      const passwordHash = await bcrypt.hash(password, 10);
       const user = await User.create({ name, email, passwordHash, role });
 
       await AuditEvent.create({
