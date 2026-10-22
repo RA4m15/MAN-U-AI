@@ -1,15 +1,15 @@
-import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import { app } from "../src/app";
 import { env } from "../src/config/env";
-import { connectDatabase } from "../src/config/database";
+import { connectDatabase, isConnectedToMongo } from "../src/config/database";
 import { seedDatabase } from "../src/config/seed";
 import { geminiService } from "../src/services/gemini.service";
 import { ragService } from "../src/services/rag.service";
 import { vectorService } from "../src/services/vector.service";
-import { Equipment, Conversation, Message, DocumentModel, DocumentChunk, DocumentFigure } from "../src/models";
+import { Equipment, Conversation, Message, DocumentModel, DocumentChunk, DocumentFigure, DocumentPermission } from "../src/models";
 import { toMongoObjectId } from "../src/routes/documents.routes";
 
 describe("Task 3: Evidence-Grounded Interactive Troubleshooting Suite", () => {
@@ -78,6 +78,24 @@ describe("Task 3: Evidence-Grounded Interactive Troubleshooting Suite", () => {
       text: "If bearing housing temperature exceeds 80°C and metallic particulates are present in oil sample: Step 2: Perform Lockout/Tagout (LOTO) energy isolation of main drive motor P-102-M. Depressurize casing. Inspect shaft axial runout using dial indicator. Maximum permissible axial runout is 0.05 mm. Tighten four M12 gland retaining nuts in cross-diagonal sequence to 45 N·m.",
       embedding: new Array(768).fill(0.03),
     });
+
+    if (isConnectedToMongo) {
+      await DocumentPermission.create({
+        documentId: testDocId,
+        role: "engineer",
+        canRead: true,
+        canWrite: false,
+      });
+    }
+  });
+
+  afterAll(async () => {
+    if (isConnectedToMongo) {
+      await Equipment.findByIdAndDelete(testEquipmentId);
+      await DocumentModel.findByIdAndDelete(testDocId);
+      await DocumentChunk.deleteMany({ documentId: testDocId });
+      await DocumentPermission.deleteMany({ documentId: testDocId });
+    }
   });
 
   afterEach(() => {

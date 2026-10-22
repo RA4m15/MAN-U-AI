@@ -15,6 +15,7 @@ import {
   DocumentChunk,
   DocumentFigure,
   DocumentPermission,
+  User,
 } from "../src/models";
 
 const MINIMAL_JPEG = Buffer.from(
@@ -57,6 +58,25 @@ describe("Task 4: Production-Ready Multimodal RAG and Figure-Aware Answers Suite
     await seedDatabase();
 
     if (isConnectedToMongo) {
+      await User.deleteMany({ email: { $in: [engineerUser.email, viewerUser.email] } });
+      await User.create([
+        {
+          _id: new mongoose.Types.ObjectId(engineerUser.id),
+          name: "Lead Engineer",
+          email: engineerUser.email,
+          passwordHash: "mockHashedPassword123",
+          role: engineerUser.role,
+          isActive: true,
+        },
+        {
+          _id: new mongoose.Types.ObjectId(viewerUser.id),
+          name: "Contractor Viewer",
+          email: viewerUser.email,
+          passwordHash: "mockHashedPassword123",
+          role: viewerUser.role,
+          isActive: true,
+        },
+      ]);
       await DocumentModel.deleteMany({ title: { $regex: /SP-400X|BFP-400|Proprietary Plant Turbine/i } });
       await DocumentChunk.deleteMany({ documentTitle: { $regex: /SP-400X|BFP-400|Proprietary Plant Turbine/i } });
       await DocumentFigure.deleteMany({ documentTitle: { $regex: /SP-400X|BFP-400|Proprietary Plant Turbine/i } });
@@ -213,6 +233,7 @@ describe("Task 4: Production-Ready Multimodal RAG and Figure-Aware Answers Suite
       await DocumentChunk.deleteMany({ documentId: { $in: [authorizedDocId, restrictedDocId] } });
       await DocumentFigure.deleteMany({ documentId: { $in: [authorizedDocId, restrictedDocId] } });
       await DocumentPermission.deleteMany({ documentId: { $in: [authorizedDocId, restrictedDocId] } });
+      await User.deleteMany({ email: { $in: [engineerUser.email, viewerUser.email] } });
     }
   });
 

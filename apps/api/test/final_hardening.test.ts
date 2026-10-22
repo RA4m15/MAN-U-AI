@@ -438,7 +438,7 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
 
     try {
       (env as any).NODE_ENV = "production";
-      await expect(connectDatabase("mongodb://invalid-cluster.invalid:27017/manuai")).rejects.toThrow(
+      await expect(connectDatabase("mongodb://127.0.0.1:27017/manuai_test")).rejects.toThrow(
         /Production database connection failed/
       );
     } finally {
