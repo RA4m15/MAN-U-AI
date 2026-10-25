@@ -13,8 +13,12 @@ export const authRouter: Router = Router();
 authRouter.post("/register", authLimiter, async (req: Request, res: Response) => {
   const isProduction = process.env.NODE_ENV === "production" || env.NODE_ENV === "production";
 
+  const isPublicRegistrationEnabled =
+    process.env.ENABLE_PUBLIC_REGISTRATION === "true" ||
+    env.ENABLE_PUBLIC_REGISTRATION === "true";
+
   // In production, public registration is restricted unless explicitly enabled
-  if (isProduction && process.env.ENABLE_PUBLIC_REGISTRATION !== "true") {
+  if (isProduction && !isPublicRegistrationEnabled) {
     return res.status(403).json({
       success: false,
       error: {
@@ -53,7 +57,10 @@ authRouter.post("/register", authLimiter, async (req: Request, res: Response) =>
   }
 
   try {
-    const existing = await User.findOne({ email }).maxTimeMS(8000).exec();
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = await User.findOne({
+      $or: [{ email: normalizedEmail }, { email: email.trim() }],
+    }).maxTimeMS(8000).exec();
     if (existing) {
       return res.status(409).json({
         success: false,
@@ -61,9 +68,15 @@ authRouter.post("/register", authLimiter, async (req: Request, res: Response) =>
       });
     }
 
-    const assignedRole: UserRole = role === "engineer" ? "engineer" : "viewer";
+    // Assign fixed server-controlled least-privileged non-admin role permitted for user-facing chat
+    const assignedRole: UserRole = "viewer";
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, passwordHash, role: assignedRole });
+    const user = await User.create({
+      name: name.trim(),
+      email: normalizedEmail,
+      passwordHash,
+      role: assignedRole,
+    });
 
     const token = jwt.sign(
       { id: user._id.toString(), email: user.email, name: user.name, role: user.role },
@@ -131,7 +144,10 @@ authRouter.post("/login", authLimiter, async (req: Request, res: Response) => {
   }
 
   try {
-    const userPromise = User.findOne({ email }).maxTimeMS(8000).exec();
+    const normalizedEmail = email.trim().toLowerCase();
+    const userPromise = User.findOne({
+      $or: [{ email: normalizedEmail }, { email: email.trim() }],
+    }).maxTimeMS(8000).exec();
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error("AUTH_QUERY_TIMEOUT")), 10000)
     );

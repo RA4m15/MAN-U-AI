@@ -40,6 +40,8 @@ services:
         value: gemini-3.6-flash,gemini-3.8-flash
       - key: GEMINI_EMBEDDING_MODEL
         value: gemini-embedding-001
+      - key: ENABLE_PUBLIC_REGISTRATION
+        value: "true"
     healthCheckPath: /health/ready
 
   # ── MAN-U-AI Web Frontend Static Site ─────────────────────────

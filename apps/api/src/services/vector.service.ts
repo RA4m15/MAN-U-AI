@@ -264,6 +264,11 @@ export class VectorService {
     const isProduction = env.NODE_ENV === "production";
     const requireIndexedStrict = isProduction || options?.requireIndexed;
 
+    // If filterDocIds is explicitly passed as an empty array, no documents are accessible
+    if (Array.isArray(filterDocIds) && filterDocIds.length === 0) {
+      return [];
+    }
+
     // 1. Fetch real persisted chunks from MongoDB
     if (isConnectedToMongo) {
       try {
@@ -375,13 +380,20 @@ export class VectorService {
       .split(/\s+/)
       .filter((w) => w.length > 2 && !stopwords.has(w));
 
+    // Precompile word-boundary regular expressions to prevent substring false-positives
+    // (e.g. "ratio" matching inside words like "vibration", "operations", or "calibration")
+    const tokenRegexes = cleanTokens.map((kw) => {
+      const escaped = kw.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+      return new RegExp(`\\b${escaped}\\b`, "i");
+    });
+
     const scored: ScoredChunk[] = candidateChunks.map((c) => {
       const cosineSim = this.computeCosineSimilarity(queryEmbedding, c.embedding);
 
       let keywordMatches = 0;
-      const lowerText = (c.text + " " + (c.section || "") + " " + c.documentTitle).toLowerCase();
-      for (const kw of cleanTokens) {
-        if (lowerText.includes(kw)) {
+      const fullText = c.text + " " + (c.section || "") + " " + c.documentTitle;
+      for (const rx of tokenRegexes) {
+        if (rx.test(fullText)) {
           keywordMatches++;
         }
       }

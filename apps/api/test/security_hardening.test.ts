@@ -272,6 +272,52 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
     expect(res.body.data.answer.toLowerCase()).toContain("could not locate");
   }, 20000);
 
+  it("Requirement 13.8 (Regression): Unsupported question remains ungrounded with 0 citations even when unrelated document chunks with overlapping substrings exist in database", async () => {
+    if (!isConnectedToMongo) return;
+
+    // Create an accessible document whose title, section, and text contain technical words
+    // that share substring overlap with query keywords (e.g. "Operations", "operational", "vibration", "generation")
+    const unrelatedDoc = await DocumentModel.create({
+      title: "Boiler Operations and Vibration Protocol",
+      revision: "Rev 1.0",
+      filename: "boiler_ops.pdf",
+      storagePath: "boiler_ops.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      status: "indexed",
+      pageCount: 2,
+      uploadedById: toMongoObjectId(userAId),
+    });
+
+    await DocumentChunk.create({
+      documentId: unrelatedDoc._id,
+      documentTitle: unrelatedDoc.title,
+      revision: unrelatedDoc.revision,
+      page: 1,
+      section: "Operational Vibration Tolerances",
+      text: "Normal operational vibration baseline must remain below 0.05 mm during standard generation cycles.",
+      embedding: new Array(768).fill(0.01),
+      tokenCount: 15,
+    });
+
+    try {
+      const res = await request(app)
+        .post("/api/v1/chat")
+        .set("Authorization", `Bearer ${userAToken}`)
+        .send({
+          message: "What is the plasma compression ratio for the hyperdrive reactor?",
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.citations.length).toBe(0);
+      expect(res.body.data.answer.toLowerCase()).toContain("could not locate");
+    } finally {
+      await DocumentModel.findByIdAndDelete(unrelatedDoc._id);
+      await DocumentChunk.deleteMany({ documentId: unrelatedDoc._id });
+    }
+  }, 20000);
+
   // ── 9. Persistence & Server Restart Verification ──────────────────────────
   it("Requirement 13.9: Persistent documents and chunks remain usable after restarting the backend", async () => {
     if (!isConnectedToMongo) return;

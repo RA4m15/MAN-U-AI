@@ -546,27 +546,34 @@ describe("Task 3: Evidence-Grounded Interactive Troubleshooting Suite", () => {
       "Tighten gland retaining nuts to 45 N·m per verified SOP."
     );
 
-    const res = await request(app)
-      .post("/api/v1/chat")
-      .set("Authorization", `Bearer ${engineerToken}`)
-      .send({
-        message: "What is the gland retaining nut torque specification for the SP-400X pump?",
-        equipmentId: testEquipmentId,
-      });
+    try {
+      const res = await request(app)
+        .post("/api/v1/chat")
+        .set("Authorization", `Bearer ${engineerToken}`)
+        .send({
+          message: "What is the gland retaining nut torque specification for the SP-400X pump?",
+          equipmentId: testEquipmentId,
+        });
 
-    expect(res.status).toBe(200);
-    expect(res.body.data.citations).toBeDefined();
-    // Engineer has NO access to restrictedDocId
-    const restrictedMatches = res.body.data.citations.filter(
-      (c: any) => c.documentId === restrictedDocId.toString()
-    );
-    expect(restrictedMatches.length).toBe(0);
+      expect(res.status).toBe(200);
+      expect(res.body.data.citations).toBeDefined();
+      // Engineer has NO access to restrictedDocId
+      const restrictedMatches = res.body.data.citations.filter(
+        (c: any) => c.documentId === restrictedDocId.toString()
+      );
+      expect(restrictedMatches.length).toBe(0);
 
-    // All citations returned must be authorized documents and never the restricted document
-    expect(res.body.data.citations.length).toBeGreaterThan(0);
-    for (const c of res.body.data.citations) {
-      expect(c.documentId).not.toBe(restrictedDocId.toString());
-      expect(c.documentTitle).not.toBe("Confidential Competitor Slurry Pump Teardown");
+      // All citations returned must be authorized documents and never the restricted document
+      expect(res.body.data.citations.length).toBeGreaterThan(0);
+      for (const c of res.body.data.citations) {
+        expect(c.documentId).not.toBe(restrictedDocId.toString());
+        expect(c.documentTitle).not.toBe("Confidential Competitor Slurry Pump Teardown");
+      }
+    } finally {
+      if (isConnectedToMongo) {
+        await DocumentModel.findByIdAndDelete(restrictedDocId);
+        await DocumentChunk.deleteMany({ documentId: restrictedDocId });
+      }
     }
   });
 });
