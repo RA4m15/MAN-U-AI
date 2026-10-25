@@ -44,7 +44,7 @@ usersRouter.get("/", requireAuth, requireRole(["admin"]), async (req: Authentica
 usersRouter.post("/", requireAuth, requireRole(["admin"]), async (req: AuthenticatedRequest, res: Response) => {
   const parsed = RegisterSchema.safeParse(req.body);
   if (!parsed.success) {
-    const sanitizedIssues = parsed.error.issues.map((issue) => ({
+    const sanitizedIssues = parsed.error.issues.map((issue: { path: (string | number | symbol)[]; message: string }) => ({
       field: issue.path.join("."),
       message: issue.message,
     }));

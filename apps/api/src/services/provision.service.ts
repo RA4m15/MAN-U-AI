@@ -8,7 +8,7 @@ export const ProvisionUserSchema = z.object({
   email: z.string().email("Invalid email format").trim().toLowerCase(),
   name: z.string().min(1).max(100).trim().optional(),
   role: z.enum(["admin", "engineer", "viewer"], {
-    errorMap: () => ({ message: "Invalid role. Allowed roles are: admin, engineer, viewer" }),
+    message: "Invalid role. Allowed roles are: admin, engineer, viewer",
   }),
   password: z
     .string()

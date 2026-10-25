@@ -455,4 +455,44 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
       await User.deleteMany({ email: lowerCaseEmail });
     }
   });
+
+  // ── 14. Zod Bounded Collection Defense & DoS Prevention ─────────────────
+  it("Requirement 13.14: Enforces strict collection upper bounds on untrusted input arrays to prevent memory exhaustion (GHSA-mrhx-c7xc-m3w5)", async () => {
+    const { SendMessageSchema, UploadDocumentSchema } = await import("@man-u-ai/shared");
+
+    // 1. Oversized attachmentIds array in SendMessageSchema should fail validation
+    const abusiveAttachments = new Array(50).fill("att-overflow-id-0123456789");
+    const messageResult = SendMessageSchema.safeParse({
+      content: "Valid query content",
+      attachmentIds: abusiveAttachments,
+    });
+    expect(messageResult.success).toBe(false);
+    if (!messageResult.success) {
+      expect(messageResult.error.issues.some((i: any) => i.path.includes("attachmentIds"))).toBe(true);
+    }
+
+    // 2. Oversized tags array in UploadDocumentSchema should fail validation
+    const abusiveTags = new Array(100).fill("overflow-tag");
+    const docResult = UploadDocumentSchema.safeParse({
+      title: "Valid Document Title",
+      tags: abusiveTags,
+    });
+    expect(docResult.success).toBe(false);
+    if (!docResult.success) {
+      expect(docResult.error.issues.some((i: any) => i.path.includes("tags"))).toBe(true);
+    }
+
+    // 3. Valid bounded arrays succeed
+    const validMessage = SendMessageSchema.safeParse({
+      content: "Valid query content",
+      attachmentIds: ["att-1", "att-2"],
+    });
+    expect(validMessage.success).toBe(true);
+
+    const validDoc = UploadDocumentSchema.safeParse({
+      title: "Valid Title",
+      tags: ["slurry-pump", "maintenance"],
+    });
+    expect(validDoc.success).toBe(true);
+  });
 });

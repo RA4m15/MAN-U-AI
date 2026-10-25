@@ -56,7 +56,7 @@ export const UploadDocumentSchema = z.object({
   title: z.string().min(1).max(255),
   revision: z.string().max(50).optional().default("v1"),
   equipmentId: z.string().optional(),
-  tags: z.array(z.string()).optional().default([]),
+  tags: z.array(z.string().max(100)).max(50).optional().default([]),
 });
 export type UploadDocumentInput = z.infer<typeof UploadDocumentSchema>;
 
@@ -133,7 +133,7 @@ export interface ConversationDTO {
 export const SendMessageSchema = z.object({
   content: z.string().min(1).max(8000),
   equipmentId: z.string().optional(),
-  attachmentIds: z.array(z.string()).optional().default([]),
+  attachmentIds: z.array(z.string().max(100)).max(20).optional().default([]),
 });
 export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 
