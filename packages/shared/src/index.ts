@@ -3,16 +3,16 @@ import { z } from "zod";
 // ─── Auth ───────────────────────────────────────────────────────────────────
 
 export const RegisterSchema = z.object({
-  name: z.string().min(2).max(100),
-  email: z.string().email().max(255),
-  password: z.string().min(8).max(128),
+  name: z.string().trim().min(2, "Name must be at least 2 characters").max(100, "Name cannot exceed 100 characters"),
+  email: z.string().trim().email("Invalid email format").max(255, "Email cannot exceed 255 characters"),
+  password: z.string().min(8, "Password must be at least 8 characters").max(128, "Password cannot exceed 128 characters"),
   role: z.enum(["admin", "engineer", "viewer"]).optional().default("viewer"),
 });
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 
 export const LoginSchema = z.object({
-  email: z.string().email().max(255),
-  password: z.string().min(1).max(128),
+  email: z.string().trim().email("Invalid email format").max(255, "Email cannot exceed 255 characters"),
+  password: z.string().min(1, "Password is required").max(128, "Password cannot exceed 128 characters"),
 });
 export type LoginInput = z.infer<typeof LoginSchema>;
 
@@ -53,10 +53,16 @@ export interface DocumentDTO {
 }
 
 export const UploadDocumentSchema = z.object({
-  title: z.string().min(1).max(255),
-  revision: z.string().max(50).optional().default("v1"),
-  equipmentId: z.string().max(100).optional(),
-  tags: z.array(z.string().trim().min(1).max(100)).max(50).optional().default([]),
+  title: z.string().trim().min(1, "Document title cannot be empty").max(255, "Document title too long"),
+  revision: z.string().trim().max(50, "Revision too long").optional().default("v1"),
+  equipmentId: z
+    .string()
+    .trim()
+    .refine((val) => !val || /^[0-9a-fA-F]{24}$/.test(val), {
+      message: "Invalid equipment ID format: must be a 24-character hexadecimal ObjectId",
+    })
+    .optional(),
+  tags: z.array(z.string().trim().min(1, "Tag cannot be empty").max(100, "Tag too long")).max(50, "Cannot exceed 50 tags").optional().default([]),
 });
 export type UploadDocumentInput = z.infer<typeof UploadDocumentSchema>;
 
@@ -131,11 +137,11 @@ export interface ConversationDTO {
 }
 
 export const SendMessageSchema = z.object({
-  content: z.string().min(1).max(8000).optional(),
-  message: z.string().min(1).max(8000).optional(),
-  conversationId: z.string().max(100).optional(),
-  equipmentId: z.string().max(100).optional(),
-  attachmentIds: z.array(z.string().trim().min(1).max(100)).max(20).optional().default([]),
+  content: z.string().trim().min(1, "Message text is required").max(8000, "Message text too long").optional(),
+  message: z.string().trim().min(1, "Message text is required").max(8000, "Message text too long").optional(),
+  conversationId: z.string().trim().max(100).optional(),
+  equipmentId: z.string().trim().max(100).optional(),
+  attachmentIds: z.array(z.string().trim().min(1, "Attachment ID cannot be empty").max(100, "Attachment ID too long")).max(20, "Cannot exceed 20 attachments").optional().default([]),
 }).refine((data) => Boolean((data.content && data.content.trim()) || (data.message && data.message.trim())), {
   message: "Message text is required",
   path: ["message"],
@@ -157,21 +163,21 @@ export interface EquipmentDTO {
 }
 
 export const CreateEquipmentSchema = z.object({
-  name: z.string().min(1).max(255),
-  type: z.string().min(1).max(100),
-  model: z.string().max(100).optional(),
-  manufacturer: z.string().max(100).optional(),
-  serialNumber: z.string().max(100).optional(),
-  location: z.string().max(100).optional(),
+  name: z.string().trim().min(1, "Equipment name is required").max(255, "Equipment name too long"),
+  type: z.string().trim().min(1, "Equipment type is required").max(100, "Equipment type too long"),
+  model: z.string().trim().max(100).optional(),
+  manufacturer: z.string().trim().max(100).optional(),
+  serialNumber: z.string().trim().max(100).optional(),
+  location: z.string().trim().max(100).optional(),
 });
 export type CreateEquipmentInput = z.infer<typeof CreateEquipmentSchema>;
 
 // ─── Feedback ────────────────────────────────────────────────────────────────
 
 export const FeedbackSchema = z.object({
-  messageId: z.string().min(1).max(100),
-  rating: z.enum(["up", "down"]),
-  comment: z.string().max(1000).optional(),
+  messageId: z.string().trim().min(1, "Message ID is required").max(100, "Message ID too long"),
+  rating: z.enum(["up", "down"], { message: "Rating must be 'up' or 'down'" }),
+  comment: z.string().trim().max(1000, "Comment cannot exceed 1000 characters").optional(),
 });
 export type FeedbackInput = z.infer<typeof FeedbackSchema>;
 

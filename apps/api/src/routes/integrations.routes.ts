@@ -11,8 +11,31 @@ import { env } from "../config/env";
 import { sanitizeError } from "./settings.routes";
 import { SUPPORTED_MODELS, settingsService } from "../services/settings.service";
 import { modelQuotaTracker } from "../services/gemini.service";
+import { z } from "zod";
 
 export const integrationsRouter: Router = Router();
+
+export const IntegrationProbeBodySchema = z.object({
+  model: z
+    .string({ message: "Field 'model' must be a string" })
+    .trim()
+    .min(1, "Field 'model' cannot be empty")
+    .max(100, "Field 'model' exceeds maximum length of 100 characters")
+    .optional(),
+  models: z
+    .array(
+      z
+        .string({ message: "All elements in 'models' must be non-empty strings" })
+        .trim()
+        .min(1, "All elements in 'models' must be non-empty strings")
+        .max(100, "Model identifier in 'models' exceeds maximum length of 100 characters"),
+      { message: "Field 'models' must be an array of model identifier strings" }
+    )
+    .min(1, "Field 'models' cannot be an empty array")
+    .max(10, "Field 'models' exceeds maximum of 10 candidate models")
+    .nullable()
+    .optional(),
+});
 
 const ALLOWED_INTEGRATIONS = ["mongodb", "gemini", "storage", "opc_ua", "modbus", "sap", "maximo"] as const;
 type IntegrationId = (typeof ALLOWED_INTEGRATIONS)[number];
@@ -306,6 +329,18 @@ integrationsRouter.post(
 
     // 2. Google Gemini API Probe
     if (id === "gemini") {
+      const parsedBody = IntegrationProbeBodySchema.safeParse(req.body || {});
+      if (!parsedBody.success) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: parsedBody.error.issues[0]?.message || "Invalid probe request parameters",
+            details: parsedBody.error.issues.map((i) => ({ field: i.path.join("."), message: i.message })),
+          },
+        });
+      }
+
       if (!env.GEMINI_API_KEY || env.GEMINI_API_KEY.length <= 5) {
         return res.json({
           success: false,
@@ -324,14 +359,10 @@ integrationsRouter.post(
 
         // Gather candidates to probe (bounded to 4 candidates max to avoid quota exhaustion)
         let candidates: string[] = [];
-        if (req.body?.model && typeof req.body.model === "string") {
-          candidates = [req.body.model.trim().slice(0, 100)];
-        } else if (Array.isArray(req.body?.models) && req.body.models.length > 0) {
-          candidates = req.body.models
-            .slice(0, 10)
-            .map((m: any) => String(m).trim().slice(0, 100))
-            .filter(Boolean)
-            .slice(0, 4);
+        if (parsedBody.data.model) {
+          candidates = [parsedBody.data.model];
+        } else if (parsedBody.data.models && parsedBody.data.models.length > 0) {
+          candidates = parsedBody.data.models.slice(0, 4);
         } else {
           const configuredFallbacks = env.GEMINI_FALLBACK_MODELS.split(",").map((m) => m.trim()).filter(Boolean);
           const pool = [activeModel, env.GEMINI_MODEL, ...SUPPORTED_MODELS, ...configuredFallbacks];

@@ -590,4 +590,123 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
     expect(JSON.stringify(uploadOverflowRes.body)).not.toContain("C:\\");
     expect(JSON.stringify(uploadOverflowRes.body)).not.toContain("node_modules");
   });
+
+  it("Requirement 13.16: Validates malformed request payloads and edge cases across integration, conversation, and document routes without server crashes", async () => {
+    // 1. POST /api/v1/integrations/gemini/test with malformed models input
+    // 1a. models is a string instead of an array -> 400 VALIDATION_ERROR
+    const stringModelsRes = await request(app)
+      .post("/api/v1/integrations/gemini/test")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ models: "gemini-3.8-flash" });
+
+    expect(stringModelsRes.status).toBe(400);
+    expect(stringModelsRes.body.success).toBe(false);
+    expect(stringModelsRes.body.error.code).toBe("VALIDATION_ERROR");
+    expect(stringModelsRes.body.error.stack).toBeUndefined();
+
+    // 1b. models is an array containing numbers or null -> 400 VALIDATION_ERROR
+    const mixedModelsRes = await request(app)
+      .post("/api/v1/integrations/gemini/test")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ models: [123, null, {}] });
+
+    expect(mixedModelsRes.status).toBe(400);
+    expect(mixedModelsRes.body.success).toBe(false);
+    expect(mixedModelsRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 1c. models is an empty array -> 400 VALIDATION_ERROR
+    const emptyModelsRes = await request(app)
+      .post("/api/v1/integrations/gemini/test")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ models: [] });
+
+    expect(emptyModelsRes.status).toBe(400);
+    expect(emptyModelsRes.body.success).toBe(false);
+    expect(emptyModelsRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 1d. models exceeds permitted maximum (> 10 items) -> 400 VALIDATION_ERROR
+    const overMaxModelsRes = await request(app)
+      .post("/api/v1/integrations/gemini/test")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ models: Array.from({ length: 11 }, (_, i) => `model-${i}`) });
+
+    expect(overMaxModelsRes.status).toBe(400);
+    expect(overMaxModelsRes.body.success).toBe(false);
+    expect(overMaxModelsRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 1e. model is invalid type (whitespace string) -> 400 VALIDATION_ERROR
+    const invalidModelRes = await request(app)
+      .post("/api/v1/integrations/gemini/test")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ model: "   " });
+
+    expect(invalidModelRes.status).toBe(400);
+    expect(invalidModelRes.body.success).toBe(false);
+    expect(invalidModelRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 2. POST /api/v1/conversations malformed inputs
+    // 2a. non-string title -> 400 VALIDATION_ERROR
+    const malformedTitleRes = await request(app)
+      .post("/api/v1/conversations")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .send({ title: { $gt: "" } });
+
+    expect(malformedTitleRes.status).toBe(400);
+    expect(malformedTitleRes.body.success).toBe(false);
+    expect(malformedTitleRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 2b. non-string equipmentId -> 400 INVALID_EQUIPMENT_ID
+    const nonStringEqRes = await request(app)
+      .post("/api/v1/conversations")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .send({ equipmentId: [1, 2, 3] });
+
+    expect(nonStringEqRes.status).toBe(400);
+    expect(nonStringEqRes.body.success).toBe(false);
+    expect(nonStringEqRes.body.error.code).toBe("INVALID_EQUIPMENT_ID");
+
+    // 2c. malformed equipmentId string -> 400 INVALID_EQUIPMENT_ID
+    const malformedEqIdRes = await request(app)
+      .post("/api/v1/conversations")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .send({ equipmentId: "invalid-not-24-hex" });
+
+    expect(malformedEqIdRes.status).toBe(400);
+    expect(malformedEqIdRes.body.success).toBe(false);
+    expect(malformedEqIdRes.body.error.code).toBe("INVALID_EQUIPMENT_ID");
+
+    // 3. POST /api/v1/documents/upload malformed inputs
+    const validPdfBuffer = Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+
+    // 3a. whitespace-only title -> 400 VALIDATION_ERROR
+    const whitespaceTitleRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .attach("file", validPdfBuffer, "test_manual.pdf")
+      .field("title", "   ");
+
+    expect(whitespaceTitleRes.status).toBe(400);
+    expect(whitespaceTitleRes.body.success).toBe(false);
+    expect(whitespaceTitleRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 3b. malformed equipmentId -> 400 VALIDATION_ERROR
+    const badUploadEqRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .attach("file", validPdfBuffer, "test_manual.pdf")
+      .field("title", "Valid Document")
+      .field("equipmentId", "not-a-valid-object-id");
+
+    expect(badUploadEqRes.status).toBe(400);
+    expect(badUploadEqRes.body.success).toBe(false);
+    expect(badUploadEqRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 4. Safe error verification across all rejected responses
+    for (const res of [stringModelsRes, mixedModelsRes, malformedTitleRes, nonStringEqRes, badUploadEqRes]) {
+      expect(res.body.error.stack).toBeUndefined();
+      expect(JSON.stringify(res.body)).not.toContain("C:\\");
+      expect(JSON.stringify(res.body)).not.toContain("node_modules");
+      expect(JSON.stringify(res.body)).not.toContain(env.JWT_SECRET);
+    }
+  });
 });
