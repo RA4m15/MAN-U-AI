@@ -77,9 +77,9 @@ describe("Task 4: Production-Ready Multimodal RAG and Figure-Aware Answers Suite
           isActive: true,
         },
       ]);
-      await DocumentModel.deleteMany({ title: { $regex: /SP-400X|BFP-400|Proprietary Plant Turbine/i } });
-      await DocumentChunk.deleteMany({ documentTitle: { $regex: /SP-400X|BFP-400|Proprietary Plant Turbine/i } });
-      await DocumentFigure.deleteMany({ documentTitle: { $regex: /SP-400X|BFP-400|Proprietary Plant Turbine/i } });
+      await DocumentModel.deleteMany({ title: { $regex: /SP-400X Rebuild Manual|BFP-400|Proprietary Plant Turbine/i } });
+      await DocumentChunk.deleteMany({ documentTitle: { $regex: /SP-400X Rebuild Manual|BFP-400|Proprietary Plant Turbine/i } });
+      await DocumentFigure.deleteMany({ documentTitle: { $regex: /SP-400X Rebuild Manual|BFP-400|Proprietary Plant Turbine/i } });
     }
 
     engineerToken = jwt.sign(

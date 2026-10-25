@@ -124,4 +124,30 @@ describe("Stage 5.6.1: Candidate Model Integration Probe & Quota Validation", ()
     expect(res.httpStatus).toBe(403);
     expect(res.supported).toBe(true);
   });
+
+  it("4. POST /api/v1/integrations/gemini/test handles missing or null models gracefully by probing default pool", async () => {
+    mockGenerateContentImpl = async () => ({ text: "pong" });
+
+    // 4a. models explicitly null
+    const nullRes = await request(app)
+      .post("/api/v1/integrations/gemini/test")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ models: null });
+
+    expect(nullRes.status).toBe(200);
+    expect(nullRes.body.success).toBe(true);
+    expect(Array.isArray(nullRes.body.results)).toBe(true);
+    expect(nullRes.body.results.length).toBeGreaterThan(0);
+
+    // 4b. models omitted entirely (empty body)
+    const emptyBodyRes = await request(app)
+      .post("/api/v1/integrations/gemini/test")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+
+    expect(emptyBodyRes.status).toBe(200);
+    expect(emptyBodyRes.body.success).toBe(true);
+    expect(Array.isArray(emptyBodyRes.body.results)).toBe(true);
+    expect(emptyBodyRes.body.results.length).toBeGreaterThan(0);
+  });
 });

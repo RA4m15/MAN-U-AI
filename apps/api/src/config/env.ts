@@ -3,18 +3,35 @@ import path from "path";
 import fs from "fs";
 import { z } from "zod";
 
+import os from "os";
+
 // Canonical root .env locator for development and compiled execution
 function findCanonicalRootEnvPath(): string {
-  let curr = __dirname;
+  const homeDir = path.resolve(os.homedir());
+  let curr = path.resolve(__dirname);
+  let gitFallbackPath: string | null = null;
+
   while (curr && curr !== path.dirname(curr)) {
     const workspaceMarker = path.join(curr, "pnpm-workspace.yaml");
-    const gitMarker = path.join(curr, ".git");
-    if (fs.existsSync(workspaceMarker) || fs.existsSync(gitMarker)) {
+    if (fs.existsSync(workspaceMarker)) {
       return path.join(curr, ".env");
     }
+
+    if (!gitFallbackPath && curr !== homeDir) {
+      const gitMarker = path.join(curr, ".git");
+      if (fs.existsSync(gitMarker)) {
+        gitFallbackPath = path.join(curr, ".env");
+      }
+    }
+
+    if (curr === homeDir) {
+      break;
+    }
+
     curr = path.dirname(curr);
   }
-  return path.resolve(process.cwd(), ".env");
+
+  return gitFallbackPath || path.resolve(process.cwd(), ".env");
 }
 
 export const CANONICAL_ENV_PATH = findCanonicalRootEnvPath();
@@ -53,6 +70,7 @@ const envSchema = z.object({
   GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-001"),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),
+  ENABLE_PUBLIC_REGISTRATION: z.string().default("false"),
 }).superRefine((data, ctx) => {
   if (data.NODE_ENV === "production") {
     if (data.STORAGE_PROVIDER === "cloudinary") {

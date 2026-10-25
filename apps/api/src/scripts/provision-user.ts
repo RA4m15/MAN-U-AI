@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
+import os from "os";
 
 /**
  * Canonical root .env locator for development, CLI scripts, and compiled execution.
@@ -9,16 +10,34 @@ import fs from "fs";
  * Returns null if no repository root marker is found to prevent accidental cwd fallbacks.
  */
 export function findCanonicalRootEnvPath(startDir: string = __dirname): string | null {
-  let curr = startDir;
+  const homeDir = path.resolve(os.homedir());
+  let curr = path.resolve(startDir);
+  let gitFallbackPath: string | null = null;
+
   while (curr && curr !== path.dirname(curr)) {
     const workspaceMarker = path.join(curr, "pnpm-workspace.yaml");
-    const gitMarker = path.join(curr, ".git");
-    if (fs.existsSync(workspaceMarker) || fs.existsSync(gitMarker)) {
+    if (fs.existsSync(workspaceMarker)) {
+      // Authoritative monorepo root
       return path.join(curr, ".env");
     }
+
+    // Capture first git marker ONLY IF it is not the user's home directory
+    if (!gitFallbackPath && curr !== homeDir) {
+      const gitMarker = path.join(curr, ".git");
+      if (fs.existsSync(gitMarker)) {
+        gitFallbackPath = path.join(curr, ".env");
+      }
+    }
+
+    // Prevent upward traversal past user home directory unless a workspace marker was already found
+    if (curr === homeDir) {
+      break;
+    }
+
     curr = path.dirname(curr);
   }
-  return null;
+
+  return gitFallbackPath;
 }
 
 /**

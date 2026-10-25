@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
@@ -59,6 +59,10 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
       await FacilitySettings.deleteMany({});
       settingsService.clearCache();
     }
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   afterAll(async () => {

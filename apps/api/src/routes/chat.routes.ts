@@ -6,19 +6,25 @@ import { Message, Conversation, Equipment } from "../models";
 import { isConnectedToMongo } from "../config/database";
 import { extractStructuredErrorInfo, logStructuredError } from "../utils/errorReporting";
 import { toMongoObjectId } from "./documents.routes";
+import { SendMessageSchema } from "@man-u-ai/shared";
 
 export const chatRouter: Router = Router();
 
 chatRouter.post("/", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const { message, conversationId, equipmentId } = req.body;
-  const requestId = (req as any).id;
-
-  if (!message || typeof message !== "string" || !message.trim()) {
+  const parsed = SendMessageSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const firstIssue = parsed.error.issues[0];
+    const message = firstIssue?.message || "Message text is required";
     return res.status(400).json({
       success: false,
-      error: { code: "BAD_REQUEST", message: "Message text is required" },
+      error: { code: "BAD_REQUEST", message, details: parsed.error.issues },
     });
   }
+
+  const message = (parsed.data.message || parsed.data.content)!.trim();
+  const conversationId = parsed.data.conversationId;
+  const equipmentId = parsed.data.equipmentId;
+  const requestId = (req as any).id;
 
   const userContext = req.user
     ? { id: req.user.id, role: req.user.role }

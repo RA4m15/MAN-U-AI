@@ -272,6 +272,52 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
     expect(res.body.data.answer.toLowerCase()).toContain("could not locate");
   }, 20000);
 
+  it("Requirement 13.8 (Regression): Unsupported question remains ungrounded with 0 citations even when unrelated document chunks with overlapping substrings exist in database", async () => {
+    if (!isConnectedToMongo) return;
+
+    // Create an accessible document whose title, section, and text contain technical words
+    // that share substring overlap with query keywords (e.g. "Operations", "operational", "vibration", "generation")
+    const unrelatedDoc = await DocumentModel.create({
+      title: "Boiler Operations and Vibration Protocol",
+      revision: "Rev 1.0",
+      filename: "boiler_ops.pdf",
+      storagePath: "boiler_ops.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 1024,
+      status: "indexed",
+      pageCount: 2,
+      uploadedById: toMongoObjectId(userAId),
+    });
+
+    await DocumentChunk.create({
+      documentId: unrelatedDoc._id,
+      documentTitle: unrelatedDoc.title,
+      revision: unrelatedDoc.revision,
+      page: 1,
+      section: "Operational Vibration Tolerances",
+      text: "Normal operational vibration baseline must remain below 0.05 mm during standard generation cycles.",
+      embedding: new Array(768).fill(0.01),
+      tokenCount: 15,
+    });
+
+    try {
+      const res = await request(app)
+        .post("/api/v1/chat")
+        .set("Authorization", `Bearer ${userAToken}`)
+        .send({
+          message: "What is the plasma compression ratio for the hyperdrive reactor?",
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.citations.length).toBe(0);
+      expect(res.body.data.answer.toLowerCase()).toContain("could not locate");
+    } finally {
+      await DocumentModel.findByIdAndDelete(unrelatedDoc._id);
+      await DocumentChunk.deleteMany({ documentId: unrelatedDoc._id });
+    }
+  }, 20000);
+
   // ── 9. Persistence & Server Restart Verification ──────────────────────────
   it("Requirement 13.9: Persistent documents and chunks remain usable after restarting the backend", async () => {
     if (!isConnectedToMongo) return;
@@ -292,5 +338,375 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
     expect(found[0].chunk.documentId).toBe(privateDocId);
     expect(found[0].chunk.page).toBe(7);
     expect(found[0].chunk.text).toContain("0.038 mm");
+  });
+
+  // ── 10. Audit Endpoint NoSQL Query Injection Defense ──────────────────────
+  it("Requirement 13.10: Rejects NoSQL query injection on /api/v1/audit with nested object query operators", async () => {
+    // When an attacker attempts to pass ?action[$ne]=nonexistent or object parameters,
+    // the route must safely treat non-strings as undefined and not execute arbitrary Mongo query operators.
+    const res = await request(app)
+      .get("/api/v1/audit?action[$ne]=nonexistent")
+      .set("Authorization", `Bearer ${userAToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  // ── 11. Admin Self-Demotion & Self-Deletion Safeguards ─────────────────────
+  it("Requirement 13.11: Blocks administrator self-demotion to preserve root administration", async () => {
+    if (!isConnectedToMongo) return;
+
+    // Create a temporary admin user
+    const tempAdmin = await User.create({
+      name: "Temp Root Admin",
+      email: `temp-admin-${Date.now()}@plant.io`,
+      passwordHash: "dummyHash123",
+      role: "admin",
+    });
+
+    const tempToken = jwt.sign(
+      { id: tempAdmin._id.toString(), email: tempAdmin.email, name: tempAdmin.name, role: "admin" },
+      env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    try {
+      const res = await request(app)
+        .patch(`/api/v1/users/${tempAdmin._id.toString()}/role`)
+        .set("Authorization", `Bearer ${tempToken}`)
+        .send({ role: "viewer" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe("CANNOT_DEMOTE_SELF");
+    } finally {
+      await User.findByIdAndDelete(tempAdmin._id);
+    }
+  });
+
+  it("Requirement 13.12: Blocks administrator self-deletion to prevent administrative lockout", async () => {
+    if (!isConnectedToMongo) return;
+
+    const tempAdmin = await User.create({
+      name: "Self Delete Test Admin",
+      email: `temp-delete-admin-${Date.now()}@plant.io`,
+      passwordHash: "dummyHash123",
+      role: "admin",
+    });
+
+    const tempToken = jwt.sign(
+      { id: tempAdmin._id.toString(), email: tempAdmin.email, name: tempAdmin.name, role: "admin" },
+      env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    try {
+      const res = await request(app)
+        .delete(`/api/v1/users/${tempAdmin._id.toString()}`)
+        .set("Authorization", `Bearer ${tempToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe("CANNOT_DELETE_SELF");
+    } finally {
+      await User.findByIdAndDelete(tempAdmin._id);
+    }
+  });
+
+  it("Requirement 13.13: Admin user creation normalizes email and prevents case-variant duplicate accounts", async () => {
+    if (!isConnectedToMongo) return;
+
+    const timestamp = Date.now();
+    const mixedCaseEmail = `CaseTest-${timestamp}@Plant.IO`;
+    const lowerCaseEmail = mixedCaseEmail.toLowerCase();
+
+    // 1. Create with mixed case
+    const res1 = await request(app)
+      .post("/api/v1/users")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        name: "Case Test User",
+        email: mixedCaseEmail,
+        password: "ValidPassword123!",
+        role: "viewer",
+      });
+
+    expect(res1.status).toBe(201);
+    expect(res1.body.success).toBe(true);
+    expect(res1.body.data.email).toBe(lowerCaseEmail);
+
+    try {
+      // 2. Attempt duplicate with lowercase
+      const res2 = await request(app)
+        .post("/api/v1/users")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({
+          name: "Duplicate User",
+          email: lowerCaseEmail,
+          password: "ValidPassword123!",
+          role: "viewer",
+        });
+
+      expect(res2.status).toBe(409);
+      expect(res2.body.success).toBe(false);
+      expect(res2.body.error.code).toBe("EXISTS");
+    } finally {
+      await User.deleteMany({ email: lowerCaseEmail });
+    }
+  });
+
+  // ── 14. Zod Bounded Collection Defense & DoS Prevention ─────────────────
+  it("Requirement 13.14: Enforces strict collection upper bounds on untrusted input arrays to prevent memory exhaustion (GHSA-mrhx-c7xc-m3w5)", async () => {
+    const {
+      SendMessageSchema,
+      UploadDocumentSchema,
+      RegisterSchema,
+      LoginSchema,
+      CreateEquipmentSchema,
+      FeedbackSchema,
+    } = await import("@man-u-ai/shared");
+
+    // 1. SendMessageSchema: accepted maximum (20) vs just over maximum (21)
+    const exactMaxAttachments = Array.from({ length: 20 }, (_, i) => `att-id-${i}`);
+    expect(
+      SendMessageSchema.safeParse({ content: "Valid content", attachmentIds: exactMaxAttachments }).success
+    ).toBe(true);
+
+    const overMaxAttachments = Array.from({ length: 21 }, (_, i) => `att-id-${i}`);
+    const overMaxMessage = SendMessageSchema.safeParse({ content: "Valid content", attachmentIds: overMaxAttachments });
+    expect(overMaxMessage.success).toBe(false);
+    if (!overMaxMessage.success) {
+      expect(overMaxMessage.error.issues.some((i: any) => i.path.includes("attachmentIds"))).toBe(true);
+    }
+
+    // 2. SendMessageSchema: element length bounds (> 100 chars) and invalid elements
+    const oversizedAttachmentElement = ["a".repeat(101)];
+    expect(
+      SendMessageSchema.safeParse({ content: "Valid content", attachmentIds: oversizedAttachmentElement }).success
+    ).toBe(false);
+
+    const invalidAttachmentElements = ["", "   ", null, 12345];
+    expect(
+      SendMessageSchema.safeParse({ content: "Valid content", attachmentIds: invalidAttachmentElements as any }).success
+    ).toBe(false);
+
+    // 3. UploadDocumentSchema: accepted maximum (50) vs just over maximum (51)
+    const exactMaxTags = Array.from({ length: 50 }, (_, i) => `tag-${i}`);
+    expect(UploadDocumentSchema.safeParse({ title: "Valid Title", tags: exactMaxTags }).success).toBe(true);
+
+    const overMaxTags = Array.from({ length: 51 }, (_, i) => `tag-${i}`);
+    const overMaxDoc = UploadDocumentSchema.safeParse({ title: "Valid Title", tags: overMaxTags });
+    expect(overMaxDoc.success).toBe(false);
+    if (!overMaxDoc.success) {
+      expect(overMaxDoc.error.issues.some((i: any) => i.path.includes("tags"))).toBe(true);
+    }
+
+    // 4. UploadDocumentSchema: element length bounds (> 100 chars) and empty tags
+    const oversizedTagElement = ["t".repeat(101)];
+    expect(UploadDocumentSchema.safeParse({ title: "Valid Title", tags: oversizedTagElement }).success).toBe(false);
+
+    const emptyTagElement = ["", "   "];
+    expect(UploadDocumentSchema.safeParse({ title: "Valid Title", tags: emptyTagElement }).success).toBe(false);
+
+    // 5. Auth and Metadata bounds: Register, Login, Equipment, Feedback
+    expect(
+      RegisterSchema.safeParse({
+        name: "Test User",
+        email: "a".repeat(250) + "@example.com", // > 255 chars
+        password: "ValidPassword123",
+      }).success
+    ).toBe(false);
+
+    expect(
+      LoginSchema.safeParse({
+        email: "valid@plant.io",
+        password: "p".repeat(129), // > 128 chars
+      }).success
+    ).toBe(false);
+
+    expect(
+      CreateEquipmentSchema.safeParse({
+        name: "Pump",
+        type: "t".repeat(101), // > 100 chars
+      }).success
+    ).toBe(false);
+
+    expect(
+      FeedbackSchema.safeParse({
+        messageId: "m".repeat(101), // > 100 chars
+        rating: "up",
+      }).success
+    ).toBe(false);
+  });
+
+  it("Requirement 13.15: Enforces collection bounds and defensive input validation at API route boundaries (chat and upload)", async () => {
+    // 1. POST /api/v1/chat rejects abusive oversized attachmentIds array with HTTP 400
+    const overMaxAttachments = Array.from({ length: 25 }, (_, i) => `att-overflow-${i}`);
+    const chatOverflowRes = await request(app)
+      .post("/api/v1/chat")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .send({
+        message: "Diagnose equipment issue",
+        attachmentIds: overMaxAttachments,
+      });
+
+    expect(chatOverflowRes.status).toBe(400);
+    expect(chatOverflowRes.body.success).toBe(false);
+    expect(chatOverflowRes.body.error.code).toBe("BAD_REQUEST");
+    // Confirm safe error response: no stack trace, internal paths, or secrets leaked
+    expect(chatOverflowRes.body.error.stack).toBeUndefined();
+    expect(JSON.stringify(chatOverflowRes.body)).not.toContain("C:\\");
+    expect(JSON.stringify(chatOverflowRes.body)).not.toContain("node_modules");
+
+    // 2. POST /api/v1/chat rejects oversized message content (> 8000 chars)
+    const hugeMessageRes = await request(app)
+      .post("/api/v1/chat")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .send({
+        message: "x".repeat(8005),
+      });
+
+    expect(hugeMessageRes.status).toBe(400);
+    expect(hugeMessageRes.body.success).toBe(false);
+    expect(hugeMessageRes.body.error.code).toBe("BAD_REQUEST");
+
+    // 3. POST /api/v1/documents/upload rejects oversized tags array at boundary before storage
+    const overMaxTags = Array.from({ length: 55 }, (_, i) => `tag-${i}`);
+    const validPdfBuffer = Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+
+    const uploadOverflowRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .attach("file", validPdfBuffer, "test_manual.pdf")
+      .field("title", "Over-tagged Manual")
+      .field("tags", overMaxTags.join(","));
+
+    expect(uploadOverflowRes.status).toBe(400);
+    expect(uploadOverflowRes.body.success).toBe(false);
+    expect(uploadOverflowRes.body.error.code).toBe("VALIDATION_ERROR");
+    // Confirm safe error response
+    expect(uploadOverflowRes.body.error.stack).toBeUndefined();
+    expect(JSON.stringify(uploadOverflowRes.body)).not.toContain("C:\\");
+    expect(JSON.stringify(uploadOverflowRes.body)).not.toContain("node_modules");
+  });
+
+  it("Requirement 13.16: Validates malformed request payloads and edge cases across integration, conversation, and document routes without server crashes", async () => {
+    // 1. POST /api/v1/integrations/gemini/test with malformed models input
+    // 1a. models is a string instead of an array -> 400 VALIDATION_ERROR
+    const stringModelsRes = await request(app)
+      .post("/api/v1/integrations/gemini/test")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ models: "gemini-3.8-flash" });
+
+    expect(stringModelsRes.status).toBe(400);
+    expect(stringModelsRes.body.success).toBe(false);
+    expect(stringModelsRes.body.error.code).toBe("VALIDATION_ERROR");
+    expect(stringModelsRes.body.error.stack).toBeUndefined();
+
+    // 1b. models is an array containing numbers or null -> 400 VALIDATION_ERROR
+    const mixedModelsRes = await request(app)
+      .post("/api/v1/integrations/gemini/test")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ models: [123, null, {}] });
+
+    expect(mixedModelsRes.status).toBe(400);
+    expect(mixedModelsRes.body.success).toBe(false);
+    expect(mixedModelsRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 1c. models is an empty array -> 400 VALIDATION_ERROR
+    const emptyModelsRes = await request(app)
+      .post("/api/v1/integrations/gemini/test")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ models: [] });
+
+    expect(emptyModelsRes.status).toBe(400);
+    expect(emptyModelsRes.body.success).toBe(false);
+    expect(emptyModelsRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 1d. models exceeds permitted maximum (> 10 items) -> 400 VALIDATION_ERROR
+    const overMaxModelsRes = await request(app)
+      .post("/api/v1/integrations/gemini/test")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ models: Array.from({ length: 11 }, (_, i) => `model-${i}`) });
+
+    expect(overMaxModelsRes.status).toBe(400);
+    expect(overMaxModelsRes.body.success).toBe(false);
+    expect(overMaxModelsRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 1e. model is invalid type (whitespace string) -> 400 VALIDATION_ERROR
+    const invalidModelRes = await request(app)
+      .post("/api/v1/integrations/gemini/test")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ model: "   " });
+
+    expect(invalidModelRes.status).toBe(400);
+    expect(invalidModelRes.body.success).toBe(false);
+    expect(invalidModelRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 2. POST /api/v1/conversations malformed inputs
+    // 2a. non-string title -> 400 VALIDATION_ERROR
+    const malformedTitleRes = await request(app)
+      .post("/api/v1/conversations")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .send({ title: { $gt: "" } });
+
+    expect(malformedTitleRes.status).toBe(400);
+    expect(malformedTitleRes.body.success).toBe(false);
+    expect(malformedTitleRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 2b. non-string equipmentId -> 400 INVALID_EQUIPMENT_ID
+    const nonStringEqRes = await request(app)
+      .post("/api/v1/conversations")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .send({ equipmentId: [1, 2, 3] });
+
+    expect(nonStringEqRes.status).toBe(400);
+    expect(nonStringEqRes.body.success).toBe(false);
+    expect(nonStringEqRes.body.error.code).toBe("INVALID_EQUIPMENT_ID");
+
+    // 2c. malformed equipmentId string -> 400 INVALID_EQUIPMENT_ID
+    const malformedEqIdRes = await request(app)
+      .post("/api/v1/conversations")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .send({ equipmentId: "invalid-not-24-hex" });
+
+    expect(malformedEqIdRes.status).toBe(400);
+    expect(malformedEqIdRes.body.success).toBe(false);
+    expect(malformedEqIdRes.body.error.code).toBe("INVALID_EQUIPMENT_ID");
+
+    // 3. POST /api/v1/documents/upload malformed inputs
+    const validPdfBuffer = Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+
+    // 3a. whitespace-only title -> 400 VALIDATION_ERROR
+    const whitespaceTitleRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .attach("file", validPdfBuffer, "test_manual.pdf")
+      .field("title", "   ");
+
+    expect(whitespaceTitleRes.status).toBe(400);
+    expect(whitespaceTitleRes.body.success).toBe(false);
+    expect(whitespaceTitleRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 3b. malformed equipmentId -> 400 VALIDATION_ERROR
+    const badUploadEqRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .attach("file", validPdfBuffer, "test_manual.pdf")
+      .field("title", "Valid Document")
+      .field("equipmentId", "not-a-valid-object-id");
+
+    expect(badUploadEqRes.status).toBe(400);
+    expect(badUploadEqRes.body.success).toBe(false);
+    expect(badUploadEqRes.body.error.code).toBe("VALIDATION_ERROR");
+
+    // 4. Safe error verification across all rejected responses
+    for (const res of [stringModelsRes, mixedModelsRes, malformedTitleRes, nonStringEqRes, badUploadEqRes]) {
+      expect(res.body.error.stack).toBeUndefined();
+      expect(JSON.stringify(res.body)).not.toContain("C:\\");
+      expect(JSON.stringify(res.body)).not.toContain("node_modules");
+      expect(JSON.stringify(res.body)).not.toContain(env.JWT_SECRET);
+    }
   });
 });

@@ -4,6 +4,7 @@ import { User, AuditEvent } from "../models";
 import { isConnectedToMongo } from "../config/database";
 import { requireAuth, requireRole, AuthenticatedRequest } from "../middlewares/auth";
 import { RegisterSchema } from "@man-u-ai/shared";
+import { toMongoObjectId } from "./documents.routes";
 
 export const usersRouter: Router = Router();
 
@@ -43,7 +44,7 @@ usersRouter.get("/", requireAuth, requireRole(["admin"]), async (req: Authentica
 usersRouter.post("/", requireAuth, requireRole(["admin"]), async (req: AuthenticatedRequest, res: Response) => {
   const parsed = RegisterSchema.safeParse(req.body);
   if (!parsed.success) {
-    const sanitizedIssues = parsed.error.issues.map((issue) => ({
+    const sanitizedIssues = parsed.error.issues.map((issue: { path: (string | number | symbol)[]; message: string }) => ({
       field: issue.path.join("."),
       message: issue.message,
     }));
@@ -54,6 +55,7 @@ usersRouter.post("/", requireAuth, requireRole(["admin"]), async (req: Authentic
   }
 
   const { name, email, password, role } = parsed.data;
+  const normalizedEmail = email.trim().toLowerCase();
 
   if (!password || typeof password !== "string" || password.trim().length < 8) {
     return res.status(400).json({
@@ -64,21 +66,23 @@ usersRouter.post("/", requireAuth, requireRole(["admin"]), async (req: Authentic
 
   if (isConnectedToMongo) {
     try {
-      const existing = await User.findOne({ email });
+      const existing = await User.findOne({
+        $or: [{ email: normalizedEmail }, { email: email.trim() }],
+      });
       if (existing) {
         return res.status(409).json({ success: false, error: { code: "EXISTS", message: "User email already exists" } });
       }
 
       const passwordHash = await bcrypt.hash(password, 10);
-      const user = await User.create({ name, email, passwordHash, role });
+      const user = await User.create({ name: name.trim(), email: normalizedEmail, passwordHash, role });
 
       await AuditEvent.create({
-        userId: req.user?.id,
+        userId: toMongoObjectId(req.user?.id),
         userEmail: req.user?.email,
         action: "user_create",
         resourceType: "User",
         resourceId: user._id.toString(),
-        details: { name, email, role },
+        details: { name: name.trim(), email: normalizedEmail, role },
       });
 
       return res.status(201).json({
@@ -105,6 +109,13 @@ usersRouter.patch("/:id/role", requireAuth, requireRole(["admin"]), async (req: 
   const { id } = req.params;
   const { role } = req.body;
 
+  if (req.user?.id === id && role !== "admin") {
+    return res.status(400).json({
+      success: false,
+      error: { code: "CANNOT_DEMOTE_SELF", message: "Administrators cannot remove their own administrator privileges" },
+    });
+  }
+
   if (!["admin", "engineer", "viewer"].includes(role)) {
     return res.status(400).json({ success: false, error: { code: "BAD_ROLE", message: "Invalid role specified" } });
   }
@@ -114,7 +125,7 @@ usersRouter.patch("/:id/role", requireAuth, requireRole(["admin"]), async (req: 
       const user = await User.findByIdAndUpdate(id, { role }, { new: true });
       if (user) {
         await AuditEvent.create({
-          userId: req.user?.id,
+          userId: toMongoObjectId(req.user?.id),
           userEmail: req.user?.email,
           action: "role_change",
           resourceType: "User",
@@ -135,6 +146,14 @@ usersRouter.patch("/:id/role", requireAuth, requireRole(["admin"]), async (req: 
 // DELETE /users/:id - Remove user (Admin only)
 usersRouter.delete("/:id", requireAuth, requireRole(["admin"]), async (req: AuthenticatedRequest, res: Response) => {
   const { id } = req.params;
+
+  if (req.user?.id === id) {
+    return res.status(400).json({
+      success: false,
+      error: { code: "CANNOT_DELETE_SELF", message: "Administrators cannot delete their own account" },
+    });
+  }
+
   if (isConnectedToMongo) {
     try {
       await User.findByIdAndDelete(id);

@@ -56,13 +56,27 @@ conversationsRouter.post("/", requireAuth, async (req: AuthenticatedRequest, res
     });
   }
 
-  const title = req.body.title || "New Technical Conversation";
+  if (req.body.title !== undefined && req.body.title !== null && typeof req.body.title !== "string") {
+    return res.status(400).json({
+      success: false,
+      error: { code: "VALIDATION_ERROR", message: "Field 'title' must be a string" },
+    });
+  }
+
+  const rawTitle = typeof req.body.title === "string" ? req.body.title.trim().slice(0, 200) : "";
+  const title = rawTitle || "New Technical Conversation";
   const userId = toMongoObjectId(req.user?.id);
   let validatedEquipmentId: mongoose.Types.ObjectId | undefined;
   let equipmentDoc: any = null;
 
   if (req.body.equipmentId !== undefined && req.body.equipmentId !== null && req.body.equipmentId !== "") {
-    const rawEqId = String(req.body.equipmentId);
+    if (typeof req.body.equipmentId !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: { code: "INVALID_EQUIPMENT_ID", message: "Invalid equipment ID format: must be a string" },
+      });
+    }
+    const rawEqId = req.body.equipmentId.trim();
     if (!mongoose.Types.ObjectId.isValid(rawEqId)) {
       return res.status(400).json({
         success: false,
