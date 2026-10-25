@@ -1,13 +1,20 @@
 import { Router, Request, Response } from "express";
+import { z } from "zod";
 import { AuditEvent, Message, DocumentModel, Equipment, SummaryModel, MaintenanceIssue } from "../models";
 import { isConnectedToMongo } from "../config/database";
-import { requireAuth, AuthenticatedRequest } from "../middlewares/auth";
+import { requireAuth, requireRole, AuthenticatedRequest } from "../middlewares/auth";
 import { geminiService } from "../services/gemini.service";
 
 export const analyticsRouter: Router = Router();
 
-// GET /summaries - Get real persisted summaries
-analyticsRouter.get("/summaries", requireAuth, async (req: Request, res: Response) => {
+const GenerateSummarySchema = z.object({
+  summaryType: z.enum(["shift_handoff", "root_cause", "weekly_preventive", "safety_audit"]).default("shift_handoff"),
+  focusArea: z.string().trim().max(100).optional(),
+  timeRange: z.string().trim().max(50).optional(),
+}).strict();
+
+// GET /summaries - Get real persisted summaries (Engineers & Admins only)
+analyticsRouter.get("/summaries", requireAuth, requireRole(["admin", "engineer"]), async (req: Request, res: Response) => {
   if (!isConnectedToMongo) {
     return res.status(503).json({
       success: false,
@@ -40,8 +47,8 @@ analyticsRouter.get("/summaries", requireAuth, async (req: Request, res: Respons
   }
 });
 
-// POST /summaries/generate - Generate and save an authentic operational summary from real plant records
-analyticsRouter.post("/summaries/generate", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+// POST /summaries/generate - Generate operational summary (Engineers & Admins only)
+analyticsRouter.post("/summaries/generate", requireAuth, requireRole(["admin", "engineer"]), async (req: AuthenticatedRequest, res: Response) => {
   if (!isConnectedToMongo) {
     return res.status(503).json({
       success: false,
@@ -49,15 +56,31 @@ analyticsRouter.post("/summaries/generate", requireAuth, async (req: Authenticat
     });
   }
 
-  const { summaryType, focusArea } = req.body;
+  const parsed = GenerateSummarySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Invalid summary generation parameters",
+        details: parsed.error.issues.map((i) => ({ field: i.path.join("."), message: i.message })),
+      },
+    });
+  }
+
+  const { summaryType, focusArea } = parsed.data;
   const user = req.user;
 
   try {
+    // Escape user-supplied focusArea before building regex query to prevent ReDoS
+    const escapedFocus = focusArea ? focusArea.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : undefined;
+    const equipmentFilter = escapedFocus ? { name: new RegExp(escapedFocus, "i") } : {};
+
     // Gather authentic records from the database
     const [recentAudits, openIssues, relevantEquipment] = await Promise.all([
       AuditEvent.find().sort({ createdAt: -1 }).limit(10),
       MaintenanceIssue.find({ status: { $in: ["open", "in_progress"] } }).limit(10),
-      Equipment.find(focusArea ? { name: new RegExp(focusArea, "i") } : {}).limit(5),
+      Equipment.find(equipmentFilter).limit(5),
     ]);
 
     const auditSummary =
@@ -211,8 +234,8 @@ analyticsRouter.get("/analytics/insights", requireAuth, async (req: Request, res
   }
 });
 
-// GET /audit - Get real audit events from MongoDB
-analyticsRouter.get("/audit", requireAuth, async (req: Request, res: Response) => {
+// GET /audit - Get real audit events from MongoDB (Admins & Engineers only; Viewers strictly forbidden)
+analyticsRouter.get("/audit", requireAuth, requireRole(["admin", "engineer"]), async (req: Request, res: Response) => {
   if (!isConnectedToMongo) {
     return res.status(503).json({
       success: false,
@@ -221,6 +244,13 @@ analyticsRouter.get("/audit", requireAuth, async (req: Request, res: Response) =
   }
 
   const rawAction = typeof req.query.action === "string" ? req.query.action.trim() : undefined;
+  if (rawAction && rawAction !== "all" && !/^[a-zA-Z0-9_\-:]+$/.test(rawAction)) {
+    return res.status(400).json({
+      success: false,
+      error: { code: "VALIDATION_ERROR", message: "Invalid action query filter" },
+    });
+  }
+
   const parsedLimit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 50;
   const maxLimit = Math.min(100, Math.max(1, isNaN(parsedLimit) ? 50 : parsedLimit));
 

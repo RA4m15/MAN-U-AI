@@ -124,6 +124,13 @@ usersRouter.patch("/:id/role", requireAuth, requireRole(["admin"]), async (req: 
     try {
       const user = await User.findByIdAndUpdate(id, { role }, { new: true });
       if (user) {
+        try {
+          const { syncUserSocketState } = await import("../index");
+          await syncUserSocketState(String(id), role);
+        } catch (socketErr) {
+          console.warn("[Users] Non-fatal socket sync error on role change:", socketErr);
+        }
+
         await AuditEvent.create({
           userId: toMongoObjectId(req.user?.id),
           userEmail: req.user?.email,
@@ -157,6 +164,12 @@ usersRouter.delete("/:id", requireAuth, requireRole(["admin"]), async (req: Auth
   if (isConnectedToMongo) {
     try {
       await User.findByIdAndDelete(id);
+      try {
+        const { syncUserSocketState } = await import("../index");
+        await syncUserSocketState(String(id), null);
+      } catch (socketErr) {
+        console.warn("[Users] Non-fatal socket sync error on deletion:", socketErr);
+      }
       return res.json({ success: true, data: { message: "User deactivated successfully" } });
     } catch (err) {
       console.warn("[Users] Delete error:", err);

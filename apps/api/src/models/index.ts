@@ -9,6 +9,7 @@ export interface IUser extends MongooseDocument {
   passwordHash: string;
   role: UserRole;
   orgId: string;
+  isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidate: string): Promise<boolean>;
@@ -21,6 +22,7 @@ const UserSchema = new Schema<IUser>(
     passwordHash: { type: String, required: true },
     role: { type: String, enum: ["admin", "engineer", "viewer"], default: "viewer" },
     orgId: { type: String, default: "default-plant-org" },
+    isActive: { type: Boolean, default: true },
   },
   { timestamps: true }
 );
