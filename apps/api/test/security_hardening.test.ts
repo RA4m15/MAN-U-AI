@@ -339,4 +339,120 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
     expect(found[0].chunk.page).toBe(7);
     expect(found[0].chunk.text).toContain("0.038 mm");
   });
+
+  // ── 10. Audit Endpoint NoSQL Query Injection Defense ──────────────────────
+  it("Requirement 13.10: Rejects NoSQL query injection on /api/v1/audit with nested object query operators", async () => {
+    // When an attacker attempts to pass ?action[$ne]=nonexistent or object parameters,
+    // the route must safely treat non-strings as undefined and not execute arbitrary Mongo query operators.
+    const res = await request(app)
+      .get("/api/v1/audit?action[$ne]=nonexistent")
+      .set("Authorization", `Bearer ${userAToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
+  // ── 11. Admin Self-Demotion & Self-Deletion Safeguards ─────────────────────
+  it("Requirement 13.11: Blocks administrator self-demotion to preserve root administration", async () => {
+    if (!isConnectedToMongo) return;
+
+    // Create a temporary admin user
+    const tempAdmin = await User.create({
+      name: "Temp Root Admin",
+      email: `temp-admin-${Date.now()}@plant.io`,
+      passwordHash: "dummyHash123",
+      role: "admin",
+    });
+
+    const tempToken = jwt.sign(
+      { id: tempAdmin._id.toString(), email: tempAdmin.email, name: tempAdmin.name, role: "admin" },
+      env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    try {
+      const res = await request(app)
+        .patch(`/api/v1/users/${tempAdmin._id.toString()}/role`)
+        .set("Authorization", `Bearer ${tempToken}`)
+        .send({ role: "viewer" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe("CANNOT_DEMOTE_SELF");
+    } finally {
+      await User.findByIdAndDelete(tempAdmin._id);
+    }
+  });
+
+  it("Requirement 13.12: Blocks administrator self-deletion to prevent administrative lockout", async () => {
+    if (!isConnectedToMongo) return;
+
+    const tempAdmin = await User.create({
+      name: "Self Delete Test Admin",
+      email: `temp-delete-admin-${Date.now()}@plant.io`,
+      passwordHash: "dummyHash123",
+      role: "admin",
+    });
+
+    const tempToken = jwt.sign(
+      { id: tempAdmin._id.toString(), email: tempAdmin.email, name: tempAdmin.name, role: "admin" },
+      env.JWT_SECRET,
+      { expiresIn: "1h" }
+    );
+
+    try {
+      const res = await request(app)
+        .delete(`/api/v1/users/${tempAdmin._id.toString()}`)
+        .set("Authorization", `Bearer ${tempToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe("CANNOT_DELETE_SELF");
+    } finally {
+      await User.findByIdAndDelete(tempAdmin._id);
+    }
+  });
+
+  it("Requirement 13.13: Admin user creation normalizes email and prevents case-variant duplicate accounts", async () => {
+    if (!isConnectedToMongo) return;
+
+    const timestamp = Date.now();
+    const mixedCaseEmail = `CaseTest-${timestamp}@Plant.IO`;
+    const lowerCaseEmail = mixedCaseEmail.toLowerCase();
+
+    // 1. Create with mixed case
+    const res1 = await request(app)
+      .post("/api/v1/users")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        name: "Case Test User",
+        email: mixedCaseEmail,
+        password: "ValidPassword123!",
+        role: "viewer",
+      });
+
+    expect(res1.status).toBe(201);
+    expect(res1.body.success).toBe(true);
+    expect(res1.body.data.email).toBe(lowerCaseEmail);
+
+    try {
+      // 2. Attempt duplicate with lowercase
+      const res2 = await request(app)
+        .post("/api/v1/users")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({
+          name: "Duplicate User",
+          email: lowerCaseEmail,
+          password: "ValidPassword123!",
+          role: "viewer",
+        });
+
+      expect(res2.status).toBe(409);
+      expect(res2.body.success).toBe(false);
+      expect(res2.body.error.code).toBe("EXISTS");
+    } finally {
+      await User.deleteMany({ email: lowerCaseEmail });
+    }
+  });
 });

@@ -6,3 +6,5 @@ allowBuilds:
   esbuild: true
   msgpackr-extract: true
   protobufjs: true
+overrides:
+  body-parser: "^1.20.9"

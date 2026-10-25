@@ -220,13 +220,14 @@ analyticsRouter.get("/audit", requireAuth, async (req: Request, res: Response) =
     });
   }
 
-  const { action, limit } = req.query;
-  const maxLimit = Math.min(100, parseInt(limit as string) || 50);
+  const rawAction = typeof req.query.action === "string" ? req.query.action.trim() : undefined;
+  const parsedLimit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 50;
+  const maxLimit = Math.min(100, Math.max(1, isNaN(parsedLimit) ? 50 : parsedLimit));
 
   try {
     const query: any = {};
-    if (action && action !== "all") {
-      query.action = action;
+    if (rawAction && rawAction !== "all") {
+      query.action = rawAction;
     }
     const logs = await AuditEvent.find(query).sort({ createdAt: -1 }).limit(maxLimit);
     return res.json({
