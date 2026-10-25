@@ -325,9 +325,13 @@ integrationsRouter.post(
         // Gather candidates to probe (bounded to 4 candidates max to avoid quota exhaustion)
         let candidates: string[] = [];
         if (req.body?.model && typeof req.body.model === "string") {
-          candidates = [req.body.model.trim()];
+          candidates = [req.body.model.trim().slice(0, 100)];
         } else if (Array.isArray(req.body?.models) && req.body.models.length > 0) {
-          candidates = req.body.models.map((m: any) => String(m).trim()).filter(Boolean).slice(0, 4);
+          candidates = req.body.models
+            .slice(0, 10)
+            .map((m: any) => String(m).trim().slice(0, 100))
+            .filter(Boolean)
+            .slice(0, 4);
         } else {
           const configuredFallbacks = env.GEMINI_FALLBACK_MODELS.split(",").map((m) => m.trim()).filter(Boolean);
           const pool = [activeModel, env.GEMINI_MODEL, ...SUPPORTED_MODELS, ...configuredFallbacks];

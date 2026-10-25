@@ -4,15 +4,15 @@ import { z } from "zod";
 
 export const RegisterSchema = z.object({
   name: z.string().min(2).max(100),
-  email: z.string().email(),
+  email: z.string().email().max(255),
   password: z.string().min(8).max(128),
   role: z.enum(["admin", "engineer", "viewer"]).optional().default("viewer"),
 });
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 
 export const LoginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
+  email: z.string().email().max(255),
+  password: z.string().min(1).max(128),
 });
 export type LoginInput = z.infer<typeof LoginSchema>;
 
@@ -55,8 +55,8 @@ export interface DocumentDTO {
 export const UploadDocumentSchema = z.object({
   title: z.string().min(1).max(255),
   revision: z.string().max(50).optional().default("v1"),
-  equipmentId: z.string().optional(),
-  tags: z.array(z.string().max(100)).max(50).optional().default([]),
+  equipmentId: z.string().max(100).optional(),
+  tags: z.array(z.string().trim().min(1).max(100)).max(50).optional().default([]),
 });
 export type UploadDocumentInput = z.infer<typeof UploadDocumentSchema>;
 
@@ -131,9 +131,14 @@ export interface ConversationDTO {
 }
 
 export const SendMessageSchema = z.object({
-  content: z.string().min(1).max(8000),
-  equipmentId: z.string().optional(),
-  attachmentIds: z.array(z.string().max(100)).max(20).optional().default([]),
+  content: z.string().min(1).max(8000).optional(),
+  message: z.string().min(1).max(8000).optional(),
+  conversationId: z.string().max(100).optional(),
+  equipmentId: z.string().max(100).optional(),
+  attachmentIds: z.array(z.string().trim().min(1).max(100)).max(20).optional().default([]),
+}).refine((data) => Boolean((data.content && data.content.trim()) || (data.message && data.message.trim())), {
+  message: "Message text is required",
+  path: ["message"],
 });
 export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 
@@ -153,18 +158,18 @@ export interface EquipmentDTO {
 
 export const CreateEquipmentSchema = z.object({
   name: z.string().min(1).max(255),
-  type: z.string().min(1),
-  model: z.string().optional(),
-  manufacturer: z.string().optional(),
-  serialNumber: z.string().optional(),
-  location: z.string().optional(),
+  type: z.string().min(1).max(100),
+  model: z.string().max(100).optional(),
+  manufacturer: z.string().max(100).optional(),
+  serialNumber: z.string().max(100).optional(),
+  location: z.string().max(100).optional(),
 });
 export type CreateEquipmentInput = z.infer<typeof CreateEquipmentSchema>;
 
 // ─── Feedback ────────────────────────────────────────────────────────────────
 
 export const FeedbackSchema = z.object({
-  messageId: z.string(),
+  messageId: z.string().min(1).max(100),
   rating: z.enum(["up", "down"]),
   comment: z.string().max(1000).optional(),
 });

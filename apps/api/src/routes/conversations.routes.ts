@@ -56,7 +56,8 @@ conversationsRouter.post("/", requireAuth, async (req: AuthenticatedRequest, res
     });
   }
 
-  const title = req.body.title || "New Technical Conversation";
+  const rawTitle = typeof req.body.title === "string" ? req.body.title.trim().slice(0, 200) : "";
+  const title = rawTitle || "New Technical Conversation";
   const userId = toMongoObjectId(req.user?.id);
   let validatedEquipmentId: mongoose.Types.ObjectId | undefined;
   let equipmentDoc: any = null;

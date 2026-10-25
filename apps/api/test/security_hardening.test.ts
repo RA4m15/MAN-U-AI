@@ -458,41 +458,136 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
 
   // ── 14. Zod Bounded Collection Defense & DoS Prevention ─────────────────
   it("Requirement 13.14: Enforces strict collection upper bounds on untrusted input arrays to prevent memory exhaustion (GHSA-mrhx-c7xc-m3w5)", async () => {
-    const { SendMessageSchema, UploadDocumentSchema } = await import("@man-u-ai/shared");
+    const {
+      SendMessageSchema,
+      UploadDocumentSchema,
+      RegisterSchema,
+      LoginSchema,
+      CreateEquipmentSchema,
+      FeedbackSchema,
+    } = await import("@man-u-ai/shared");
 
-    // 1. Oversized attachmentIds array in SendMessageSchema should fail validation
-    const abusiveAttachments = new Array(50).fill("att-overflow-id-0123456789");
-    const messageResult = SendMessageSchema.safeParse({
-      content: "Valid query content",
-      attachmentIds: abusiveAttachments,
-    });
-    expect(messageResult.success).toBe(false);
-    if (!messageResult.success) {
-      expect(messageResult.error.issues.some((i: any) => i.path.includes("attachmentIds"))).toBe(true);
+    // 1. SendMessageSchema: accepted maximum (20) vs just over maximum (21)
+    const exactMaxAttachments = Array.from({ length: 20 }, (_, i) => `att-id-${i}`);
+    expect(
+      SendMessageSchema.safeParse({ content: "Valid content", attachmentIds: exactMaxAttachments }).success
+    ).toBe(true);
+
+    const overMaxAttachments = Array.from({ length: 21 }, (_, i) => `att-id-${i}`);
+    const overMaxMessage = SendMessageSchema.safeParse({ content: "Valid content", attachmentIds: overMaxAttachments });
+    expect(overMaxMessage.success).toBe(false);
+    if (!overMaxMessage.success) {
+      expect(overMaxMessage.error.issues.some((i: any) => i.path.includes("attachmentIds"))).toBe(true);
     }
 
-    // 2. Oversized tags array in UploadDocumentSchema should fail validation
-    const abusiveTags = new Array(100).fill("overflow-tag");
-    const docResult = UploadDocumentSchema.safeParse({
-      title: "Valid Document Title",
-      tags: abusiveTags,
-    });
-    expect(docResult.success).toBe(false);
-    if (!docResult.success) {
-      expect(docResult.error.issues.some((i: any) => i.path.includes("tags"))).toBe(true);
+    // 2. SendMessageSchema: element length bounds (> 100 chars) and invalid elements
+    const oversizedAttachmentElement = ["a".repeat(101)];
+    expect(
+      SendMessageSchema.safeParse({ content: "Valid content", attachmentIds: oversizedAttachmentElement }).success
+    ).toBe(false);
+
+    const invalidAttachmentElements = ["", "   ", null, 12345];
+    expect(
+      SendMessageSchema.safeParse({ content: "Valid content", attachmentIds: invalidAttachmentElements as any }).success
+    ).toBe(false);
+
+    // 3. UploadDocumentSchema: accepted maximum (50) vs just over maximum (51)
+    const exactMaxTags = Array.from({ length: 50 }, (_, i) => `tag-${i}`);
+    expect(UploadDocumentSchema.safeParse({ title: "Valid Title", tags: exactMaxTags }).success).toBe(true);
+
+    const overMaxTags = Array.from({ length: 51 }, (_, i) => `tag-${i}`);
+    const overMaxDoc = UploadDocumentSchema.safeParse({ title: "Valid Title", tags: overMaxTags });
+    expect(overMaxDoc.success).toBe(false);
+    if (!overMaxDoc.success) {
+      expect(overMaxDoc.error.issues.some((i: any) => i.path.includes("tags"))).toBe(true);
     }
 
-    // 3. Valid bounded arrays succeed
-    const validMessage = SendMessageSchema.safeParse({
-      content: "Valid query content",
-      attachmentIds: ["att-1", "att-2"],
-    });
-    expect(validMessage.success).toBe(true);
+    // 4. UploadDocumentSchema: element length bounds (> 100 chars) and empty tags
+    const oversizedTagElement = ["t".repeat(101)];
+    expect(UploadDocumentSchema.safeParse({ title: "Valid Title", tags: oversizedTagElement }).success).toBe(false);
 
-    const validDoc = UploadDocumentSchema.safeParse({
-      title: "Valid Title",
-      tags: ["slurry-pump", "maintenance"],
-    });
-    expect(validDoc.success).toBe(true);
+    const emptyTagElement = ["", "   "];
+    expect(UploadDocumentSchema.safeParse({ title: "Valid Title", tags: emptyTagElement }).success).toBe(false);
+
+    // 5. Auth and Metadata bounds: Register, Login, Equipment, Feedback
+    expect(
+      RegisterSchema.safeParse({
+        name: "Test User",
+        email: "a".repeat(250) + "@example.com", // > 255 chars
+        password: "ValidPassword123",
+      }).success
+    ).toBe(false);
+
+    expect(
+      LoginSchema.safeParse({
+        email: "valid@plant.io",
+        password: "p".repeat(129), // > 128 chars
+      }).success
+    ).toBe(false);
+
+    expect(
+      CreateEquipmentSchema.safeParse({
+        name: "Pump",
+        type: "t".repeat(101), // > 100 chars
+      }).success
+    ).toBe(false);
+
+    expect(
+      FeedbackSchema.safeParse({
+        messageId: "m".repeat(101), // > 100 chars
+        rating: "up",
+      }).success
+    ).toBe(false);
+  });
+
+  it("Requirement 13.15: Enforces collection bounds and defensive input validation at API route boundaries (chat and upload)", async () => {
+    // 1. POST /api/v1/chat rejects abusive oversized attachmentIds array with HTTP 400
+    const overMaxAttachments = Array.from({ length: 25 }, (_, i) => `att-overflow-${i}`);
+    const chatOverflowRes = await request(app)
+      .post("/api/v1/chat")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .send({
+        message: "Diagnose equipment issue",
+        attachmentIds: overMaxAttachments,
+      });
+
+    expect(chatOverflowRes.status).toBe(400);
+    expect(chatOverflowRes.body.success).toBe(false);
+    expect(chatOverflowRes.body.error.code).toBe("BAD_REQUEST");
+    // Confirm safe error response: no stack trace, internal paths, or secrets leaked
+    expect(chatOverflowRes.body.error.stack).toBeUndefined();
+    expect(JSON.stringify(chatOverflowRes.body)).not.toContain("C:\\");
+    expect(JSON.stringify(chatOverflowRes.body)).not.toContain("node_modules");
+
+    // 2. POST /api/v1/chat rejects oversized message content (> 8000 chars)
+    const hugeMessageRes = await request(app)
+      .post("/api/v1/chat")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .send({
+        message: "x".repeat(8005),
+      });
+
+    expect(hugeMessageRes.status).toBe(400);
+    expect(hugeMessageRes.body.success).toBe(false);
+    expect(hugeMessageRes.body.error.code).toBe("BAD_REQUEST");
+
+    // 3. POST /api/v1/documents/upload rejects oversized tags array at boundary before storage
+    const overMaxTags = Array.from({ length: 55 }, (_, i) => `tag-${i}`);
+    const validPdfBuffer = Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+
+    const uploadOverflowRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${userAToken}`)
+      .attach("file", validPdfBuffer, "test_manual.pdf")
+      .field("title", "Over-tagged Manual")
+      .field("tags", overMaxTags.join(","));
+
+    expect(uploadOverflowRes.status).toBe(400);
+    expect(uploadOverflowRes.body.success).toBe(false);
+    expect(uploadOverflowRes.body.error.code).toBe("VALIDATION_ERROR");
+    // Confirm safe error response
+    expect(uploadOverflowRes.body.error.stack).toBeUndefined();
+    expect(JSON.stringify(uploadOverflowRes.body)).not.toContain("C:\\");
+    expect(JSON.stringify(uploadOverflowRes.body)).not.toContain("node_modules");
   });
 });

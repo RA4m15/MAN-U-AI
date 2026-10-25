@@ -15,6 +15,7 @@ import { emitDocumentProgress, emitDocumentStatus, emitAuditEvent } from "../ind
 import { sanitizeError } from "./settings.routes";
 import { extractStructuredErrorInfo, logStructuredError } from "../utils/errorReporting";
 import { env } from "../config/env";
+import { UploadDocumentSchema } from "@man-u-ai/shared";
 
 export const documentsRouter: Router = Router();
 
@@ -236,7 +237,7 @@ documentsRouter.get("/:id/chunks", requireAuth, async (req: AuthenticatedRequest
     });
   }
 
-  const chunks = await DocumentChunk.find({ documentId: id }).sort({ page: 1 });
+  const chunks = await DocumentChunk.find({ documentId: id }).sort({ page: 1 }).limit(500);
   return res.json({
     success: true,
     data: chunks.map((c) => ({
@@ -443,12 +444,35 @@ documentsRouter.post(
 
     const title = req.body.title || req.file.originalname.replace(/\.[^/.]+$/, "");
     const revision = req.body.revision || "Rev 1.0";
-    const tags = req.body.tags
-      ? typeof req.body.tags === "string"
-        ? req.body.tags.split(",").map((t: string) => t.trim())
-        : req.body.tags
-      : [];
+    let rawTags = req.body.tags;
+    if (typeof rawTags === "string") {
+      rawTags = rawTags.split(",").map((t: string) => t.trim()).filter(Boolean);
+    } else if (!Array.isArray(rawTags)) {
+      rawTags = [];
+    }
     const equipmentId = req.body.equipmentId || undefined;
+
+    const validationResult = UploadDocumentSchema.safeParse({
+      title,
+      revision,
+      tags: rawTags,
+      equipmentId: equipmentId || undefined,
+    });
+    if (!validationResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Invalid document upload metadata",
+          details: validationResult.error.issues.map((i) => ({
+            field: i.path.join("."),
+            message: i.message,
+          })),
+        },
+      });
+    }
+
+    const validatedData = validationResult.data;
 
     let savedStoragePath: string | null = null;
     let savedStorageProvider: string | undefined = undefined;
@@ -462,16 +486,16 @@ documentsRouter.post(
       let docId: string;
       try {
         const createdDoc = await DocumentModel.create({
-          title,
-          revision,
+          title: validatedData.title,
+          revision: validatedData.revision,
           filename: req.file.originalname,
           storagePath: storageResult.storagePath,
           storageProvider: storageResult.storageProvider,
           mimeType: req.file.mimetype,
           sizeBytes: storageResult.sizeBytes,
           status: "processing",
-          tags,
-          equipmentId,
+          tags: validatedData.tags,
+          equipmentId: validatedData.equipmentId,
           uploadedById: toMongoObjectId(req.user?.id),
         });
         docId = createdDoc._id.toString();
