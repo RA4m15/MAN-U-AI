@@ -25,6 +25,11 @@ export interface PdfExtractionResult {
   error?: string;
 }
 
+export const PDF_PROCESSING_LIMITS = {
+  MAX_PAGE_COUNT: 200,
+  EXTRACTION_TIMEOUT_MS: 45000,
+};
+
 /**
  * Validates that the buffer starts with the authentic PDF magic bytes (%PDF-).
  */
@@ -80,12 +85,23 @@ export class PdfService {
 
     let data: any;
     try {
-      data = await pdfParse(uint8 as unknown as Buffer, options);
+      const parsePromise = pdfParse(uint8 as unknown as Buffer, options);
+      let timeoutId: NodeJS.Timeout;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`PDF structure parsing timed out after ${PDF_PROCESSING_LIMITS.EXTRACTION_TIMEOUT_MS}ms`));
+        }, PDF_PROCESSING_LIMITS.EXTRACTION_TIMEOUT_MS);
+      });
+      data = await Promise.race([parsePromise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
     } catch (parseErr: unknown) {
       throw new Error(`Failed to parse PDF document structure: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
     }
 
     const pageCount = data.numpages || 1;
+    if (pageCount > PDF_PROCESSING_LIMITS.MAX_PAGE_COUNT) {
+      throw new Error(`PDF page count (${pageCount}) exceeds defensible limit of ${PDF_PROCESSING_LIMITS.MAX_PAGE_COUNT} pages.`);
+    }
+
     let totalText = data.text || "";
 
     // Low text detection: if average text per page is < 30 characters, likely a scanned image requiring OCR

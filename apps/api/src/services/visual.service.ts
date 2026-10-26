@@ -16,6 +16,8 @@ export const VISUAL_PROCESSING_LIMITS = {
   MAX_FIGURES_PER_PAGE: 5,
   MAX_IMAGE_SIZE_BYTES: 10 * 1024 * 1024, // 10MB
   MIN_IMAGE_DIMENSION: 30, // 30px minimum width and height
+  MAX_IMAGE_DIMENSION: 8192, // 8192px maximum width or height
+  MAX_DECOMPRESSED_IMAGE_BYTES: 25 * 1024 * 1024, // 25MB decompression bomb threshold
 };
 
 export interface ExtractedFigureItem {
@@ -290,6 +292,9 @@ export class VisualService {
         break;
       }
 
+      // Cooperatively yield to the Node.js event loop between pages
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
       const pageNumber = pageIdx + 1;
       const page = pages[pageIdx];
 
@@ -357,10 +362,12 @@ export class VisualService {
         const width = widthObj instanceof PDFNumber ? widthObj.asNumber() : Number(widthObj || 0);
         const height = heightObj instanceof PDFNumber ? heightObj.asNumber() : Number(heightObj || 0);
 
-        // Filter out icons, glyphs, and tiny spacers
+        // Filter out icons, glyphs, and tiny spacers or excessively large dimensions
         if (
           width < VISUAL_PROCESSING_LIMITS.MIN_IMAGE_DIMENSION ||
-          height < VISUAL_PROCESSING_LIMITS.MIN_IMAGE_DIMENSION
+          height < VISUAL_PROCESSING_LIMITS.MIN_IMAGE_DIMENSION ||
+          width > VISUAL_PROCESSING_LIMITS.MAX_IMAGE_DIMENSION ||
+          height > VISUAL_PROCESSING_LIMITS.MAX_IMAGE_DIMENSION
         ) {
           continue;
         }
@@ -471,12 +478,30 @@ export class VisualService {
               continue;
             }
 
-            // Decompress Flate stream
+            // Decompress Flate stream with safe memory decompression bounds
             let decompressed: Buffer;
             try {
-              decompressed = zlib.inflateSync(streamBuffer);
-            } catch {
-              decompressed = zlib.inflateRawSync(streamBuffer);
+              decompressed = zlib.inflateSync(streamBuffer, {
+                maxOutputLength: VISUAL_PROCESSING_LIMITS.MAX_DECOMPRESSED_IMAGE_BYTES,
+              });
+            } catch (inflateErr: any) {
+              try {
+                decompressed = zlib.inflateRawSync(streamBuffer, {
+                  maxOutputLength: VISUAL_PROCESSING_LIMITS.MAX_DECOMPRESSED_IMAGE_BYTES,
+                });
+              } catch (rawErr: any) {
+                figures.push({
+                  figureId: `fig-p${pageNumber}-${currentCountOnPage + 1}`,
+                  page: pageNumber,
+                  status: "failed",
+                  processingError:
+                    rawErr?.code === "ERR_BUFFER_TOO_LARGE" || inflateErr?.code === "ERR_BUFFER_TOO_LARGE"
+                      ? "Decompressed image stream exceeds defensible memory limit"
+                      : `Flate decompression failed: ${rawErr?.message || rawErr}`,
+                });
+                figuresPerPage.set(pageNumber, currentCountOnPage + 1);
+                continue;
+              }
             }
 
             // Inspect and validate DecodeParms values

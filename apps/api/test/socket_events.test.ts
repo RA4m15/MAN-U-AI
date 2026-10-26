@@ -6,14 +6,43 @@ import { app } from "../src/app";
 import { env } from "../src/config/env";
 import { emitDocumentProgress, emitDocumentStatus, emitAuditEvent, io as serverSocket } from "../src/index";
 
+import { connectDatabase, isConnectedToMongo } from "../src/config/database";
+import { User, DocumentModel } from "../src/models";
+import { toMongoObjectId } from "../src/routes/documents.routes";
+
 describe("Socket.IO Real-time Events & Authorization (Requirement 7)", () => {
   let httpServer: http.Server;
   let serverPort: number;
   let validToken: string;
-
   let adminToken: string;
 
   beforeAll(async () => {
+    await connectDatabase();
+
+    const testUsers = [
+      { id: "usr-admin-test", name: "Plant Administrator", email: "admin@plant.io", role: "admin" },
+      { id: "usr-socket-test", name: "Alex Mercer", email: "alex.mercer@plant.io", role: "engineer" },
+      { id: "usr-uploader-private-42", name: "Uploader 42", email: "uploader42@plant.io", role: "engineer" },
+      { id: "usr-stranger-99", name: "Stranger", email: "stranger@plant.io", role: "viewer" },
+      { id: "usr-status-owner-88", name: "Owner 88", email: "owner88@plant.io", role: "engineer" },
+      { id: "usr-outsider-00", name: "Outsider", email: "outsider@plant.io", role: "viewer" },
+    ];
+
+    for (const u of testUsers) {
+      await User.findByIdAndUpdate(
+        toMongoObjectId(u.id),
+        { name: u.name, email: u.email, passwordHash: "dummy", role: u.role, isActive: true },
+        { upsert: true }
+      );
+    }
+
+    const docOid = toMongoObjectId("doc-test-101");
+    await DocumentModel.findByIdAndUpdate(
+      docOid,
+      { title: "Test Doc 101", revision: "Rev 1.0", filename: "test.pdf", storagePath: "uploads/test.pdf", mimeType: "application/pdf", status: "indexed" },
+      { upsert: true }
+    );
+
     validToken = jwt.sign(
       { id: "usr-socket-test", email: "alex.mercer@plant.io", name: "Alex Mercer", role: "engineer" },
       env.JWT_SECRET,
@@ -40,6 +69,8 @@ describe("Socket.IO Real-time Events & Authorization (Requirement 7)", () => {
 
   afterAll(async () => {
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    await User.deleteMany({ _id: { $in: [toMongoObjectId("usr-admin-test"), toMongoObjectId("usr-socket-test")] } });
+    await DocumentModel.deleteOne({ _id: toMongoObjectId("doc-test-101") });
   });
 
   it("permits authenticated Socket.IO connection with valid JWT", async () => {
