@@ -253,26 +253,20 @@ describe("Production Corrections & Security Audits", () => {
   });
 
   // ── 6. Reduced Public Health Endpoint Detail ──────────────────────────────
-  it("Requirement 6: Public health endpoint reports dependency status without disclosing hostname or credentials", async () => {
+  it("Requirement 6: Public health endpoint reports minimal operational status without disclosing internal diagnostics or dependencies", async () => {
     const res = await request(app).get("/health");
 
     expect(res.status).toBe(200);
     expect(res.body.service).toBe("MAN-U-AI API Server");
     expect(res.body.version).toBe("1.0.0");
+    expect(res.body.status).toBe("healthy");
+    expect(typeof res.body.ready).toBe("boolean");
+    expect(res.body.timestamp).toBeDefined();
 
-    // Must NOT disclose internal database infrastructure details
-    expect(res.body.database.host).toBeUndefined();
-    expect(res.body.database.name).toBeUndefined();
-    expect(res.body.database.isAtlas).toBeUndefined();
-
-    // Must report dependency status cleanly
-    expect(res.body.dependencies).toBeDefined();
-    expect(res.body.dependencies.database).toBeDefined();
-    expect(res.body.dependencies.vectorStore).toBeDefined();
-
-    // Must NOT label Gemini as "active" or "live" merely because key is configured
-    expect(res.body.multimodalEngine.status).not.toBe("active");
-    expect(res.body.multimodalEngine.status).not.toBe("live");
-    expect(["key_configured", "unconfigured"]).toContain(res.body.multimodalEngine.status);
+    // Must NOT disclose internal database, diagnostics, dependencies, or engines in public response
+    expect(res.body.database).toBeUndefined();
+    expect(res.body.dependencies).toBeUndefined();
+    expect(res.body.multimodalEngine).toBeUndefined();
+    expect(res.body.environment).toBeUndefined();
   });
 });
