@@ -26,33 +26,14 @@ function evaluateReadiness(req: Request, res: Response) {
     ? "healthy"
     : (env.NODE_ENV === "test" && !isReadinessRoute ? "healthy" : "unhealthy");
 
-  const isGeminiConfigured = Boolean(env.GEMINI_API_KEY && env.GEMINI_API_KEY.length > 5);
-
-  // Minimal public payload: useful for orchestrators without leaking internal topology or diagnostics
+  // Minimal public payload: strictly operational liveness/readiness indicators without leaking
+  // internal topology, database diagnostics, engine keys, or internal dependency details.
   const payload = {
     status: overallStatus,
     ready: isReady,
     timestamp: new Date().toISOString(),
     service: "MAN-U-AI API Server",
     version: "1.0.0",
-    database: {
-      status: isMongoConnected ? "connected" : "disconnected",
-      ready: isMongoConnected,
-      vectorStore: env.VECTOR_STORE,
-      diagnostics: {
-        hasUri: mongoDiagnostics.hasUri,
-        uriScheme: mongoDiagnostics.uriScheme,
-      },
-    },
-    multimodalEngine: {
-      status: isGeminiConfigured ? "key_configured" : "unconfigured",
-      keyConfigured: isGeminiConfigured,
-    },
-    dependencies: {
-      database: isMongoConnected ? "ready" : "unavailable",
-      vectorStore: isVectorStoreValid ? "ready" : "unavailable",
-      aiProvider: isGeminiConfigured ? "ready" : "unconfigured",
-    },
     ...(isReady ? {} : { error: "Required dependencies are unavailable" }),
   };
 
@@ -81,6 +62,7 @@ healthRouter.get("/diagnostics", requireAuth, requireRole(["admin"]), (req: Auth
     uptime: process.uptime(),
     database: {
       status: isMongoConnected ? "connected" : "disconnected",
+      ready: isMongoConnected,
       vectorStore: env.VECTOR_STORE,
       diagnostics: {
         hasUri: mongoDiagnostics.hasUri,
@@ -96,7 +78,13 @@ healthRouter.get("/diagnostics", requireAuth, requireRole(["admin"]), (req: Auth
       provider: "Google Gemini",
       model: env.GEMINI_MODEL,
       embeddingModel: env.GEMINI_EMBEDDING_MODEL,
+      status: isGeminiConfigured ? "key_configured" : "unconfigured",
       keyConfigured: isGeminiConfigured,
+    },
+    dependencies: {
+      database: isMongoConnected ? "ready" : "unavailable",
+      vectorStore: isVectorStoreValid ? "ready" : "unavailable",
+      aiProvider: isGeminiConfigured ? "ready" : "unconfigured",
     },
   });
 });

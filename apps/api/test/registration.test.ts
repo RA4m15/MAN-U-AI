@@ -4,13 +4,11 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import { app } from "../src/app";
 import { User } from "../src/models";
-import { env } from "../src/config/env";
+import { connectDatabase } from "../src/config/database";
 
 describe("Stage 5.5 — User Registration & Privilege Escalation Defense", () => {
   beforeAll(async () => {
-    if (mongoose.connection.readyState !== 1) {
-      await mongoose.connect(env.MONGODB_URI);
-    }
+    await connectDatabase();
   });
 
   afterAll(async () => {

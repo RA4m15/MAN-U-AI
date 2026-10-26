@@ -418,29 +418,54 @@ describe("MAN-U-AI Task 19.9.20 — Security Audit Findings Remediation & Regres
   // Phase 5: Public Health Diagnostics & Figure Metadata Minimization
   // ─────────────────────────────────────────────────────────────────────────────
   describe("Phase 5 — Minimizing Public Diagnostics and Figure Metadata", () => {
-    it("public GET /api/v1/health does not leak internal hostname, targetDatabase, or errorReason", async () => {
-      const res = await request(app).get("/api/v1/health");
-      expect(res.status).toBe(200);
+    it("public GET /api/v1/health, /health/ready, and /api/v1/health/ready do not leak database diagnostics, multimodalEngine, or dependencies", async () => {
+      for (const endpoint of ["/health", "/health/ready", "/api/v1/health", "/api/v1/health/ready"]) {
+        const res = await request(app).get(endpoint);
+        expect(res.status).toBe(200);
 
-      // Verify essential status is present
-      expect(res.body.status).toBe("healthy");
-      expect(res.body.service).toBe("MAN-U-AI API Server");
-      expect(res.body.dependencies).toBeDefined();
+        // Verify only minimal operational information is exposed
+        expect(res.body.status).toBe("healthy");
+        expect(res.body.ready).toBe(true);
+        expect(res.body.service).toBe("MAN-U-AI API Server");
+        expect(res.body.version).toBe("1.0.0");
+        expect(res.body.timestamp).toBeDefined();
 
-      // Verify internal infrastructure details are strictly stripped from unauthenticated response
-      expect(res.body.clusterHost).toBeUndefined();
-      expect(res.body.targetDatabase).toBeUndefined();
-      expect(res.body.errorCategory).toBeUndefined();
-      expect(res.body.errorReason).toBeUndefined();
-      expect(res.body.environment).toBeUndefined();
-      expect(res.body.database?.clusterHost).toBeUndefined();
-      expect(res.body.database?.targetDatabase).toBeUndefined();
-      expect(res.body.database?.diagnostics?.clusterHost).toBeUndefined();
-      expect(res.body.database?.diagnostics?.targetDatabase).toBeUndefined();
-      expect(res.body.database?.diagnostics?.errorReason).toBeUndefined();
+        // Strictly verify internal diagnostics, engines, dependencies, and environment are omitted
+        expect(res.body.database).toBeUndefined();
+        expect(res.body.multimodalEngine).toBeUndefined();
+        expect(res.body.dependencies).toBeUndefined();
+        expect(res.body.environment).toBeUndefined();
+        expect(res.body.clusterHost).toBeUndefined();
+        expect(res.body.targetDatabase).toBeUndefined();
+        expect(res.body.errorReason).toBeUndefined();
+      }
     });
 
-    it("protected GET /api/v1/health/diagnostics requires admin authentication", async () => {
+    it("public GET /health/ready and /api/v1/health/ready fail with 503 when degraded without exposing internal diagnostics", async () => {
+      const { setIsAppInitialized, setIsConnectedToMongo } = await import("../src/config/database");
+      setIsConnectedToMongo(false);
+      setIsAppInitialized(false);
+
+      try {
+        for (const endpoint of ["/health/ready", "/api/v1/health/ready"]) {
+          const res = await request(app).get(endpoint);
+          expect(res.status).toBe(503);
+          expect(res.body.status).toBe("unhealthy");
+          expect(res.body.ready).toBe(false);
+          expect(res.body.error).toBe("Required dependencies are unavailable");
+
+          // Verify absence of internal diagnostics on failure response
+          expect(res.body.database).toBeUndefined();
+          expect(res.body.multimodalEngine).toBeUndefined();
+          expect(res.body.dependencies).toBeUndefined();
+        }
+      } finally {
+        setIsConnectedToMongo(true);
+        setIsAppInitialized(true);
+      }
+    });
+
+    it("protected GET /api/v1/health/diagnostics requires admin authentication and returns full diagnostics", async () => {
       const unauthRes = await request(app).get("/api/v1/health/diagnostics");
       expect(unauthRes.status).toBe(401);
 
@@ -454,6 +479,8 @@ describe("MAN-U-AI Task 19.9.20 — Security Audit Findings Remediation & Regres
         .set("Authorization", `Bearer ${adminToken}`);
       expect(adminRes.status).toBe(200);
       expect(adminRes.body.database?.diagnostics).toBeDefined();
+      expect(adminRes.body.dependencies).toBeDefined();
+      expect(adminRes.body.multimodalEngine).toBeDefined();
     });
 
     it("GET /api/v1/documents/:id/figures does not expose storagePath, storageProvider, or processingError", async () => {

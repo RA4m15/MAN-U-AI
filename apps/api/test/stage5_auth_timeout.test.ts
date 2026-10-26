@@ -128,8 +128,13 @@ describe("Stage 5.4 — Production Authentication Timeout & Resiliency Suite", (
     const res = await request(app).get("/health/ready");
     expect(res.status).toBe(503);
     expect(res.body.status).toBe("unhealthy");
-    expect(res.body.ready).toBe(false);
-    expect(res.body.database.status).toBe("disconnected");
+    expect(res.body.database).toBeUndefined();
+    expect(res.body.dependencies).toBeUndefined();
+    expect(res.body.multimodalEngine).toBeUndefined();
+    expect(res.body.error).toBe("Required dependencies are unavailable");
+
+    // Restore
+    setIsConnectedToMongo(true);
   });
 
   it("Requirement 7: Diagnostic X-Response-Time header is attached to responses", async () => {
@@ -246,18 +251,24 @@ describe("Stage 5.4 — Production Authentication Timeout & Resiliency Suite", (
     expect(catDns.category).toBe("DNS/SRV resolution failure");
   });
 
-  it("Requirement 13: Readiness probe exposes sanitized database diagnostics without secrets", async () => {
+  it("Requirement 13: Readiness probe exposes minimal status on public endpoints without leaking diagnostics", async () => {
     const { setIsAppInitialized } = await import("../src/config/database");
     setIsConnectedToMongo(false);
     setIsAppInitialized(false);
 
     const res = await request(app).get("/health/ready");
     expect(res.status).toBe(503);
-    expect(res.body.database).toBeDefined();
-    expect(res.body.database.status).toBe("disconnected");
-    expect(res.body.database.diagnostics).toBeDefined();
-    expect(typeof res.body.database.diagnostics.hasUri).toBe("boolean");
-    expect(res.body.database.diagnostics.uriScheme).toBeDefined();
+    expect(res.body.status).toBe("unhealthy");
+    expect(res.body.ready).toBe(false);
+    expect(res.body.service).toBe("MAN-U-AI API Server");
+    expect(res.body.version).toBe("1.0.0");
+    expect(res.body.error).toBe("Required dependencies are unavailable");
+
+    // Strictly ensure internal topology, diagnostics, and dependencies are NOT present in public response
+    expect(res.body.database).toBeUndefined();
+    expect(res.body.multimodalEngine).toBeUndefined();
+    expect(res.body.dependencies).toBeUndefined();
+    expect(res.body.environment).toBeUndefined();
 
     // Re-verify secrets are never present in payload
     const bodyStr = JSON.stringify(res.body);
