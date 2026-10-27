@@ -6,18 +6,24 @@ import { MobileNav } from "./MobileNav";
 import { PanelRightOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function AppShell() {
+export type PanelType = "admin" | "manager";
+
+interface AppShellProps {
+  panel: PanelType;
+}
+
+export function AppShell({ panel }: AppShellProps) {
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
     <div className="flex h-full bg-canvas overflow-hidden">
-      {/* ── Desktop Sidebar ──────────────────────────────────── */}
+      {/* Desktop sidebar uses role-specific navigation. */}
       <aside className="hidden md:flex flex-col flex-shrink-0 w-60 border-r border-hairline bg-surface-1 z-sidebar">
-        <Sidebar onMobileClose={() => setMobileMenuOpen(false)} />
+        <Sidebar panel={panel} onMobileClose={() => setMobileMenuOpen(false)} />
       </aside>
 
-      {/* ── Mobile Sidebar Overlay ───────────────────────────── */}
+      {/* Mobile sidebar overlay */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
           <div
@@ -25,16 +31,13 @@ export function AppShell() {
             onClick={() => setMobileMenuOpen(false)}
           />
           <aside className="relative flex flex-col w-72 h-full bg-surface-1 border-r border-hairline z-10 animate-slide-right">
-            <Sidebar onMobileClose={() => setMobileMenuOpen(false)} />
+            <Sidebar panel={panel} onMobileClose={() => setMobileMenuOpen(false)} />
           </aside>
         </div>
       )}
 
-      {/* ── Main Content + Right Panel ───────────────────────── */}
       <div className="flex flex-1 min-w-0 h-full overflow-hidden">
-        {/* Center workspace */}
         <main className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
-          {/* Mobile header bar */}
           <div className="flex items-center gap-3 h-12 px-4 border-b border-hairline bg-surface-1 md:hidden flex-shrink-0">
             <button
               onClick={() => setMobileMenuOpen(true)}
@@ -49,6 +52,9 @@ export function AppShell() {
             </button>
             <span className="font-semibold text-base tracking-tight text-gradient-primary">
               MAN-U-AI
+            </span>
+            <span className="text-2xs font-medium uppercase tracking-wide text-ink-tertiary">
+              {panel} panel
             </span>
             <div className="ml-auto">
               <button
@@ -66,7 +72,7 @@ export function AppShell() {
           </div>
         </main>
 
-        {/* ── Right Context Panel (desktop) ────────────────── */}
+        {/* Shared operational context, scoped to the active panel's routes. */}
         <aside
           className={cn(
             "hidden lg:flex flex-col flex-shrink-0 border-l border-hairline bg-surface-1",
@@ -76,7 +82,7 @@ export function AppShell() {
         >
           <div className="flex items-center justify-between h-12 px-4 border-b border-hairline flex-shrink-0">
             <span className="text-xs font-medium text-ink-subtle tracking-wide uppercase">
-              Context
+              {panel === "admin" ? "System context" : "Operations context"}
             </span>
             <button
               onClick={() => setRightPanelOpen(false)}
@@ -86,10 +92,9 @@ export function AppShell() {
               <PanelRightOpen size={13} className="rotate-180" />
             </button>
           </div>
-          <RightPanel />
+          <RightPanel panel={panel} />
         </aside>
 
-        {/* Toggle button when panel is closed */}
         {!rightPanelOpen && (
           <button
             onClick={() => setRightPanelOpen(true)}
@@ -101,8 +106,7 @@ export function AppShell() {
         )}
       </div>
 
-      {/* Mobile bottom nav */}
-      <MobileNav />
+      <MobileNav panel={panel} />
     </div>
   );
 }
