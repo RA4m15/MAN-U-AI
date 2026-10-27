@@ -38,7 +38,7 @@ export async function requireAuth(
       name: string;
     };
 
-    const VALID_ROLES: readonly UserRole[] = ["admin", "engineer", "viewer"] as const;
+    const VALID_ROLES: readonly UserRole[] = ["admin", "engineer", "viewer", "manager"] as const;
     const sanitizeRole = (r: unknown): UserRole => {
       if (typeof r === "string" && (VALID_ROLES as readonly string[]).includes(r)) {
         return r as UserRole;

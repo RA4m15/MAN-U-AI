@@ -46,7 +46,7 @@ export async function seedDatabase() {
         name: "Marcus Vance",
         email: "marcus.v@plant.io",
         passwordHash,
-        role: "viewer",
+        role: "manager",
         orgId: "plant-alpha",
       });
 
@@ -208,6 +208,12 @@ export async function seedDatabase() {
           await DocumentPermission.create({
             documentId: doc._id,
             role: "engineer",
+            canRead: true,
+            canWrite: true,
+          });
+          await DocumentPermission.create({
+            documentId: doc._id,
+            role: "manager",
             canRead: true,
             canWrite: true,
           });

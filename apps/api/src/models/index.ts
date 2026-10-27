@@ -20,7 +20,7 @@ const UserSchema = new Schema<IUser>(
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ["admin", "engineer", "viewer"], default: "viewer" },
+    role: { type: String, enum: ["admin", "engineer", "viewer", "manager"], default: "viewer" },
     orgId: { type: String, default: "default-plant-org" },
     isActive: { type: Boolean, default: true },
   },
@@ -219,7 +219,7 @@ export interface IDocumentPermission extends MongooseDocument {
 const DocumentPermissionSchema = new Schema<IDocumentPermission>(
   {
     documentId: { type: Schema.Types.ObjectId, ref: "Document", required: true, index: true },
-    role: { type: String, enum: ["admin", "engineer", "viewer"] },
+    role: { type: String, enum: ["admin", "engineer", "viewer", "manager"] },
     userId: { type: Schema.Types.ObjectId, ref: "User" },
     canRead: { type: Boolean, default: true },
     canWrite: { type: Boolean, default: false },

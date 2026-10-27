@@ -6,7 +6,7 @@ export const RegisterSchema = z.object({
   name: z.string().trim().min(2, "Name must be at least 2 characters").max(100, "Name cannot exceed 100 characters"),
   email: z.string().trim().email("Invalid email format").max(255, "Email cannot exceed 255 characters"),
   password: z.string().min(8, "Password must be at least 8 characters").max(128, "Password cannot exceed 128 characters"),
-  role: z.enum(["admin", "engineer", "viewer"]).optional().default("viewer"),
+  role: z.enum(["admin", "engineer", "viewer", "manager"]).optional().default("viewer"),
 });
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 
@@ -18,7 +18,7 @@ export type LoginInput = z.infer<typeof LoginSchema>;
 
 // ─── User ───────────────────────────────────────────────────────────────────
 
-export type UserRole = "admin" | "engineer" | "viewer";
+export type UserRole = "admin" | "engineer" | "viewer" | "manager";
 
 export interface UserDTO {
   id: string;

@@ -116,7 +116,7 @@ usersRouter.patch("/:id/role", requireAuth, requireRole(["admin"]), async (req: 
     });
   }
 
-  if (!["admin", "engineer", "viewer"].includes(role)) {
+  if (!["admin", "engineer", "viewer", "manager"].includes(role)) {
     return res.status(400).json({ success: false, error: { code: "BAD_ROLE", message: "Invalid role specified" } });
   }
 

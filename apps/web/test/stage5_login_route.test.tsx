@@ -30,9 +30,9 @@ describe("Stage 5.3 — Client-Side Route & Static Fallback Resolution", () => {
       </QueryClientProvider>
     );
 
-    expect(screen.getByText("Sign In to Industrial Workspace")).toBeDefined();
-    expect(screen.getByPlaceholderText("engineer@plant-line.com")).toBeDefined();
-    expect(screen.getByText("Lead Eng")).toBeDefined();
+    expect(screen.getByText("Sign In to Web Workspace")).toBeDefined();
+    expect(screen.getByPlaceholderText("manager@plant-line.com")).toBeDefined();
+    expect(screen.getByText("Manager / Operator")).toBeDefined();
     expect(screen.getByText("Plant Admin")).toBeDefined();
   });
 
@@ -49,9 +49,8 @@ describe("Stage 5.3 — Client-Side Route & Static Fallback Resolution", () => {
       </QueryClientProvider>
     );
 
-    // Unauthenticated user on root should be redirected to /login
-    expect(screen.getByText("Sign In to Industrial Workspace")).toBeDefined();
-    expect(screen.getByPlaceholderText("engineer@plant-line.com")).toBeDefined();
+    expect(screen.getByText("Sign In to Web Workspace")).toBeDefined();
+    expect(screen.getByPlaceholderText("manager@plant-line.com")).toBeDefined();
   });
 
   it("verifies production build output contains pre-generated static route fallbacks", () => {

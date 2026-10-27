@@ -36,13 +36,14 @@ describe("Stage 5.2 — LoginPage Quick Demo & Provisioning UI", () => {
     cleanup();
   });
 
-  it("renders Quick Demo buttons and login form", () => {
+  it("renders Quick Demo buttons and login form for web panel roles", () => {
     renderLoginPage();
 
-    expect(screen.getByText("Lead Eng")).toBeDefined();
     expect(screen.getByText("Plant Admin")).toBeDefined();
-    expect(screen.getByText("Field Tech")).toBeDefined();
-    expect(screen.getByPlaceholderText("engineer@plant-line.com")).toBeDefined();
+    expect(screen.getByText("Manager / Operator")).toBeDefined();
+    expect(screen.queryByText("Lead Eng")).toBeNull();
+    expect(screen.queryByText("Field Tech")).toBeNull();
+    expect(screen.getByPlaceholderText("manager@plant-line.com")).toBeDefined();
   });
 
   it("Quick Demo button does not attempt auto-registration when login fails with 401", async () => {
@@ -62,13 +63,11 @@ describe("Stage 5.2 — LoginPage Quick Demo & Provisioning UI", () => {
 
     renderLoginPage();
 
-    const leadEngButton = screen.getByText("Lead Eng");
-    fireEvent.click(leadEngButton);
+    fireEvent.click(screen.getByText("Manager / Operator"));
 
     await waitFor(() => {
-      // Must NOT call register
       expect(registerSpy).not.toHaveBeenCalled();
-      // Must display useful instruction pointing to administrative CLI
+      expect(loginSpy).toHaveBeenCalledWith("marcus.v@plant.io", expect.any(String));
       expect(
         screen.getByText(/The account is either not provisioned or credentials are invalid.*administrative CLI/i)
       ).toBeDefined();
@@ -91,31 +90,30 @@ describe("Stage 5.2 — LoginPage Quick Demo & Provisioning UI", () => {
 
     renderLoginPage();
 
-    // Toggle to registration mode
-    const toggleButton = screen.getByText(/Need plant-level access\? Request enrollment/i);
-    fireEvent.click(toggleButton);
+    fireEvent.click(screen.getByText(/Need plant-level access\? Request enrollment/i));
 
-    // Verify registration notice appears
     expect(
       screen.getByText(/Public self-registration is restricted in production environments/i)
     ).toBeDefined();
 
-    // Fill form and submit
-    fireEvent.change(screen.getByPlaceholderText("e.g. John Doe, Lead Reliability"), {
+    fireEvent.change(screen.getByPlaceholderText("e.g. John Doe, Lab Manager"), {
       target: { value: "John Doe" },
     });
-    fireEvent.change(screen.getByPlaceholderText("engineer@plant-line.com"), {
+    fireEvent.change(screen.getByPlaceholderText("manager@plant-line.com"), {
       target: { value: "john.doe@plant.io" },
     });
     fireEvent.change(screen.getByPlaceholderText("••••••••••••"), {
       target: { value: "Password123!" },
     });
 
-    const submitButton = screen.getByText("Create Account & Workspace");
-    fireEvent.click(submitButton);
+    fireEvent.click(screen.getByText("Create Account & Workspace"));
 
     await waitFor(() => {
-      expect(registerSpy).toHaveBeenCalled();
+      expect(registerSpy).toHaveBeenCalledWith({
+        name: "John Doe",
+        email: "john.doe@plant.io",
+        password: "Password123!",
+      });
       expect(
         screen.getByText("Public self-registration is disabled in production. Accounts must be provisioned by an administrator.")
       ).toBeDefined();

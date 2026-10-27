@@ -97,7 +97,7 @@ equipmentRouter.get("/:id", requireAuth, async (req: Request, res: Response) => 
 equipmentRouter.post(
   "/",
   requireAuth,
-  requireRole(["admin", "engineer"]),
+  requireRole(["admin", "engineer", "manager"]),
   async (req: AuthenticatedRequest, res: Response) => {
     const parsed = CreateEquipmentSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -138,7 +138,7 @@ equipmentRouter.post(
 equipmentRouter.delete(
   "/:id",
   requireAuth,
-  requireRole(["admin", "engineer"]),
+  requireRole(["admin", "engineer", "manager"]),
   async (req: AuthenticatedRequest, res: Response) => {
     const id = String(req.params.id);
 
