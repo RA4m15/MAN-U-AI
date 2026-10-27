@@ -15,16 +15,17 @@ if (!fs.existsSync(indexHtmlPath)) {
 
 const indexHtml = fs.readFileSync(indexHtmlPath, "utf-8");
 
-// 1. Create 404.html as SPA fallback for static hosts (Render, GitHub Pages, etc.)
+// Create a static fallback for hosts that do not automatically apply SPA rewrites.
 const notFoundPath = path.join(distDir, "404.html");
 fs.writeFileSync(notFoundPath, indexHtml);
 console.log("[postbuild] Created dist/404.html");
 
-// 2. Pre-generate static route files for all client-side routes in App.tsx
-// This ensures direct navigation and browser refresh return HTTP 200 OK
-// on static hosts even if a server-side SPA rewrite rule has not yet been applied.
+// Pre-generate files for top-level and panel-prefixed client routes so direct
+// navigation and browser refresh work even before a hosting rewrite is configured.
 const routes = [
   "login",
+  "engineer-mobile-required",
+  "unsupported-access",
   "knowledge",
   "equipment",
   "summaries",
@@ -33,6 +34,22 @@ const routes = [
   "integrations",
   "settings",
   "chat",
+  "admin",
+  "admin/assistant",
+  "admin/chat",
+  "admin/knowledge",
+  "admin/equipment",
+  "admin/summaries",
+  "admin/insights",
+  "admin/activity",
+  "admin/integrations",
+  "admin/settings",
+  "manager",
+  "manager/assistant",
+  "manager/chat",
+  "manager/knowledge",
+  "manager/equipment",
+  "manager/summaries",
 ];
 
 for (const route of routes) {
@@ -41,6 +58,8 @@ for (const route of routes) {
     fs.mkdirSync(routeDir, { recursive: true });
   }
   fs.writeFileSync(path.join(routeDir, "index.html"), indexHtml);
-  fs.writeFileSync(path.join(distDir, `${route}.html`), indexHtml);
+  if (!route.includes("/")) {
+    fs.writeFileSync(path.join(distDir, `${route}.html`), indexHtml);
+  }
 }
 console.log(`[postbuild] Generated static fallbacks for ${routes.length} client routes.`);
