@@ -44,14 +44,14 @@ describe("Stage 5.4 — Web LoginPage Authentication Timeout & 503 Handling", ()
 
     renderLoginPage();
 
-    fireEvent.change(screen.getByPlaceholderText("engineer@plant-line.com"), {
-      target: { value: "alex.mercer@plant.io" },
+    fireEvent.change(screen.getByPlaceholderText("manager@plant-line.com"), {
+      target: { value: "manager@plant.io" },
     });
     fireEvent.change(screen.getByPlaceholderText("••••••••••••"), {
       target: { value: "TestPassword123!" },
     });
 
-    const submitBtn = screen.getByRole("button", { name: /Sign In to Industrial Workspace/i });
+    const submitBtn = screen.getByRole("button", { name: /Sign In to Web Workspace/i });
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
@@ -77,14 +77,14 @@ describe("Stage 5.4 — Web LoginPage Authentication Timeout & 503 Handling", ()
 
     renderLoginPage();
 
-    fireEvent.change(screen.getByPlaceholderText("engineer@plant-line.com"), {
-      target: { value: "alex.mercer@plant.io" },
+    fireEvent.change(screen.getByPlaceholderText("manager@plant-line.com"), {
+      target: { value: "manager@plant.io" },
     });
     fireEvent.change(screen.getByPlaceholderText("••••••••••••"), {
       target: { value: "TestPassword123!" },
     });
 
-    const submitBtn = screen.getByRole("button", { name: /Sign In to Industrial Workspace/i });
+    const submitBtn = screen.getByRole("button", { name: /Sign In to Web Workspace/i });
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
