@@ -21,8 +21,8 @@ export function LoginPage() {
 
     try {
       if (isRegister) {
-        // The API assigns the least-privileged operational role. Admin accounts
-        // must be provisioned separately; engineer accounts use the Flutter app.
+        // The API assigns the restricted viewer role. Manager, Admin, and Engineer
+        // roles must be provisioned or promoted by a Plant Administrator.
         const res = await authApi.register({ name, email, password });
         if (res.data?.success && res.data.data) {
           login(res.data.data.token, res.data.data.user);
@@ -151,7 +151,7 @@ export function LoginPage() {
                 <span className="font-semibold text-primary">Notice:</span> Public self-registration is restricted in production environments. Accounts must be provisioned by an administrator.
               </div>
               <div className="p-2.5 rounded-lg bg-surface-2 border border-hairline text-2xs text-ink-subtle">
-                New registrations receive Manager / Operator access. Administrator access is provisioned separately, and engineers use the Flutter app.
+                Self-registration enrolls with restricted sandbox access. Plant Manager, Engineer, and Admin roles must be provisioned or promoted by a Plant Administrator.
               </div>
               <div>
                 <label className="block text-2xs font-medium text-ink-subtle mb-1 uppercase tracking-wider">

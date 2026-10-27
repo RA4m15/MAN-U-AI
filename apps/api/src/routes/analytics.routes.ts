@@ -13,8 +13,8 @@ const GenerateSummarySchema = z.object({
   timeRange: z.string().trim().max(50).optional(),
 }).strict();
 
-// GET /summaries - Get real persisted summaries (Engineers & Admins only)
-analyticsRouter.get("/summaries", requireAuth, requireRole(["admin", "engineer"]), async (req: Request, res: Response) => {
+// GET /summaries - Get real persisted summaries (Engineers, Managers & Admins)
+analyticsRouter.get("/summaries", requireAuth, requireRole(["admin", "engineer", "manager"]), async (req: Request, res: Response) => {
   if (!isConnectedToMongo) {
     return res.status(503).json({
       success: false,
@@ -47,8 +47,8 @@ analyticsRouter.get("/summaries", requireAuth, requireRole(["admin", "engineer"]
   }
 });
 
-// POST /summaries/generate - Generate operational summary (Engineers & Admins only)
-analyticsRouter.post("/summaries/generate", requireAuth, requireRole(["admin", "engineer"]), async (req: AuthenticatedRequest, res: Response) => {
+// POST /summaries/generate - Generate operational summary (Engineers, Managers & Admins)
+analyticsRouter.post("/summaries/generate", requireAuth, requireRole(["admin", "engineer", "manager"]), async (req: AuthenticatedRequest, res: Response) => {
   if (!isConnectedToMongo) {
     return res.status(503).json({
       success: false,

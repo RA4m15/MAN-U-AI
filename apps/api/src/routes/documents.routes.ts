@@ -403,7 +403,7 @@ documentsRouter.post(
   "/upload",
   uploadLimiter,
   requireAuth,
-  requireRole(["admin", "engineer"]),
+  requireRole(["admin", "engineer", "manager"]),
   uploadMiddleware,
   async (req: AuthenticatedRequest, res: Response) => {
     if (!req.file) {
@@ -612,7 +612,7 @@ documentsRouter.post(
 documentsRouter.delete(
   "/:id",
   requireAuth,
-  requireRole(["admin", "engineer"]),
+  requireRole(["admin", "engineer", "manager"]),
   async (req: AuthenticatedRequest, res: Response) => {
     const id = String(req.params.id);
     if (isConnectedToMongo) {

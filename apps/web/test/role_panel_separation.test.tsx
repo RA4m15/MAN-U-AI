@@ -43,7 +43,7 @@ vi.mock("../src/lib/api", async (importOriginal) => {
   };
 });
 
-function renderAppAs(role: "admin" | "viewer" | "engineer", initialPath: string) {
+function renderAppAs(role: "admin" | "manager" | "viewer" | "engineer", initialPath: string) {
   localStorage.setItem("manuai_token", "test-token");
   localStorage.setItem(
     "manuai_user",
@@ -82,8 +82,8 @@ describe("Role-specific web panel separation", () => {
     cleanup();
   });
 
-  it("shows the Manager / Operator workspace and excludes admin navigation", async () => {
-    renderAppAs("viewer", "/manager");
+  it("shows the Manager / Operator workspace and excludes admin navigation for manager role", async () => {
+    renderAppAs("manager", "/manager");
 
     expect(await screen.findByRole("heading", { name: "Manager Dashboard" })).toBeDefined();
     expect(screen.getByText("Manager / Operator Access")).toBeDefined();
@@ -94,7 +94,7 @@ describe("Role-specific web panel separation", () => {
   });
 
   it("redirects manager accounts away from direct admin URLs", async () => {
-    renderAppAs("viewer", "/admin/settings");
+    renderAppAs("manager", "/admin/settings");
 
     expect(await screen.findByRole("heading", { name: "Manager Dashboard" })).toBeDefined();
     expect(screen.queryByText("System Insights & Analytics")).toBeNull();
@@ -114,5 +114,32 @@ describe("Role-specific web panel separation", () => {
     expect(await screen.findByRole("heading", { name: "Continue in the MAN-U-AI Flutter app" })).toBeDefined();
     expect(screen.queryByRole("heading", { name: "Manager Dashboard" })).toBeNull();
     expect(screen.queryByText("System Insights & Analytics")).toBeNull();
+  });
+
+  it("redirects viewer accounts to unsupported-access page and denies manager panel access", async () => {
+    renderAppAs("viewer", "/manager");
+
+    expect(await screen.findByRole("heading", { name: "Workspace access unavailable" })).toBeDefined();
+    expect(screen.queryByRole("heading", { name: "Manager Dashboard" })).toBeNull();
+  });
+
+  it("redirects unauthenticated users to login", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/manager"]}>
+          <App />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByRole("heading", { name: "MAN-U-AI" })).toBeDefined();
+    expect(screen.getByText("Sign In to Web Workspace")).toBeDefined();
   });
 });

@@ -38,13 +38,13 @@ authRouter.post("/register", authLimiter, async (req: Request, res: Response) =>
 
   const { name, email, password, role } = parsed.data;
 
-  // Unauthenticated registration requests must NEVER be permitted to grant administrator role
+  // Unauthenticated registration requests must NEVER be permitted to grant admin role
   if (role === "admin") {
     return res.status(403).json({
       success: false,
       error: {
         code: "ROLE_UNAUTHORIZED",
-        message: "Administrator accounts cannot be self-registered. Administrator privileges require authorized internal provisioning.",
+        message: "Administrator accounts cannot be self-registered. Only administrative staff can provision admin accounts.",
       },
     });
   }

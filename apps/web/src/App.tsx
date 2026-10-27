@@ -17,20 +17,15 @@ import type { UserRole } from "@man-u-ai/shared";
 
 type WebPanel = "admin" | "manager";
 
-/**
- * Compatibility mapping while the existing backend still calls the operational
- * account role "viewer". The web experience labels that role Manager / Operator.
- * Role-schema and endpoint-permission migration is deliberately separate.
- */
 function getWebPanel(role: UserRole | undefined): WebPanel | null {
   if (role === "admin") return "admin";
-  if (role === "viewer") return "manager";
+  if (role === "manager") return "manager";
   return null;
 }
 
 function getRoleLanding(role: UserRole | undefined): string {
   if (role === "admin") return "/admin";
-  if (role === "viewer") return "/manager";
+  if (role === "manager") return "/manager";
   if (role === "engineer") return "/engineer-mobile-required";
   return "/unsupported-access";
 }
