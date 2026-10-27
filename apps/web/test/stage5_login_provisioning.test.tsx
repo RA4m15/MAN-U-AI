@@ -36,41 +36,96 @@ describe("Stage 5.2 — LoginPage Quick Demo & Provisioning UI", () => {
     cleanup();
   });
 
-  it("renders Quick Demo buttons and login form for web panel roles", () => {
+  it("does not render Quick Demo Access or demo buttons and renders standard login form", () => {
     renderLoginPage();
 
-    expect(screen.getByText("Plant Admin")).toBeDefined();
-    expect(screen.getByText("Manager / Operator")).toBeDefined();
+    expect(screen.queryByText(/Quick Demo Access/i)).toBeNull();
+    expect(screen.queryByText("Plant Admin")).toBeNull();
+    expect(screen.queryByText("Manager / Operator")).toBeNull();
     expect(screen.queryByText("Lead Eng")).toBeNull();
     expect(screen.queryByText("Field Tech")).toBeNull();
     expect(screen.getByPlaceholderText("manager@plant-line.com")).toBeDefined();
+    expect(screen.getByPlaceholderText("••••••••••••")).toBeDefined();
+    expect(screen.getByRole("button", { name: /Sign In to Web Workspace/i })).toBeDefined();
   });
 
-  it("Quick Demo button does not attempt auto-registration when login fails with 401", async () => {
-    const loginSpy = vi.spyOn(authApi, "login").mockRejectedValue({
-      response: {
-        status: 401,
+  it("allows users to manually enter credentials and submit login form successfully", async () => {
+    const loginSpy = vi.spyOn(authApi, "login").mockResolvedValue({
+      data: {
+        success: true,
         data: {
-          success: false,
-          error: { code: "INVALID_CREDENTIALS", message: "Invalid email or password" },
+          token: "valid-test-jwt",
+          user: {
+            id: "user-123",
+            name: "Marcus Vance",
+            email: "marcus.v@plant.io",
+            role: "manager",
+            createdAt: new Date().toISOString(),
+          },
         },
       },
     });
 
+    renderLoginPage();
+
+    fireEvent.change(screen.getByPlaceholderText("manager@plant-line.com"), {
+      target: { value: "marcus.v@plant.io" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("••••••••••••"), {
+      target: { value: "Industry2025!" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Sign In to Web Workspace/i }));
+
+    await waitFor(() => {
+      expect(loginSpy).toHaveBeenCalledWith("marcus.v@plant.io", "Industry2025!");
+    });
+  });
+
+  it("ensures public registration form has no role-selection dropdown and submits without client-selected role", async () => {
     const registerSpy = vi.spyOn(authApi, "register").mockResolvedValue({
-      data: { success: true, data: {} as any },
+      data: {
+        success: true,
+        data: {
+          token: "new-token",
+          user: {
+            id: "u-new",
+            name: "John Doe",
+            email: "john.doe@plant.io",
+            role: "viewer",
+            createdAt: new Date().toISOString(),
+          },
+        },
+      },
     });
 
     renderLoginPage();
 
-    fireEvent.click(screen.getByText("Manager / Operator"));
+    fireEvent.click(screen.getByText(/Need plant-level access\? Request enrollment/i));
+
+    // Verify no role dropdown exists in public registration
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByLabelText(/Role/i)).toBeNull();
+
+    fireEvent.change(screen.getByPlaceholderText("e.g. John Doe, Lab Manager"), {
+      target: { value: "John Doe" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("manager@plant-line.com"), {
+      target: { value: "john.doe@plant.io" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("••••••••••••"), {
+      target: { value: "Password123!" },
+    });
+
+    fireEvent.click(screen.getByText("Create Account & Workspace"));
 
     await waitFor(() => {
-      expect(registerSpy).not.toHaveBeenCalled();
-      expect(loginSpy).toHaveBeenCalledWith("marcus.v@plant.io", expect.any(String));
-      expect(
-        screen.getByText(/The account is either not provisioned or credentials are invalid.*administrative CLI/i)
-      ).toBeDefined();
+      // Must submit name, email, password only - no client-chosen role
+      expect(registerSpy).toHaveBeenCalledWith({
+        name: "John Doe",
+        email: "john.doe@plant.io",
+        password: "Password123!",
+      });
     });
   });
 

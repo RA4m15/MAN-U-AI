@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Zap, ShieldCheck, ArrowRight, Lock, Mail, User, AlertCircle, Wrench } from "lucide-react";
+import { Zap, ShieldCheck, ArrowRight, Lock, Mail, User, AlertCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { authApi } from "@/lib/api";
 
@@ -54,48 +54,6 @@ export function LoginPage() {
     }
   };
 
-  const handleQuickDemo = async (demoEmail: string) => {
-    setIsLoading(true);
-    setError(null);
-    setEmail(demoEmail);
-
-    try {
-      // Demo accounts still authenticate against the backend; no account is created here.
-      const demoPassword = import.meta.env.VITE_DEMO_PASSWORD || (import.meta.env.DEV ? "Industry2025!" : "");
-
-      if (!demoPassword) {
-        setError(
-          `Demo account selected (${demoEmail}). Production demo credentials are not configured. Please enter the password provisioned for this account, or provision the account using the administrative CLI utility.`
-        );
-        return;
-      }
-
-      const res = await authApi.login(demoEmail, demoPassword);
-      if (res.data?.success && res.data.data) {
-        login(res.data.data.token, res.data.data.user);
-        navigate("/", { replace: true });
-        return;
-      }
-      throw new Error(res.data?.error?.message || "Authentication failed");
-    } catch (err: any) {
-      if (err.response?.status === 401 || err.response?.status === 400) {
-        setError(
-          `Authentication failed for ${demoEmail}. The account is either not provisioned or credentials are invalid. In production, accounts must be provisioned securely via the administrative CLI utility.`
-        );
-      } else if (err.response?.data?.error?.message) {
-        setError(err.response.data.error.message);
-      } else if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
-        setError(
-          "Backend authentication request timed out after 30 seconds. The API service may be cold starting. Please retry in a moment."
-        );
-      } else {
-        setError(err.message || "Backend login failed. Ensure API server is active.");
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen w-full bg-canvas flex flex-col justify-center items-center px-4 py-8 relative overflow-hidden">
       <div className="absolute top-1/4 -left-32 w-96 h-96 bg-primary/10 rounded-full blur-3xl pointer-events-none" />
@@ -110,31 +68,6 @@ export function LoginPage() {
           <p className="text-xs text-ink-subtle mt-1 max-w-xs">
             Industrial Multimodal AI Copilot for SOPs, Equipment Manuals & Reliability Engineering
           </p>
-        </div>
-
-        <div className="mb-6 p-3 rounded-lg bg-surface-2 border border-hairline">
-          <div className="flex items-center gap-1.5 text-2xs uppercase tracking-wider text-ink-tertiary font-semibold mb-2">
-            <Wrench size={11} className="text-primary" />
-            Quick Demo Access (Backend Authenticated)
-          </div>
-          <div className="grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              disabled={isLoading}
-              onClick={() => handleQuickDemo("admin@plant.io")}
-              className="px-2 py-1.5 rounded bg-surface-3 hover:bg-primary/20 hover:text-ink text-ink-subtle text-2xs font-medium border border-hairline transition-colors text-center disabled:opacity-50"
-            >
-              Plant Admin
-            </button>
-            <button
-              type="button"
-              disabled={isLoading}
-              onClick={() => handleQuickDemo("marcus.v@plant.io")}
-              className="px-2 py-1.5 rounded bg-surface-3 hover:bg-primary/20 hover:text-ink text-ink-subtle text-2xs font-medium border border-hairline transition-colors text-center disabled:opacity-50"
-            >
-              Manager / Operator
-            </button>
-          </div>
         </div>
 
         {error && (

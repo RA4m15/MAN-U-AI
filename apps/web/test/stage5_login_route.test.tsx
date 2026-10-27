@@ -32,8 +32,9 @@ describe("Stage 5.3 — Client-Side Route & Static Fallback Resolution", () => {
 
     expect(screen.getByText("Sign In to Web Workspace")).toBeDefined();
     expect(screen.getByPlaceholderText("manager@plant-line.com")).toBeDefined();
-    expect(screen.getByText("Manager / Operator")).toBeDefined();
-    expect(screen.getByText("Plant Admin")).toBeDefined();
+    expect(screen.queryByText("Manager / Operator")).toBeNull();
+    expect(screen.queryByText("Plant Admin")).toBeNull();
+    expect(screen.queryByText(/Quick Demo Access/i)).toBeNull();
   });
 
   it("redirects unauthenticated root / navigation to /login", () => {
