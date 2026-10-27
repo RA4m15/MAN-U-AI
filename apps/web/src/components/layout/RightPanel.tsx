@@ -8,13 +8,13 @@ import {
   CheckCircle2,
   AlertTriangle,
   Loader2,
-  ChevronRight,
   ExternalLink,
   Layers,
   Sparkles,
 } from "lucide-react";
 import { documentsApi, getSocket } from "@/lib/api";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { formatRelativeTime } from "@/lib/utils";
+import type { PanelType } from "./AppShell";
 
 function StatusIcon({ status }: { status: string }) {
   if (status === "indexed") return <CheckCircle2 size={12} className="text-success" />;
@@ -24,12 +24,12 @@ function StatusIcon({ status }: { status: string }) {
   return <Clock size={12} className="text-ink-tertiary" />;
 }
 
-export function RightPanel() {
+export function RightPanel({ panel = "manager" }: { panel?: PanelType }) {
   const location = useLocation();
   const queryClient = useQueryClient();
+  const basePath = `/${panel}`;
   const [liveProgress, setLiveProgress] = useState<{ docId: string; progress: number; stage: string } | null>(null);
 
-  // TanStack query to fetch real documents from MongoDB
   const { data: documents = [] } = useQuery({
     queryKey: ["documents"],
     queryFn: async () => {
@@ -43,7 +43,6 @@ export function RightPanel() {
     refetchInterval: 10_000,
   });
 
-  // Socket.IO real-time progress and status listener
   useEffect(() => {
     const socket = getSocket();
 
@@ -73,16 +72,13 @@ export function RightPanel() {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto scrollbar-none p-4 space-y-5">
-      {/* ── Active Ingestion Queue ──────────────────────────── */}
       <section>
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-semibold text-ink-subtle uppercase tracking-wide flex items-center gap-1.5">
             <Layers size={13} className="text-primary" />
             Document Processing Queue
           </h3>
-          <span className="badge-muted text-2xs font-mono">
-            {activeProcessingDocs.length} Active
-          </span>
+          <span className="badge-muted text-2xs font-mono">{activeProcessingDocs.length} Active</span>
         </div>
 
         {liveProgress && (
@@ -104,14 +100,12 @@ export function RightPanel() {
           {documents.slice(0, 4).map((doc: any) => (
             <Link
               key={doc.id}
-              to={`/knowledge/manuals/${doc.id}`}
+              to={`${basePath}/knowledge/manuals/${doc.id}`}
               className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg bg-surface-2 border border-hairline hover:border-hairline-strong transition-colors group"
             >
               <StatusIcon status={doc.status} />
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-ink truncate group-hover:text-primary transition-colors">
-                  {doc.title}
-                </p>
+                <p className="text-xs text-ink truncate group-hover:text-primary transition-colors">{doc.title}</p>
                 <p className="text-2xs text-ink-tertiary capitalize">
                   {doc.revision} · {doc.status} · {formatRelativeTime(doc.createdAt)}
                 </p>
@@ -129,7 +123,6 @@ export function RightPanel() {
 
       <div className="divider" />
 
-      {/* ── Verified Knowledge Sources in Index ─────────────── */}
       <section>
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-semibold text-ink-subtle uppercase tracking-wide flex items-center gap-1.5">
@@ -143,7 +136,7 @@ export function RightPanel() {
           {indexedDocs.slice(0, 3).map((src: any) => (
             <Link
               key={src.id}
-              to={`/knowledge/manuals/${src.id}`}
+              to={`${basePath}/knowledge/manuals/${src.id}`}
               className="block rounded-lg border border-hairline bg-surface-2 p-3 hover:border-primary/40 transition-colors group"
             >
               <div className="flex items-start justify-between gap-2 mb-1.5">
@@ -173,7 +166,6 @@ export function RightPanel() {
 
       <div className="divider" />
 
-      {/* ── Suggested Operational Inquiries ─────────────────── */}
       <section>
         <h3 className="text-xs font-semibold text-ink-subtle uppercase tracking-wide mb-2 flex items-center gap-1.5">
           <Sparkles size={12} className="text-primary" />
@@ -187,7 +179,8 @@ export function RightPanel() {
           ].map((prompt, i) => (
             <Link
               key={i}
-              to={`/?query=${encodeURIComponent(prompt)}`}
+              to={`${basePath}/assistant?query=${encodeURIComponent(prompt)}`}
+              state={{ from: location.pathname }}
               className="block text-left p-2 rounded-md bg-surface-2 border border-hairline text-2xs text-ink-subtle hover:text-ink hover:border-hairline-strong transition-colors"
             >
               "{prompt}"
