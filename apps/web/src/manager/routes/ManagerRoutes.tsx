@@ -6,6 +6,7 @@ import { ManagerLoginPage } from "../pages/ManagerLoginPage";
 import { ManagerRegisterPage } from "../pages/ManagerRegisterPage";
 import { ManagerOperationsPage } from "../pages/ManagerOperationsPage";
 import { ManagerMaintenancePage } from "../pages/ManagerMaintenancePage";
+import { ManagerTasksPage } from "../pages/ManagerTasksPage";
 import { AssistantPage } from "@/pages/AssistantPage";
 import { KnowledgeLibraryPage } from "@/pages/KnowledgeLibraryPage";
 import { ManualViewerPage } from "@/pages/ManualViewerPage";
@@ -76,6 +77,7 @@ export function ManagerRoutes() {
         <Route path="summaries" element={<SummariesPage />} />
         <Route path="operations" element={<ManagerOperationsPage />} />
         <Route path="maintenance" element={<ManagerMaintenancePage />} />
+        <Route path="tasks" element={<ManagerTasksPage />} />
         <Route path="*" element={<Navigate to="/manager" replace />} />
       </Route>
     </Routes>

@@ -281,6 +281,22 @@ export function emitAuditEvent(event: any) {
   io.to("role:admin").emit("audit:new", event);
 }
 
+export function emitTaskCreated(task: any) {
+  try {
+    io.emit("task:created", task);
+  } catch (err) {
+    // Socket not initialized or inactive
+  }
+}
+
+export function emitTaskUpdated(task: any) {
+  try {
+    io.emit("task:updated", task);
+  } catch (err) {
+    // Socket not initialized or inactive
+  }
+}
+
 export async function startServer(): Promise<http.Server> {
   // 1. Immediately bind HTTP listener to PORT on 0.0.0.0 so liveness checks,
   // load balancers, and Render reverse proxy succeed promptly without delay.

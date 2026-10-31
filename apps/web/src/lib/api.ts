@@ -1,5 +1,6 @@
 import axios from "axios";
 import { io, Socket } from "socket.io-client";
+import type { TaskDTO, CreateTaskInput, UpdateTaskInput, ApiResponse } from "@man-u-ai/shared";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "/api/v1";
 
@@ -217,3 +218,18 @@ export const healthApi = {
   check: () => apiClient.get("/health"),
 };
 
+
+
+// ── Shift Tasks (Manager Dispatch & Engineer Sync) ─────────────────────────
+export const tasksApi = {
+  list: (params?: { status?: string; equipmentId?: string; shift?: string }) =>
+    apiClient.get<ApiResponse<TaskDTO[]>>("/tasks", { params }),
+  get: (id: string) =>
+    apiClient.get<ApiResponse<TaskDTO>>(`/tasks/${id}`),
+  create: (data: CreateTaskInput) =>
+    apiClient.post<ApiResponse<TaskDTO>>("/tasks", data),
+  update: (id: string, data: UpdateTaskInput) =>
+    apiClient.patch<ApiResponse<TaskDTO>>(`/tasks/${id}`, data),
+  delete: (id: string) =>
+    apiClient.delete<ApiResponse<{ id: string; deleted: boolean }>>(`/tasks/${id}`),
+};

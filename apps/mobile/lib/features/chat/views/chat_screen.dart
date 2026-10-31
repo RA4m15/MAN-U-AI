@@ -14,6 +14,8 @@ import 'widgets/equipment_picker_modal.dart';
 import 'widgets/plant_glossary_modal.dart';
 import '../../diagram/views/interactive_diagram_viewer_screen.dart';
 import '../../documents/views/widgets/document_upload_modal.dart';
+import '../../tasks/controllers/task_controller.dart';
+import '../../tasks/views/tasks_screen.dart';
 
 /// Terminal Cobalt Mobile Chat Screen
 /// Industrial. Instrumented. Operational.
@@ -270,6 +272,57 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               onPressed: () => _showEquipmentPicker(context),
             ),
           ],
+          // Shift Tasks with Active Count Badge
+          Consumer(
+            builder: (ctx, r, _) {
+              final activeCount = r.watch(activeTasksCountProvider);
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  IconButton(
+                    key: const Key('appbar_shift_tasks_button'),
+                    icon: const Icon(Icons.assignment_outlined, size: 20.0, color: AppColors.onSurfaceVariant),
+                    tooltip: "Today's Shift Tasks",
+                    onPressed: () {
+                      Navigator.push(
+                        ctx,
+                        MaterialPageRoute(
+                          builder: (_) => TasksScreen(
+                            onConsultCopilot: (prompt, equipmentId) {
+                              r.read(chatControllerProvider.notifier).sendMessage(prompt);
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  if (activeCount > 0)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.surface, width: 1.5),
+                        ),
+                        constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                        child: Text(
+                          '$activeCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
           // Start New Consultation
           IconButton(
             key: const Key('appbar_new_consultation_button'),

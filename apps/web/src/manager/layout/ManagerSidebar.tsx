@@ -15,6 +15,7 @@ import {
   LayoutDashboard,
   Layers,
   Wrench,
+  ClipboardList,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { conversationsApi } from "@/lib/api";
@@ -50,6 +51,7 @@ const MANAGER_NAV_SECTIONS: NavSection[] = [
     label: "Operations & Maintenance",
     items: [
       { label: "Shift Summaries", path: "summaries", icon: <FileText size={15} /> },
+      { label: "Shift Tasks", path: "tasks", icon: <ClipboardList size={15} /> },
       { label: "Operations Management", path: "operations", icon: <Layers size={15} /> },
       { label: "Maintenance Coordination", path: "maintenance", icon: <Wrench size={15} /> },
     ],

@@ -9,6 +9,8 @@ import type {
   SafetyCategory,
   PlantGlossaryCategory,
   TicketStatus,
+  TaskPriority,
+  TaskStatus,
 } from "@man-u-ai/shared";
 
 // ── 1. User Model ──────────────────────────────────────────────────────────
@@ -655,3 +657,58 @@ const DiagramAnnotationSchema = new Schema<IDiagramAnnotation>(
 DiagramAnnotationSchema.index({ documentId: 1, figureId: 1 }, { unique: true });
 
 export const DiagramAnnotation = mongoose.model<IDiagramAnnotation>("DiagramAnnotation", DiagramAnnotationSchema);
+
+// ── 18. Shift Task & Work Order Model ──────────────────────────────────────
+export interface ITask extends MongooseDocument {
+  title: string;
+  description: string;
+  priority: TaskPriority;
+  status: TaskStatus;
+  equipmentId?: string;
+  equipmentName?: string;
+  assignedTo: string;
+  assignedToName?: string;
+  shift: string;
+  dueDate?: Date;
+  createdById: string;
+  createdByName: string;
+  completionNotes?: string;
+  completedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const TaskMongooseSchema = new Schema<ITask>(
+  {
+    title: { type: String, required: true, trim: true },
+    description: { type: String, required: true, trim: true },
+    priority: {
+      type: String,
+      enum: ["critical", "high", "medium", "low"],
+      default: "medium",
+      index: true,
+    },
+    status: {
+      type: String,
+      enum: ["pending", "in_progress", "completed", "cancelled"],
+      default: "pending",
+      index: true,
+    },
+    equipmentId: { type: String, trim: true },
+    equipmentName: { type: String, trim: true },
+    assignedTo: { type: String, default: "all", index: true },
+    assignedToName: { type: String, default: "All Field Engineers" },
+    shift: { type: String, default: "today" },
+    dueDate: { type: Date },
+    createdById: { type: String, required: true },
+    createdByName: { type: String, required: true },
+    completionNotes: { type: String },
+    completedAt: { type: Date },
+  },
+  { timestamps: true }
+);
+
+TaskMongooseSchema.index({ status: 1, createdAt: -1 });
+
+export const Task = mongoose.model<ITask>("Task", TaskMongooseSchema);
+

@@ -520,3 +520,57 @@ export type WorkerCannotVerifyDTO = z.infer<typeof WorkerCannotVerifySchema>;
 
 export type WorkerResponseDTO = WorkerAnswerDTO | WorkerCannotVerifyDTO;
 
+// ─── Shift Task & Work Order Dispatch ────────────────────────────────────────
+
+export type TaskPriority = "critical" | "high" | "medium" | "low";
+export type TaskStatus = "pending" | "in_progress" | "completed" | "cancelled";
+
+export interface TaskDTO {
+  id: string;
+  title: string;
+  description: string;
+  priority: TaskPriority;
+  status: TaskStatus;
+  equipmentId?: string;
+  equipmentName?: string;
+  assignedTo: string;
+  assignedToName?: string;
+  shift: string;
+  dueDate?: string;
+  createdById: string;
+  createdByName: string;
+  completionNotes?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const CreateTaskSchema = z.object({
+  title: z.string().trim().min(3, "Task title must be at least 3 characters").max(200, "Task title cannot exceed 200 characters"),
+  description: z.string().trim().min(5, "Task instructions must be at least 5 characters").max(2000, "Description cannot exceed 2000 characters"),
+  priority: z.enum(["critical", "high", "medium", "low"]).default("medium"),
+  equipmentId: z.string().optional(),
+  equipmentName: z.string().optional(),
+  assignedTo: z.string().optional().default("all"),
+  assignedToName: z.string().optional().default("All Field Engineers"),
+  shift: z.string().optional().default("today"),
+  dueDate: z.string().optional(),
+});
+export type CreateTaskInput = z.input<typeof CreateTaskSchema>;
+
+export const UpdateTaskSchema = z.object({
+  title: z.string().trim().min(3).max(200).optional(),
+  description: z.string().trim().min(5).max(2000).optional(),
+  priority: z.enum(["critical", "high", "medium", "low"]).optional(),
+  status: z.enum(["pending", "in_progress", "completed", "cancelled"]).optional(),
+  completionNotes: z.string().max(1000).optional(),
+  equipmentId: z.string().optional(),
+  equipmentName: z.string().optional(),
+  assignedTo: z.string().optional(),
+  assignedToName: z.string().optional(),
+  shift: z.string().optional(),
+  dueDate: z.string().optional(),
+});
+export type UpdateTaskInput = z.infer<typeof UpdateTaskSchema>;
+
+
