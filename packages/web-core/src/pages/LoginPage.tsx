@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ShieldCheck, ArrowRight, Eye, EyeOff, Building2, AlertCircle } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Building2, AlertCircle } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { authApi } from "../lib/api";
 import { IndustrialCompressorSchematic } from "../components/IndustrialCompressorSchematic";
@@ -65,22 +65,8 @@ export function LoginPage() {
         
         {/* ── LEFT HERO & INDUSTRIAL SCHEMATIC PANEL (7 COLS) ── */}
         <section className="lg:col-span-7 flex flex-col justify-between p-4 sm:p-6 lg:p-6 xl:p-8 border-b lg:border-b-0 lg:border-r border-[#1E293B]/60 min-h-0 h-full overflow-hidden">
-          {/* Top Brand Bar */}
-          <div className="flex items-center justify-between mb-2 sm:mb-4 flex-shrink-0">
-            <div className="flex items-center gap-2.5">
-              <div className="size-8 sm:size-9 bg-[#0057FF] rounded-lg flex items-center justify-center font-bold text-white text-base sm:text-lg shadow-[0_0_15px_rgba(0,87,255,0.4)]">
-                F
-              </div>
-              <div className="flex flex-col">
-                <span className="font-bold text-base sm:text-lg tracking-tight text-white leading-none font-display">
-                  MAN-U-AI
-                </span>
-                <span className="text-[9px] sm:text-[10px] font-mono text-slate-400 tracking-[0.2em] uppercase mt-0.5">
-                  INDUSTRIAL INTELLIGENCE
-                </span>
-              </div>
-            </div>
-
+          {/* Top Bar with BUILT FOR THE FLOOR. */}
+          <div className="flex items-center justify-end mb-2 sm:mb-4 flex-shrink-0">
             <div className="text-[10px] sm:text-xs font-mono text-slate-500 tracking-[0.2em] uppercase hidden sm:block">
               BUILT FOR THE FLOOR.
             </div>
@@ -123,22 +109,10 @@ export function LoginPage() {
               </div>
             </div>
           </div>
-
-          {/* Left Bottom Footer */}
-          <div className="flex items-center justify-between pt-2 border-t border-[#1E293B]/40 text-[10px] sm:text-xs font-mono text-slate-500 flex-shrink-0 mt-1">
-            <span>For people who keep industry moving.</span>
-            <span className="tracking-widest uppercase">FORGE / V1.0</span>
-          </div>
         </section>
 
         {/* ── RIGHT SIGN IN PANEL (5 COLS) ── */}
-        <section className="lg:col-span-5 flex flex-col justify-between p-4 sm:p-6 lg:p-6 xl:p-8 bg-[#080D1A]/60 backdrop-blur-sm min-h-0 h-full overflow-y-auto lg:overflow-hidden">
-          {/* Top Security Status */}
-          <div className="flex items-center justify-end gap-2 text-[11px] sm:text-xs font-mono text-slate-400 flex-shrink-0">
-            <ShieldCheck size={14} className="text-[#0057FF]" />
-            <span className="tracking-wider">Secure, role-based access</span>
-          </div>
-
+        <section className="lg:col-span-5 flex flex-col justify-center p-4 sm:p-6 lg:p-6 xl:p-8 bg-[#080D1A]/60 backdrop-blur-sm min-h-0 h-full overflow-y-auto lg:overflow-hidden">
           {/* Form Container */}
           <div className="my-auto py-1 sm:py-2 max-w-md w-full mx-auto flex flex-col justify-center flex-1 min-h-0">
             {/* Form Kicker */}
@@ -328,20 +302,6 @@ export function LoginPage() {
                   Workspace Selection
                 </Link>
               </div>
-            </div>
-          </div>
-
-          {/* Right Bottom Footer Note */}
-          <div className="pt-2 border-t border-[#1E293B]/40 text-[10px] sm:text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-1 flex-shrink-0">
-            <span className="text-center sm:text-left text-[10px] leading-tight">
-              Decision support, not machine control. Always follow current approved procedures.
-            </span>
-            <div className="flex items-center gap-2 text-[10px]">
-              <span>© 2026 FORGE</span>
-              <span>•</span>
-              <span className="hover:text-slate-400 cursor-pointer">Privacy</span>
-              <span>•</span>
-              <span className="hover:text-slate-400 cursor-pointer">Terms</span>
             </div>
           </div>
         </section>
