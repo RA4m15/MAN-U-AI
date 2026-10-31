@@ -56,68 +56,68 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#070B14] text-white flex flex-col justify-between selection:bg-[#0057FF] selection:text-white relative overflow-x-hidden font-sans">
+    <div className="min-h-screen lg:h-screen lg:max-h-screen w-full bg-[#070B14] text-white flex flex-col justify-between selection:bg-[#0057FF] selection:text-white relative overflow-x-hidden lg:overflow-hidden font-sans">
       {/* Subtle background tech ambient lines */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#10192e10_1px,transparent_1px),linear-gradient(to_bottom,#10192e10_1px,transparent_1px)] bg-[size:4rem_4rem] pointer-events-none" />
 
-      {/* Main Split Grid */}
-      <div className="flex-1 w-full max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 relative z-10">
+      {/* Main Split Grid — Single Frame */}
+      <div className="flex-1 w-full max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 min-h-0 relative z-10 h-full">
         
         {/* ── LEFT HERO & INDUSTRIAL SCHEMATIC PANEL (7 COLS) ── */}
-        <section className="lg:col-span-7 flex flex-col justify-between p-6 sm:p-10 lg:p-14 border-b lg:border-b-0 lg:border-r border-[#1E293B]/60">
+        <section className="lg:col-span-7 flex flex-col justify-between p-4 sm:p-6 lg:p-6 xl:p-8 border-b lg:border-b-0 lg:border-r border-[#1E293B]/60 min-h-0 h-full overflow-hidden">
           {/* Top Brand Bar */}
-          <div className="flex items-center justify-between mb-8 sm:mb-12">
-            <div className="flex items-center gap-3">
-              <div className="size-9 bg-[#0057FF] rounded-lg flex items-center justify-center font-bold text-white text-lg shadow-[0_0_15px_rgba(0,87,255,0.4)]">
+          <div className="flex items-center justify-between mb-2 sm:mb-4 flex-shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="size-8 sm:size-9 bg-[#0057FF] rounded-lg flex items-center justify-center font-bold text-white text-base sm:text-lg shadow-[0_0_15px_rgba(0,87,255,0.4)]">
                 F
               </div>
               <div className="flex flex-col">
-                <span className="font-bold text-lg tracking-tight text-white leading-none font-display">
+                <span className="font-bold text-base sm:text-lg tracking-tight text-white leading-none font-display">
                   MAN-U-AI
                 </span>
-                <span className="text-[10px] font-mono text-slate-400 tracking-[0.2em] uppercase mt-1">
+                <span className="text-[9px] sm:text-[10px] font-mono text-slate-400 tracking-[0.2em] uppercase mt-0.5">
                   INDUSTRIAL INTELLIGENCE
                 </span>
               </div>
             </div>
 
-            <div className="text-xs font-mono text-slate-500 tracking-[0.2em] uppercase hidden sm:block">
+            <div className="text-[10px] sm:text-xs font-mono text-slate-500 tracking-[0.2em] uppercase hidden sm:block">
               BUILT FOR THE FLOOR.
             </div>
           </div>
 
-          {/* Center Content & Blueprint */}
-          <div className="my-auto py-4">
+          {/* Center Content & Blueprint — strictly fits frame */}
+          <div className="my-auto flex flex-col justify-center min-h-0 flex-1 py-1">
             {/* Kicker */}
-            <div className="text-xs font-mono text-[#0057FF] font-bold tracking-[0.22em] uppercase mb-3">
+            <div className="text-[10px] sm:text-xs font-mono text-[#0057FF] font-bold tracking-[0.22em] uppercase mb-1">
               KNOWLEDGE, PUT TO WORK.
             </div>
 
             {/* Headline */}
-            <h1 className="text-3xl sm:text-4xl lg:text-[44px] font-display font-bold text-white tracking-tight leading-[1.12] mb-4">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl xl:text-4xl font-display font-bold text-white tracking-tight leading-[1.14] mb-1 sm:mb-2">
               The right knowledge.<br />
               Right where you work.
             </h1>
 
             {/* Subtitle */}
-            <p className="text-slate-400 text-sm sm:text-base leading-relaxed max-w-lg mb-8">
+            <p className="text-slate-400 text-xs sm:text-sm leading-snug max-w-lg mb-2 sm:mb-3 hidden sm:block">
               Your approved manuals, procedures and expert knowledge.<br className="hidden sm:inline" />
               One grounded conversation away.
             </p>
 
             {/* Industrial Schematic Diagram */}
-            <div className="w-full max-w-2xl">
-              <IndustrialCompressorSchematic />
+            <div className="w-full max-w-lg xl:max-w-xl mx-auto flex flex-col items-center justify-center min-h-0 flex-shrink">
+              <IndustrialCompressorSchematic className="max-h-[170px] sm:max-h-[200px] lg:max-h-[220px] xl:max-h-[270px] w-full" />
 
               {/* Sub-schematic metadata row */}
-              <div className="flex items-center justify-between mt-3 text-xs font-mono">
+              <div className="flex items-center justify-between mt-1.5 text-[10px] sm:text-xs font-mono w-full">
                 <div className="flex items-center gap-2">
-                  <div className="w-5 h-0.5 bg-[#0057FF]" />
-                  <span className="text-[#38BDF8] font-bold uppercase tracking-wider text-[11px]">
+                  <div className="w-4 h-0.5 bg-[#0057FF]" />
+                  <span className="text-[#38BDF8] font-bold uppercase tracking-wider text-[10px] sm:text-[11px]">
                     PRECISION IN MOTION
                   </span>
                 </div>
-                <span className="text-slate-500 uppercase tracking-widest text-[10px]">
+                <span className="text-slate-500 uppercase tracking-widest text-[9px] sm:text-[10px]">
                   STYLIZED ASSEMBLY / NOT A LIVE MACHINE
                 </span>
               </div>
@@ -125,47 +125,48 @@ export function LoginPage() {
           </div>
 
           {/* Left Bottom Footer */}
-          <div className="flex items-center justify-between pt-8 text-xs font-mono text-slate-500 border-t border-[#1E293B]/40 mt-8">
+          <div className="flex items-center justify-between pt-2 border-t border-[#1E293B]/40 text-[10px] sm:text-xs font-mono text-slate-500 flex-shrink-0 mt-1">
             <span>For people who keep industry moving.</span>
             <span className="tracking-widest uppercase">FORGE / V1.0</span>
           </div>
         </section>
 
         {/* ── RIGHT SIGN IN PANEL (5 COLS) ── */}
-        <section className="lg:col-span-5 flex flex-col justify-between p-6 sm:p-10 lg:p-14 bg-[#080D1A]/60 backdrop-blur-sm">
+        <section className="lg:col-span-5 flex flex-col justify-between p-4 sm:p-6 lg:p-6 xl:p-8 bg-[#080D1A]/60 backdrop-blur-sm min-h-0 h-full overflow-y-auto lg:overflow-hidden">
           {/* Top Security Status */}
-          <div className="flex items-center justify-end gap-2 text-xs font-mono text-slate-400">
-            <ShieldCheck size={15} className="text-[#0057FF]" />
+          <div className="flex items-center justify-end gap-2 text-[11px] sm:text-xs font-mono text-slate-400 flex-shrink-0">
+            <ShieldCheck size={14} className="text-[#0057FF]" />
             <span className="tracking-wider">Secure, role-based access</span>
           </div>
 
           {/* Form Container */}
-          <div className="my-auto py-8 max-w-md w-full mx-auto">
+          <div className="my-auto py-1 sm:py-2 max-w-md w-full mx-auto flex flex-col justify-center flex-1 min-h-0">
             {/* Form Kicker */}
-            <div className="text-xs font-mono text-[#0057FF] font-bold tracking-[0.22em] uppercase mb-2">
+            <div className="text-[10px] sm:text-xs font-mono text-[#0057FF] font-bold tracking-[0.22em] uppercase mb-0.5">
               WELCOME TO FORGE
             </div>
 
             {/* Form Heading */}
-            <h2 className="text-2xl sm:text-3xl font-display font-bold text-white tracking-tight mb-2">
+            <h2 className="text-xl sm:text-2xl font-display font-bold text-white tracking-tight mb-0.5">
               Sign in to your workspace.
             </h2>
-            <p className="text-slate-400 text-sm mb-6">
+            <p className="text-slate-400 text-xs mb-2 sm:mb-3">
               Trusted answers start with approved knowledge.
             </p>
 
             {/* Error Banner */}
             {error && (
-              <div className="mb-5 p-3.5 rounded-lg bg-[#FF3B30]/10 border border-[#FF3B30]/30 flex items-start gap-2.5 text-xs text-[#FF3B30]">
-                <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
-                <span>{error}</span>
+              <div className="mb-3 p-2.5 rounded-lg bg-[#FF3B30]/10 border border-[#FF3B30]/30 flex items-start gap-2 text-xs text-[#FF3B30]">
+                <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+                <span className="leading-snug">{error}</span>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-2.5 sm:space-y-3">
+              {/* Optional Registration Name Field */}
               {isRegister && (
                 <>
-                  <div className="p-3 rounded-lg bg-[#111A2E] border border-[#1E293B] text-xs text-slate-400 space-y-1.5">
+                  <div className="p-2.5 rounded-lg bg-surface-2/60 border border-hairline text-xs text-ink-subtle space-y-1">
                     <p>
                       <span className="font-semibold text-primary">Notice:</span> Public self-registration is restricted in production environments. Accounts must be provisioned by an administrator.
                     </p>
@@ -174,7 +175,7 @@ export function LoginPage() {
                     </p>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1.5 uppercase tracking-wider font-mono">
+                    <label className="block text-[10px] sm:text-xs font-medium text-slate-300 mb-1 uppercase tracking-wider font-mono">
                       Full Name & Title
                     </label>
                     <div className="relative">
@@ -184,7 +185,7 @@ export function LoginPage() {
                         placeholder="e.g. John Doe, Lab Manager"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        className="w-full bg-[#0E1526] border border-[#1E293B] rounded-lg px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-[#0057FF] focus:ring-1 focus:ring-[#0057FF] transition-all"
+                        className="w-full bg-[#0E1526] border border-[#1E293B] rounded-lg px-3 py-2 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-[#0057FF] focus:ring-1 focus:ring-[#0057FF] transition-all"
                       />
                     </div>
                   </div>
@@ -193,7 +194,7 @@ export function LoginPage() {
 
               {/* Work Email Field */}
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5 uppercase tracking-wider font-mono">
+                <label className="block text-[10px] sm:text-xs font-medium text-slate-300 mb-1 uppercase tracking-wider font-mono">
                   Work email
                 </label>
                 <input
@@ -202,13 +203,13 @@ export function LoginPage() {
                   placeholder="alex.morgan@riverside.example"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-[#0E1526] border border-[#1E293B] rounded-lg px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-[#0057FF] focus:ring-1 focus:ring-[#0057FF] transition-all font-sans"
+                  className="w-full bg-[#0E1526] border border-[#1E293B] rounded-lg px-3 py-2 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-[#0057FF] focus:ring-1 focus:ring-[#0057FF] transition-all font-sans"
                 />
               </div>
 
               {/* Password Field */}
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5 uppercase tracking-wider font-mono">
+                <label className="block text-[10px] sm:text-xs font-medium text-slate-300 mb-1 uppercase tracking-wider font-mono">
                   Password
                 </label>
                 <div className="relative">
@@ -218,27 +219,27 @@ export function LoginPage() {
                     placeholder="••••••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-[#0E1526] border border-[#1E293B] rounded-lg pl-4 pr-11 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-[#0057FF] focus:ring-1 focus:ring-[#0057FF] transition-all"
+                    className="w-full bg-[#0E1526] border border-[#1E293B] rounded-lg pl-3 pr-10 py-2 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-[#0057FF] focus:ring-1 focus:ring-[#0057FF] transition-all"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors"
                     aria-label={showPassword ? "Hide password" : "Show password"}
                   >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
                 </div>
               </div>
 
               {/* Remember this device & Forgot password */}
-              <div className="flex items-center justify-between text-xs pt-1">
-                <label className="flex items-center gap-2 cursor-pointer select-none text-slate-400 hover:text-slate-300">
+              <div className="flex items-center justify-between text-[11px] sm:text-xs pt-0.5">
+                <label className="flex items-center gap-1.5 cursor-pointer select-none text-slate-400 hover:text-slate-300">
                   <input
                     type="checkbox"
                     checked={rememberDevice}
                     onChange={(e) => setRememberDevice(e.target.checked)}
-                    className="size-4 rounded border-[#1E293B] bg-[#0E1526] text-[#0057FF] focus:ring-0 focus:ring-offset-0 cursor-pointer accent-[#0057FF]"
+                    className="size-3.5 rounded border-[#1E293B] bg-[#0E1526] text-[#0057FF] focus:ring-0 focus:ring-offset-0 cursor-pointer accent-[#0057FF]"
                   />
                   <span>Remember this device</span>
                 </label>
@@ -260,26 +261,24 @@ export function LoginPage() {
                 type="submit"
                 disabled={isLoading}
                 aria-label="Sign In to Web Workspace"
-                className="w-full h-13 px-6 bg-[#0057FF] hover:bg-[#1A6BFF] active:scale-[0.99] text-white font-bold text-sm uppercase tracking-wider border-2 border-[#0057FF]/60 rounded-lg shadow-[0_0_20px_rgba(0,87,255,0.35)] hover:shadow-[0_0_30px_rgba(0,87,255,0.55)] transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                className="w-full h-10 sm:h-11 px-5 bg-[#0057FF] hover:bg-[#1A6BFF] active:scale-[0.99] text-white font-bold text-xs sm:text-sm uppercase tracking-wider border-2 border-[#0057FF]/60 rounded-lg shadow-[0_0_20px_rgba(0,87,255,0.35)] hover:shadow-[0_0_30px_rgba(0,87,255,0.55)] transition-all flex items-center justify-center gap-2 mt-1 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <span>
-                  {isLoading
-                    ? "Authenticating with Backend..."
-                    : isRegister
-                    ? "Create Account & Workspace"
-                    : "Sign in"}
-                </span>
-                {!isLoading && <ArrowRight size={16} className="text-white" />}
+                {isLoading
+                  ? "Authenticating with Backend..."
+                  : isRegister
+                  ? "Create Account & Workspace"
+                  : "Sign in"}
+                {!isLoading && <ArrowRight size={15} className="text-white" />}
               </button>
             </form>
 
             {/* Divider: OR USE COMPANY ACCESS */}
-            <div className="relative my-6">
+            <div className="relative my-2.5 sm:my-3">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-[#1E293B]" />
               </div>
               <div className="relative flex justify-center text-center">
-                <span className="px-3 bg-[#080D1A] text-[10px] font-mono uppercase tracking-[0.2em] text-slate-500">
+                <span className="px-2.5 bg-[#080D1A] text-[9px] sm:text-[10px] font-mono uppercase tracking-[0.2em] text-slate-500">
                   OR USE COMPANY ACCESS
                 </span>
               </div>
@@ -291,15 +290,15 @@ export function LoginPage() {
               onClick={() => {
                 setError("Enterprise SSO is enabled on custom domains. Use your corporate credentials to sign in directly.");
               }}
-              className="w-full h-11 bg-[#0E1526] hover:bg-[#15203A] border border-[#1E293B] rounded-lg text-xs font-mono font-bold tracking-wider text-slate-200 transition-colors flex items-center justify-center gap-2.5 cursor-pointer"
+              className="w-full h-9 sm:h-10 bg-[#0E1526] hover:bg-[#15203A] border border-[#1E293B] rounded-lg text-xs font-mono font-bold tracking-wider text-slate-200 transition-colors flex items-center justify-center gap-2 cursor-pointer"
             >
-              <Building2 size={16} className="text-slate-400" />
+              <Building2 size={15} className="text-slate-400" />
               <span>Continue with SSO</span>
             </button>
 
             {/* Support / Registration Help */}
-            <div className="mt-6 text-center space-y-2">
-              <p className="text-xs text-slate-500">
+            <div className="mt-2.5 text-center space-y-1">
+              <p className="text-[11px] text-slate-500">
                 Need access? Contact your site administrator.
               </p>
               <div>
@@ -316,36 +315,33 @@ export function LoginPage() {
               </div>
 
               {/* Role Portal Switching Links */}
-              <div className="pt-2 flex items-center justify-center gap-3 text-xs text-slate-500">
+              <div className="pt-1 flex items-center justify-center gap-3 text-xs text-slate-500">
                 <Link to="/admin/login" className="hover:text-amber-400 transition-colors font-medium">
-                  Admin Login
+                  Admin Portal
                 </Link>
-                <span>·</span>
+                <span>•</span>
                 <Link to="/manager/login" className="hover:text-emerald-400 transition-colors font-medium">
-                  Manager Login
+                  Manager Portal
                 </Link>
-                <span>·</span>
-                <Link to="/" className="hover:text-primary transition-colors font-medium">
-                  Portal Select
+                <span>•</span>
+                <Link to="/" className="hover:text-slate-300 transition-colors font-medium">
+                  Workspace Selection
                 </Link>
               </div>
             </div>
           </div>
 
-          {/* Right Bottom Disclaimer */}
-          <div className="pt-8 text-slate-500 text-[11px] leading-relaxed border-t border-[#1E293B]/40 space-y-2">
-            <p>
-              Decision support, not machine control. Always follow current approved procedures and qualified supervision.
-            </p>
-            <div className="flex items-center justify-between text-xs font-mono text-slate-500 pt-1">
-              <span>© 2026 MAN-U-AI</span>
-              <div className="flex items-center gap-2">
-                <span>Privacy</span>
-                <span>·</span>
-                <span>Terms</span>
-                <span>·</span>
-                <span>Help</span>
-              </div>
+          {/* Right Bottom Footer Note */}
+          <div className="pt-2 border-t border-[#1E293B]/40 text-[10px] sm:text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-1 flex-shrink-0">
+            <span className="text-center sm:text-left text-[10px] leading-tight">
+              Decision support, not machine control. Always follow current approved procedures.
+            </span>
+            <div className="flex items-center gap-2 text-[10px]">
+              <span>© 2026 FORGE</span>
+              <span>•</span>
+              <span className="hover:text-slate-400 cursor-pointer">Privacy</span>
+              <span>•</span>
+              <span className="hover:text-slate-400 cursor-pointer">Terms</span>
             </div>
           </div>
         </section>

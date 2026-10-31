@@ -2,10 +2,11 @@ import React from "react";
 
 export function IndustrialCompressorSchematic({ className = "" }: { className?: string }) {
   return (
-    <div className={`relative w-full rounded-lg border border-[#1E293B] bg-[#070D1B] overflow-hidden ${className}`}>
+    <div className={`relative w-full rounded-lg border border-[#1E293B] bg-[#070D1B] overflow-hidden flex items-center justify-center ${className}`}>
       <svg
         viewBox="0 0 680 370"
-        className="w-full h-auto select-none"
+        preserveAspectRatio="xMidYMid meet"
+        className="w-full h-auto max-h-full select-none"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
         aria-label="Industrial Compressor Unit Technical Blueprint"
