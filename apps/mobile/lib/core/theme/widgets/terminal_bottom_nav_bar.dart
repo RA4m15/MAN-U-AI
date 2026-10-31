@@ -8,6 +8,7 @@ enum TerminalTab {
   fabAction,
   diagram,
   glossary,
+  tasks,
 }
 
 /// Terminal Cobalt Mobile 5-Slot Bottom Navigation Bar
@@ -16,12 +17,14 @@ class TerminalBottomNavBar extends StatelessWidget {
   final TerminalTab activeTab;
   final ValueChanged<TerminalTab> onTabSelected;
   final VoidCallback onFabPressed;
+  final int tasksBadgeCount;
 
   const TerminalBottomNavBar({
     super.key,
     required this.activeTab,
     required this.onTabSelected,
     required this.onFabPressed,
+    this.tasksBadgeCount = 0,
   });
 
   @override
@@ -65,11 +68,12 @@ class TerminalBottomNavBar extends StatelessWidget {
                     icon: Icons.schema_rounded,
                     label: 'DIAGRAM',
                   ),
-                  // Tab 5: Glossary / Docs
+                  // Tab 5: Shift Tasks
                   _buildTabItem(
-                    tab: TerminalTab.glossary,
-                    icon: Icons.menu_book_rounded,
-                    label: 'GLOSSARY',
+                    tab: TerminalTab.tasks,
+                    icon: Icons.assignment_outlined,
+                    label: 'TASKS',
+                    badgeCount: tasksBadgeCount,
                   ),
                 ],
               ),
@@ -126,6 +130,7 @@ class TerminalBottomNavBar extends StatelessWidget {
     required TerminalTab tab,
     required IconData icon,
     required String label,
+    int badgeCount = 0,
   }) {
     final isActive = activeTab == tab;
     final color = isActive ? AppColors.primary : AppColors.onSurfaceVariant;
@@ -139,7 +144,34 @@ class TerminalBottomNavBar extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 22.0, color: color),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(icon, size: 22.0, color: color),
+                if (badgeCount > 0)
+                  Positioned(
+                    top: -4,
+                    right: -8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+                      child: Text(
+                        '$badgeCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 8.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             const SizedBox(height: 3.0),
             Text(
               label,

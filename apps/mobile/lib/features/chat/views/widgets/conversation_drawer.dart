@@ -7,6 +7,8 @@ import '../../../auth/controllers/auth_controller.dart';
 import '../../../auth/models/auth_state.dart';
 import '../../controllers/chat_controller.dart';
 import '../../controllers/conversation_controller.dart';
+import '../../../tasks/controllers/task_controller.dart';
+import '../../../tasks/views/tasks_screen.dart';
 
 /// Terminal Cobalt Mobile Conversation Drawer
 /// Operational telemetry panel for navigating past diagnostic logs.
@@ -114,6 +116,88 @@ class ConversationDrawer extends ConsumerWidget {
                       ref.read(chatControllerProvider.notifier).startNewConsultation();
                       Navigator.of(context).pop();
                     },
+                  ),
+                  const SizedBox(height: 10.0),
+                  // Today's Shift Tasks Card
+                  InkWell(
+                    key: const Key('drawer_shift_tasks_button'),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => TasksScreen(
+                            onConsultCopilot: (prompt, _) {
+                              ref.read(chatControllerProvider.notifier).sendMessage(prompt);
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(8.0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceAlt,
+                        borderRadius: BorderRadius.circular(8.0),
+                        border: Border.all(color: AppColors.primary, width: 1.2),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6.0),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(6.0),
+                            ),
+                            child: const Icon(Icons.assignment_outlined, color: AppColors.primaryHover, size: 18.0),
+                          ),
+                          const SizedBox(width: 10.0),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "TODAY'S SHIFT TASKS",
+                                  style: AppTypography.bodyMd.copyWith(
+                                    fontSize: 12.0,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.onSurface,
+                                  ),
+                                ),
+                                Text(
+                                  'Floor maintenance & checklist',
+                                  style: AppTypography.caption.copyWith(
+                                    fontSize: 10.0,
+                                    color: AppColors.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Consumer(
+                            builder: (ctx, r, _) {
+                              final count = r.watch(activeTasksCountProvider);
+                              if (count <= 0) return const Icon(Icons.chevron_right, size: 18, color: AppColors.onSurfaceVariant);
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '$count',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),

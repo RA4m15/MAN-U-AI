@@ -142,6 +142,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  void _openTasksScreen(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TasksScreen(
+          onConsultCopilot: (prompt, _) {
+            ref.read(chatControllerProvider.notifier).sendMessage(prompt);
+          },
+        ),
+      ),
+    );
+  }
+
   void _handleTabSelect(TerminalTab tab) {
     setState(() {
       _activeTab = tab;
@@ -158,6 +170,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         break;
       case TerminalTab.glossary:
         _showGlossaryModal(context);
+        break;
+      case TerminalTab.tasks:
+        _openTasksScreen(context);
         break;
       case TerminalTab.fabAction:
         _handleFabAction();
@@ -546,6 +561,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         activeTab: _activeTab,
         onTabSelected: _handleTabSelect,
         onFabPressed: _handleFabAction,
+        tasksBadgeCount: ref.watch(activeTasksCountProvider),
       ),
     );
   }

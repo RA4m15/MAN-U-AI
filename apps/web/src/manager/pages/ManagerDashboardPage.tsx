@@ -16,7 +16,7 @@ import {
   Activity,
   Layers,
 } from "lucide-react";
-import { equipmentApi, documentsApi, analyticsApi } from "@/lib/api";
+import { equipmentApi, documentsApi, analyticsApi, tasksApi } from "@/lib/api";
 
 export function ManagerDashboardPage() {
   const { data: equipmentResp, isLoading: equipmentLoading } = useQuery({
@@ -37,6 +37,18 @@ export function ManagerDashboardPage() {
   const equipment = equipmentResp?.data?.data || [];
   const documents = documentsResp?.data?.data || [];
   const summaries = summariesResp?.data?.data || [];
+
+  const { data: tasksResp } = useQuery({
+    queryKey: ["manager-tasks"],
+    queryFn: async () => {
+      const res = await tasksApi.list();
+      return res.data && "data" in res.data ? res.data.data : [];
+    },
+    refetchInterval: 15_000,
+  });
+
+  const tasks = tasksResp || [];
+  const pendingTasks = tasks.filter((t: any) => t.status !== "completed");
 
   const onlineEquipment = equipment.filter((e: any) => e.status !== "offline" && e.status !== "error");
   const attentionEquipment = equipment.filter((e: any) => e.status === "degraded" || e.status === "maintenance");
@@ -63,6 +75,18 @@ export function ManagerDashboardPage() {
         </div>
 
         <div className="flex items-center gap-2 self-start">
+          <Link
+            to="/manager/tasks"
+            className="btn-primary inline-flex items-center justify-center gap-1.5 text-xs bg-primary text-white shadow-sm"
+          >
+            <ClipboardList size={14} />
+            <span>Shift Tasks</span>
+            {pendingTasks.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.2 rounded-full bg-white/20 text-3xs font-bold">
+                {pendingTasks.length}
+              </span>
+            )}
+          </Link>
           <Link
             to="/manager/knowledge"
             className="btn-primary inline-flex items-center justify-center gap-1.5 text-xs"
@@ -149,6 +173,30 @@ export function ManagerDashboardPage() {
           Operational Workflows & Modules
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <article className="card bg-surface-1 border border-primary/50 hover:border-primary rounded-xl p-5 flex flex-col justify-between shadow-sm transition-all">
+            <div>
+              <div className="w-10 h-10 rounded-xl border border-primary/30 bg-primary/20 flex items-center justify-center text-primary mb-3">
+                <ClipboardList size={19} />
+              </div>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-ink">Shift Tasks & Floor Dispatch</h3>
+                {pendingTasks.length > 0 && (
+                  <span className="px-2 py-0.5 rounded text-3xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    {pendingTasks.length} Active
+                  </span>
+                )}
+              </div>
+              <p className="text-xs leading-relaxed text-ink-subtle mt-1.5">
+                Assign inspection and maintenance directives directly to engineer mobile units with live telemetry sync.
+              </p>
+            </div>
+            <Link
+              to="/manager/tasks"
+              className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+            >
+              Open task dispatch panel <ArrowRight size={13} />
+            </Link>
+          </article>
           <article className="card bg-surface-1 border border-hairline rounded-xl p-5 flex flex-col justify-between">
             <div>
               <div className="w-10 h-10 rounded-xl border border-primary/20 bg-primary/10 flex items-center justify-center text-primary mb-3">

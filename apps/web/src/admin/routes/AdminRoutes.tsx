@@ -14,6 +14,7 @@ import { SummariesPage } from "@/pages/SummariesPage";
 import { ActivityPage } from "@/pages/ActivityPage";
 import { IntegrationsPage } from "@/pages/IntegrationsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { ManagerTasksPage } from "@/manager/pages/ManagerTasksPage";
 
 function ProtectedAdminRoute({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -77,6 +78,7 @@ export function AdminRoutes() {
         <Route path="knowledge/manuals/:documentId" element={<ManualViewerPage />} />
         <Route path="equipment" element={<EquipmentPage />} />
         <Route path="summaries" element={<SummariesPage />} />
+        <Route path="tasks" element={<ManagerTasksPage />} />
         <Route path="insights" element={<AdminAnalyticsPage />} />
         <Route path="users" element={<AdminUsersPage />} />
         <Route path="activity" element={<ActivityPage />} />

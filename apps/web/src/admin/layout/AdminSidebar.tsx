@@ -13,6 +13,7 @@ import {
   BarChart3,
   Cpu,
   FileText,
+  ClipboardList,
   Puzzle,
   Users,
   LogOut,
@@ -48,6 +49,7 @@ const ADMIN_NAV_SECTIONS: NavSection[] = [
       { label: "SOPs & Manuals", path: "knowledge?tab=sops", icon: <BookOpen size={15} /> },
       { label: "Equipment Registry", path: "equipment", icon: <Cpu size={15} /> },
       { label: "Summaries", path: "summaries", icon: <FileText size={15} /> },
+      { label: "Shift Tasks Dispatch", path: "tasks", icon: <ClipboardList size={15} /> },
     ],
   },
   {
