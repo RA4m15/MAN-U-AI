@@ -50,7 +50,9 @@ export default {
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "-apple-system", "sans-serif"],
-        display: ["Space Grotesk", "sans-serif"],
+        display: ["Cambria", "Georgia", "serif"],
+        serif: ["Cambria", "Georgia", "serif"],
+        cambria: ["Cambria", "Georgia", "serif"],
         mono: ["JetBrains Mono", "Fira Code", "Consolas", "monospace"],
       },
       fontSize: {

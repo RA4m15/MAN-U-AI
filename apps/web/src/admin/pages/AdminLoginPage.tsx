@@ -63,7 +63,7 @@ export function AdminLoginPage() {
   };
 
   return (
-    <div className="min-h-screen lg:h-screen lg:max-h-screen w-full bg-[#070B14] text-white flex flex-col justify-between selection:bg-[#0057FF] selection:text-white relative overflow-x-hidden lg:overflow-hidden font-sans">
+    <div className="min-h-screen lg:h-screen lg:max-h-screen w-full bg-[#070B14] text-white flex flex-col justify-between selection:bg-[#0057FF] selection:text-white relative overflow-x-hidden lg:overflow-hidden font-cambria">
       {/* Subtle background tech ambient lines */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#10192e10_1px,transparent_1px),linear-gradient(to_bottom,#10192e10_1px,transparent_1px)] bg-[size:4rem_4rem] pointer-events-none" />
 
@@ -153,7 +153,7 @@ export function AdminLoginPage() {
                   placeholder="admin@plant-line.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-[#0E1526] border border-[#1E293B] rounded-lg px-3 py-2 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-[#0057FF] focus:ring-1 focus:ring-[#0057FF] transition-all font-sans"
+                  className="w-full bg-[#0E1526] border border-[#1E293B] rounded-lg px-3 py-2 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-[#0057FF] focus:ring-1 focus:ring-[#0057FF] transition-all font-cambria"
                 />
               </div>
 
