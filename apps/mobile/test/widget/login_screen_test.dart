@@ -1,3 +1,4 @@
+import 'package:manuai_mobile/features/auth/models/user_model.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +24,9 @@ class TestAuthController extends Notifier<AuthState> implements AuthController {
 
   @override
   Future<void> checkAuthStatus() async {}
+
+  @override
+  Future<UserModel?> refreshUserProfile() async => null;
 
   @override
   Future<bool> login(String email, String password) async {

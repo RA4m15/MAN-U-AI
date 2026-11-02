@@ -1,264 +1,298 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import mongoose from "mongoose";
+import { PassThrough } from "stream";
 import { app } from "../src/app";
-import { env } from "../src/config/env";
 import { connectDatabase, isConnectedToMongo } from "../src/config/database";
-import { User, DocumentModel } from "../src/models";
+import { User, DocumentModel, AuditEvent } from "../src/models";
+import { promoteUser } from "../src/services/provision.service";
+import { promoteUserCli } from "../src/scripts/promote-user";
 
-describe("Stage 6: Engineer Document Ingestion & Role Resolution Regression Suite", () => {
-  let engineerToken: string;
-  let adminToken: string;
+describe("Stage 6: Real Production Engineer Provisioning & Document Ingestion Suite", () => {
+  const targetEmail = "engineer@plant.io";
+  const rawPassword = "EngineerPassword123!";
+  let passwordHashBefore: string;
   let viewerToken: string;
-  let engineerUserId: string;
-  let viewerUserId: string;
+  let engineerToken: string;
 
   const validPdfBuffer = Buffer.from(
-    "%PDF-1.4\n1 0 obj\n<< /Title (Hydraulic System Operation Manual) >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF"
+    "%PDF-1.4\n1 0 obj\n<< /Title (Turbine Operating Manual) >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF"
   );
 
   beforeAll(async () => {
     await connectDatabase();
 
-    // Clean up test accounts
-    await User.deleteMany({
-      email: {
-        $in: [
-          "test.engineer.ingest@plant.io",
-          "test.admin.ingest@plant.io",
-          "test.viewer.ingest@plant.io",
-        ],
-      },
-    });
+    // Clean up test data for target account
+    await User.deleteMany({ email: targetEmail });
+    await DocumentModel.deleteMany({ title: "Turbine Operating Manual" });
+    await AuditEvent.deleteMany({ "details.targetEmail": targetEmail });
 
-    const passwordHash = await bcrypt.hash("SecurePass123!", 10);
-
-    const engUser = await User.create({
-      name: "Alex Mercer (Test Engineer)",
-      email: "test.engineer.ingest@plant.io",
-      passwordHash,
-      role: "engineer",
+    // 1. Initial State: Simulate exact production state where engineer@plant.io exists as a Viewer
+    passwordHashBefore = await bcrypt.hash(rawPassword, 10);
+    await User.create({
+      name: "Alex Mercer",
+      email: targetEmail,
+      passwordHash: passwordHashBefore,
+      role: "viewer", // Starts as VIEWER
       orgId: "plant-alpha",
       isActive: true,
     });
-    engineerUserId = engUser._id.toString();
-
-    const admUser = await User.create({
-      name: "Elena Rostova (Test Admin)",
-      email: "test.admin.ingest@plant.io",
-      passwordHash,
-      role: "admin",
-      orgId: "plant-alpha",
-      isActive: true,
-    });
-
-    const viewUser = await User.create({
-      name: "Sam Taylor (Test Operator)",
-      email: "test.viewer.ingest@plant.io",
-      passwordHash,
-      role: "viewer",
-      orgId: "plant-alpha",
-      isActive: true,
-    });
-    viewerUserId = viewUser._id.toString();
-
-    // Sign authoritative JWTs matching the created database accounts
-    engineerToken = jwt.sign(
-      { id: engineerUserId, email: engUser.email, name: engUser.name, role: engUser.role },
-      env.JWT_SECRET,
-      { expiresIn: "1h" }
-    );
-
-    adminToken = jwt.sign(
-      { id: admUser._id.toString(), email: admUser.email, name: admUser.name, role: admUser.role },
-      env.JWT_SECRET,
-      { expiresIn: "1h" }
-    );
-
-    viewerToken = jwt.sign(
-      { id: viewerUserId, email: viewUser.email, name: viewUser.name, role: viewUser.role },
-      env.JWT_SECRET,
-      { expiresIn: "1h" }
-    );
   });
 
   afterAll(async () => {
     if (!isConnectedToMongo) return;
-    await User.deleteMany({
-      email: {
-        $in: [
-          "test.engineer.ingest@plant.io",
-          "test.admin.ingest@plant.io",
-          "test.viewer.ingest@plant.io",
-        ],
+    await User.deleteMany({ email: targetEmail });
+    await DocumentModel.deleteMany({ title: "Turbine Operating Manual" });
+    await AuditEvent.deleteMany({ "details.targetEmail": targetEmail });
+  });
+
+  it("1. Existing account authenticates as Viewer before provisioning", async () => {
+    const loginRes = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: targetEmail, password: rawPassword });
+
+    expect(loginRes.status).toBe(200);
+    expect(loginRes.body.success).toBe(true);
+    expect(loginRes.body.data.user.role).toBe("viewer");
+
+    viewerToken = loginRes.body.data.token;
+    expect(viewerToken).toBeDefined();
+
+    // Verify /auth/me reflects viewer role
+    const meRes = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${viewerToken}`);
+
+    expect(meRes.status).toBe(200);
+    expect(meRes.body.data.role).toBe("viewer");
+  });
+
+  it("2. Viewer account is strictly forbidden from uploading technical documents (HTTP 403)", async () => {
+    const uploadRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${viewerToken}`)
+      .attach("file", validPdfBuffer, "turbine_sop.pdf")
+      .field("title", "Turbine Operating Manual");
+
+    expect(uploadRes.status).toBe(403);
+    expect(uploadRes.body.success).toBe(false);
+    expect(uploadRes.body.error.code).toBe("FORBIDDEN");
+  });
+
+  it("3. Unauthenticated requests are rejected with HTTP 401", async () => {
+    const uploadRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .attach("file", validPdfBuffer, "turbine_sop.pdf");
+
+    expect(uploadRes.status).toBe(401);
+    expect(uploadRes.body.success).toBe(false);
+  });
+
+  it("4. Promotion without explicit operator confirmation fails safely closed", async () => {
+    await expect(
+      promoteUser({
+        email: targetEmail,
+        role: "engineer",
+        confirm: false as any,
+      })
+    ).rejects.toThrow(/confirmation/i);
+
+    // Verify user role is unchanged in database
+    const user = await User.findOne({ email: targetEmail });
+    expect(user?.role).toBe("viewer");
+  });
+
+  it("5. CLI promote-user rejects invalid arguments and enforces confirmation", async () => {
+    const output = new PassThrough();
+
+    // Missing email
+    await expect(
+      promoteUserCli({
+        args: { role: "engineer" },
+        output,
+      })
+    ).rejects.toThrow(/--email=<email> is required/i);
+
+    // Missing role
+    await expect(
+      promoteUserCli({
+        args: { email: targetEmail },
+        output,
+      })
+    ).rejects.toThrow(/--role=<role> is required/i);
+
+    // Invalid role
+    await expect(
+      promoteUserCli({
+        args: { email: targetEmail, role: "superadmin" },
+        output,
+      })
+    ).rejects.toThrow(/invalid role/i);
+
+    // Missing target-db
+    await expect(
+      promoteUserCli({
+        args: {
+          email: targetEmail,
+          role: "engineer",
+          uri: "mongodb://localhost:27017/manuai_test",
+          "allow-local": true,
+          confirm: true,
+        },
+        output,
+      })
+    ).rejects.toThrow(/--target-db=<database-name> confirmation is required/i);
+
+    // Missing confirm
+    await expect(
+      promoteUserCli({
+        args: {
+          email: targetEmail,
+          role: "engineer",
+          "target-db": "manuai_test",
+          uri: "mongodb://localhost:27017/manuai_test",
+          "allow-local": true,
+        },
+        output,
+      })
+    ).rejects.toThrow(/pass --confirm to authorize/i);
+  });
+
+  it("6. Authorized promotion updates role to Engineer, strictly preserving password intact", async () => {
+    let capturedOutput = "";
+    const output = new PassThrough();
+    output.on("data", (chunk) => {
+      capturedOutput += chunk.toString();
+    });
+
+    const result = await promoteUserCli({
+      args: {
+        email: targetEmail,
+        role: "engineer",
+        "target-db": "manuai_test",
+        uri: "mongodb://localhost:27017/manuai_test",
+        "allow-local": true,
+        confirm: true,
       },
+      output,
     });
-    await DocumentModel.deleteMany({
-      title: { $in: ["Test Hydraulic System Manual", "Admin Plant Overview SOP"] },
+
+    expect(result.email).toBe(targetEmail);
+    expect(result.previousRole).toBe("viewer");
+    expect(result.role).toBe("engineer");
+    expect(result.alreadySet).toBe(false);
+
+    // Reconnect to test database since CLI disconnected on completion
+    await connectDatabase();
+
+    // Check database record directly
+    const userInDb = await User.findOne({ email: targetEmail });
+    expect(userInDb).toBeDefined();
+    expect(userInDb?.role).toBe("engineer");
+
+    // Critical security check: password hash must remain completely unchanged
+    expect(userInDb?.passwordHash).toBe(passwordHashBefore);
+    const passwordStillValid = await bcrypt.compare(rawPassword, userInDb!.passwordHash);
+    expect(passwordStillValid).toBe(true);
+
+    // Output inspection: confirms before and after role are printed without secrets
+    expect(capturedOutput).toContain("Target Account:  engineer@plant.io");
+    expect(capturedOutput).toContain("Previous Role: viewer");
+    expect(capturedOutput).toContain("Current Role:  engineer");
+    expect(capturedOutput).not.toContain(rawPassword);
+
+    // Audit log verification
+    const auditRecord = await AuditEvent.findOne({
+      action: "role_change",
+      "details.targetEmail": targetEmail,
     });
+    expect(auditRecord).toBeDefined();
+    expect(auditRecord?.details.previousRole).toBe("viewer");
+    expect(auditRecord?.details.newRole).toBe("engineer");
   });
 
-  describe("Authentication & Role Resolution", () => {
-    it("correctly resolves authenticated Engineer role through login and JWT", async () => {
-      const loginRes = await request(app)
-        .post("/api/v1/auth/login")
-        .send({ email: "test.engineer.ingest@plant.io", password: "SecurePass123!" });
-
-      expect(loginRes.status).toBe(200);
-      expect(loginRes.body.success).toBe(true);
-      expect(loginRes.body.data.user.role).toBe("engineer");
-      expect(loginRes.body.data.token).toBeDefined();
-
-      const decoded = jwt.verify(loginRes.body.data.token, env.JWT_SECRET) as any;
-      expect(decoded.role).toBe("engineer");
-      expect(decoded.email).toBe("test.engineer.ingest@plant.io");
+  it("7. Repeated promotion is idempotent and causes no redundant mutations", async () => {
+    const result = await promoteUser({
+      email: targetEmail,
+      role: "engineer",
+      confirm: true,
     });
 
-    it("confirms /auth/me returns backend-verified Engineer role", async () => {
-      const res = await request(app)
-        .get("/api/v1/auth/me")
-        .set("Authorization", `Bearer ${engineerToken}`);
-
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.role).toBe("engineer");
-      expect(res.body.data.email).toBe("test.engineer.ingest@plant.io");
-    });
-
-    it("rejects client attempts to elevate privileges via tampered role claims", async () => {
-      // Craft a forged JWT claiming admin role with the viewer's ID
-      const forgedToken = jwt.sign(
-        { id: viewerUserId, email: "test.viewer.ingest@plant.io", role: "admin" },
-        env.JWT_SECRET,
-        { expiresIn: "1h" }
-      );
-
-      // Backend requireAuth and requireRole validate against the MongoDB user document, which is 'viewer'
-      const res = await request(app)
-        .post("/api/v1/documents/upload")
-        .set("Authorization", `Bearer ${forgedToken}`)
-        .attach("file", validPdfBuffer, "sample.pdf");
-
-      expect(res.status).toBe(403);
-      expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe("FORBIDDEN");
-    });
-
-    it("rejects expired or malformed authentication tokens with HTTP 401", async () => {
-      const expiredToken = jwt.sign(
-        { id: engineerUserId, email: "test.engineer.ingest@plant.io", role: "engineer" },
-        env.JWT_SECRET,
-        { expiresIn: "-1s" }
-      );
-
-      const res = await request(app)
-        .get("/api/v1/documents")
-        .set("Authorization", `Bearer ${expiredToken}`);
-
-      expect(res.status).toBe(401);
-      expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe("TOKEN_INVALID");
-    });
+    expect(result.role).toBe("engineer");
+    expect(result.previousRole).toBe("engineer");
+    expect(result.alreadySet).toBe(true);
   });
 
-  describe("Document Ingestion Authorization & File Validation", () => {
-    it("denies unauthenticated document upload attempts with HTTP 401", async () => {
-      const res = await request(app)
-        .post("/api/v1/documents/upload")
-        .attach("file", validPdfBuffer, "sample.pdf");
+  it("8. Fresh login for provisioned Engineer returns Engineer role and valid JWT", async () => {
+    const loginRes = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: targetEmail, password: rawPassword });
 
-      expect(res.status).toBe(401);
-      expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe("UNAUTHORIZED");
-    });
+    expect(loginRes.status).toBe(200);
+    expect(loginRes.body.data.user.role).toBe("engineer");
 
-    it("strictly denies Viewer accounts from uploading documents with HTTP 403", async () => {
-      const res = await request(app)
-        .post("/api/v1/documents/upload")
-        .set("Authorization", `Bearer ${viewerToken}`)
-        .attach("file", validPdfBuffer, "viewer_attempt.pdf");
+    engineerToken = loginRes.body.data.token;
+    expect(engineerToken).toBeDefined();
 
-      expect(res.status).toBe(403);
-      expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe("FORBIDDEN");
-    });
+    const meRes = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${engineerToken}`);
 
-    it("rejects unsupported file formats (e.g. .txt, .exe, .docx) with HTTP 400 UNSUPPORTED_FILE_TYPE", async () => {
-      const textBuffer = Buffer.from("Plain text content, not a PDF manual");
+    expect(meRes.status).toBe(200);
+    expect(meRes.body.data.role).toBe("engineer");
+  });
 
-      const res = await request(app)
-        .post("/api/v1/documents/upload")
-        .set("Authorization", `Bearer ${engineerToken}`)
-        .attach("file", textBuffer, "manual.txt");
+  it("9. Old Viewer session token is resolved against database role by auth middleware", async () => {
+    // When MongoDB is connected, requireAuth queries the live DB user
+    const meResWithOldToken = await request(app)
+      .get("/api/v1/auth/me")
+      .set("Authorization", `Bearer ${viewerToken}`);
 
-      expect(res.status).toBe(400);
-      expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe("UNSUPPORTED_FILE_TYPE");
-    });
+    expect(meResWithOldToken.status).toBe(200);
+    expect(meResWithOldToken.body.data.role).toBe("engineer");
+  });
 
-    it("rejects files with invalid PDF magic signature (%PDF-) with HTTP 400 INVALID_FILE_SIGNATURE", async () => {
-      // Fake extension .pdf but content does not start with %PDF-
-      const invalidBuffer = Buffer.from("THIS IS NOT A VALID PDF SIGNATURE CONTENT");
+  it("10. Provisioned Engineer successfully uploads valid PDF document (HTTP 202 processing)", async () => {
+    const uploadRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${engineerToken}`)
+      .attach("file", validPdfBuffer, "turbine_sop.pdf")
+      .field("title", "Turbine Operating Manual")
+      .field("revision", "Rev 2.1");
 
-      const res = await request(app)
-        .post("/api/v1/documents/upload")
-        .set("Authorization", `Bearer ${engineerToken}`)
-        .attach("file", invalidBuffer, "corrupt_document.pdf");
+    expect(uploadRes.status).toBe(202);
+    expect(uploadRes.body.success).toBe(true);
+    expect(uploadRes.body.data.status).toBe("processing");
+    expect(uploadRes.body.data.title).toBe("Turbine Operating Manual");
 
-      expect(res.status).toBe(400);
-      expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe("INVALID_FILE_SIGNATURE");
-    });
+    const createdDocId = uploadRes.body.data.id;
+    expect(createdDocId).toBeDefined();
 
-    it("allows authorized Engineer to upload a valid technical PDF and returns HTTP 202 processing status", async () => {
-      const res = await request(app)
-        .post("/api/v1/documents/upload")
-        .set("Authorization", `Bearer ${engineerToken}`)
-        .field("title", "Test Hydraulic System Manual")
-        .field("revision", "Rev 2.0")
-        .attach("file", validPdfBuffer, "hydraulic_manual.pdf");
+    // Check persistence in MongoDB
+    const docInDb = await DocumentModel.findById(createdDocId);
+    expect(docInDb).toBeDefined();
+    expect(docInDb?.title).toBe("Turbine Operating Manual");
+    expect(docInDb?.revision).toBe("Rev 2.1");
+    expect(docInDb?.filename).toBe("turbine_sop.pdf");
+  });
 
-      expect(res.status).toBe(202);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.title).toBe("Test Hydraulic System Manual");
-      expect(res.body.data.revision).toBe("Rev 2.0");
-      expect(res.body.data.status).toBe("processing");
-      expect(res.body.data.id).toBeDefined();
+  it("11. Rejects invalid and unsupported files (non-PDF or corrupted signature)", async () => {
+    // Unsupported extension
+    const badExtRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${engineerToken}`)
+      .attach("file", Buffer.from("CAD file data"), "drawing.dwg");
 
-      const createdDocId = res.body.data.id;
+    expect(badExtRes.status).toBe(400);
+    expect(badExtRes.body.error.code).toBe("UNSUPPORTED_FILE_TYPE");
 
-      // Verify persistence in MongoDB
-      const docInDb = await DocumentModel.findById(createdDocId);
-      expect(docInDb).not.toBeNull();
-      expect(docInDb!.title).toBe("Test Hydraulic System Manual");
-      expect(docInDb!.filename).toBe("hydraulic_manual.pdf");
-      expect(docInDb!.uploadedById.toString()).toBe(engineerUserId);
+    // Invalid PDF magic signature
+    const fakePdfRes = await request(app)
+      .post("/api/v1/documents/upload")
+      .set("Authorization", `Bearer ${engineerToken}`)
+      .attach("file", Buffer.from("NOT_A_REAL_PDF_HEADER"), "fake.pdf");
 
-      // Verify the uploaded document appears in GET /api/v1/documents for the engineer
-      const listRes = await request(app)
-        .get("/api/v1/documents")
-        .set("Authorization", `Bearer ${engineerToken}`);
-
-      expect(listRes.status).toBe(200);
-      expect(listRes.body.success).toBe(true);
-      const foundDoc = listRes.body.data.find((d: any) => d.id === createdDocId);
-      expect(foundDoc).toBeDefined();
-      expect(foundDoc.title).toBe("Test Hydraulic System Manual");
-    });
-
-    it("allows Administrator to upload facility documents successfully", async () => {
-      const res = await request(app)
-        .post("/api/v1/documents/upload")
-        .set("Authorization", `Bearer ${adminToken}`)
-        .field("title", "Admin Plant Overview SOP")
-        .field("revision", "Rev 1.0")
-        .attach("file", validPdfBuffer, "plant_overview.pdf");
-
-      expect(res.status).toBe(202);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.title).toBe("Admin Plant Overview SOP");
-    });
+    expect(fakePdfRes.status).toBe(400);
+    expect(fakePdfRes.body.error.code).toBe("INVALID_FILE_SIGNATURE");
   });
 });

@@ -4,6 +4,7 @@ import '../../../core/config/env_config.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/storage/secure_storage_service.dart';
 import '../models/auth_state.dart';
+import '../models/user_model.dart';
 import '../repositories/auth_repository.dart';
 
 final secureStorageProvider = Provider<SecureStorageService>((ref) {
@@ -305,6 +306,39 @@ class AuthController extends Notifier<AuthState> {
     EnvConfig.setRuntimeOverride(newUrl);
     ref.read(apiClientProvider).updateBaseUrl(EnvConfig.apiBaseUrl);
     clearError();
+  }
+
+  /// Refreshes the active user profile and role claims directly from backend GET /auth/me.
+  /// Prevents stale cached Viewer sessions from persisting after administrator provisioning.
+  Future<UserModel?> refreshUserProfile() async {
+    final currentToken = await _repository.getStoredToken();
+    if (currentToken == null || currentToken.isEmpty) {
+      return null;
+    }
+
+    try {
+      final freshUser = await _repository.getCurrentUser();
+      if (freshUser.role == 'admin') {
+        await _repository.logout();
+        state = const Unauthenticated(
+          errorMessage: 'Admin accounts must use the MAN-U-AI Admin Panel.',
+        );
+        return null;
+      }
+      state = Authenticated(user: freshUser, token: currentToken);
+      return freshUser;
+    } on DioException catch (dioErr) {
+      if (dioErr.response?.statusCode == 401) {
+        await _repository.logout();
+        state = const Unauthenticated(
+          errorMessage: 'Session expired. Please sign in again.',
+          isSessionExpired: true,
+        );
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> logout() async {

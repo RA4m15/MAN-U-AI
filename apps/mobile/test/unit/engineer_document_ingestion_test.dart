@@ -35,6 +35,9 @@ class DummyAuthController extends AuthController {
   Future<void> checkAuthStatus() async {}
 
   @override
+  Future<UserModel?> refreshUserProfile() async => _initialUser;
+
+  @override
   Future<bool> login(String email, String password) async => true;
 
   @override
@@ -394,6 +397,62 @@ void main() {
             cancelToken: any(named: 'cancelToken'),
             onSendProgress: any(named: 'onSendProgress'),
           ));
+    });
+
+    test('Upload diagnostics correctly parses HTTP 500 server error, stage, and request ID', () async {
+      final container = ProviderContainer(
+        overrides: [
+          documentRepositoryProvider.overrideWithValue(mockRepo),
+          authControllerProvider.overrideWith(() => DummyAuthController(engineerUser)),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final controller = container.read(documentUploadControllerProvider.notifier);
+      final pdfBytes = Uint8List.fromList([0x25, 0x50, 0x44, 0x46]);
+
+      controller.selectDocument(PickedDocument(
+        name: 'manual.pdf',
+        size: pdfBytes.length,
+        readBytes: () async => pdfBytes,
+      ));
+
+      when(() => mockRepo.uploadDocument(
+            fileName: any(named: 'fileName'),
+            bytes: any(named: 'bytes'),
+            title: any(named: 'title'),
+            revision: any(named: 'revision'),
+            equipmentId: any(named: 'equipmentId'),
+            cancelToken: any(named: 'cancelToken'),
+            onSendProgress: any(named: 'onSendProgress'),
+          )).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: '/documents/upload'),
+          response: Response(
+            requestOptions: RequestOptions(path: '/documents/upload'),
+            statusCode: 500,
+            data: {
+              'success': false,
+              'error': {
+                'code': 'STORAGE_FAILURE',
+                'message': 'Failed to stream file to storage bucket.',
+                'stage': 'storage_persistence',
+                'requestId': 'req-test-999',
+              },
+            },
+          ),
+        ),
+      );
+
+      await controller.upload();
+
+      final state = container.read(documentUploadControllerProvider);
+      expect(state.isUploading, isFalse);
+      expect(state.diagnostics?.statusCode, equals(500));
+      expect(state.diagnostics?.errorCode, equals('STORAGE_FAILURE'));
+      expect(state.diagnostics?.stage, equals('storage_persistence'));
+      expect(state.diagnostics?.requestId, equals('req-test-999'));
+      expect(state.diagnostics?.formattedDisplay, contains('[HTTP 500] STORAGE_FAILURE'));
     });
   });
 }

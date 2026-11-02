@@ -391,6 +391,9 @@ class DummyAuthController extends Notifier<AuthState> implements AuthController 
   Future<void> checkAuthStatus() async {}
 
   @override
+  Future<UserModel?> refreshUserProfile() async => null;
+
+  @override
   Future<bool> login(String email, String password) async => true;
 
   @override

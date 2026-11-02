@@ -28,6 +28,9 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
   void initState() {
     super.initState();
     _selectedEquipment = widget.defaultEquipment;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(authControllerProvider.notifier).refreshUserProfile();
+    });
   }
 
   @override
@@ -206,9 +209,36 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
                         ),
                       ),
                       const SizedBox(height: 14.0),
-                      ElevatedButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Close'),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              key: const Key('refresh_role_button'),
+                              icon: const Icon(Icons.sync_rounded, size: 14.0),
+                              label: const Text('Refresh Role'),
+                              onPressed: () async {
+                                final updated = await ref
+                                    .read(authControllerProvider.notifier)
+                                    .refreshUserProfile();
+                                if (context.mounted && updated != null) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                          'Permissions updated: ${updated.role.toUpperCase()}'),
+                                    ),
+                                  );
+                                }
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8.0),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('Close'),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -242,13 +272,30 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
                                 color: AppColors.danger, size: 16.0),
                             const SizedBox(width: 8.0),
                             Expanded(
-                              child: Text(
-                                uploadState.errorMessage!,
-                                style: const TextStyle(
-                                  color: AppColors.ink,
-                                  fontSize: 12.0,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    uploadState.errorMessage!,
+                                    style: const TextStyle(
+                                      color: AppColors.ink,
+                                      fontSize: 12.0,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  if (uploadState.diagnostics?.requestId != null ||
+                                      uploadState.diagnostics?.stage != null ||
+                                      uploadState.diagnostics?.statusCode != null) ...[
+                                    const SizedBox(height: 4.0),
+                                    Text(
+                                      uploadState.diagnostics!.formattedDisplay,
+                                      style: const TextStyle(
+                                        color: AppColors.inkSubtle,
+                                        fontSize: 10.5,
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                           ],

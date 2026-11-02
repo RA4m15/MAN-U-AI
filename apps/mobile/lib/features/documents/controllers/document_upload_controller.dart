@@ -19,11 +19,48 @@ final documentListProvider = FutureProvider<List<DocumentModel>>((ref) async {
   return await repository.getDocuments();
 });
 
+/// Structured upload error information capturing HTTP status, API error code, stage, and request ID.
+class DocumentUploadDiagnostics {
+  final int? statusCode;
+  final String? errorCode;
+  final String message;
+  final String? requestId;
+  final String? stage;
+
+  const DocumentUploadDiagnostics({
+    this.statusCode,
+    this.errorCode,
+    required this.message,
+    this.requestId,
+    this.stage,
+  });
+
+  /// Formatted diagnostic string for production error visibility.
+  String get formattedDisplay {
+    final buffer = StringBuffer();
+    if (statusCode != null) {
+      buffer.write('[HTTP $statusCode] ');
+    }
+    if (errorCode != null && errorCode!.isNotEmpty) {
+      buffer.write('$errorCode: ');
+    }
+    buffer.write(message);
+    if (stage != null && stage!.isNotEmpty) {
+      buffer.write(' (Stage: $stage)');
+    }
+    if (requestId != null && requestId!.isNotEmpty) {
+      buffer.write(' [Req: $requestId]');
+    }
+    return buffer.toString();
+  }
+}
+
 class DocumentUploadState {
   final PickedDocument? selectedDocument;
   final bool isUploading;
   final double uploadProgress;
   final String? errorMessage;
+  final DocumentUploadDiagnostics? diagnostics;
   final UploadDocumentResponse? successResult;
 
   const DocumentUploadState({
@@ -31,6 +68,7 @@ class DocumentUploadState {
     this.isUploading = false,
     this.uploadProgress = 0.0,
     this.errorMessage,
+    this.diagnostics,
     this.successResult,
   });
 
@@ -39,6 +77,7 @@ class DocumentUploadState {
     bool? isUploading,
     double? uploadProgress,
     String? Function()? errorMessage,
+    DocumentUploadDiagnostics? Function()? diagnostics,
     UploadDocumentResponse? Function()? successResult,
   }) {
     return DocumentUploadState(
@@ -46,6 +85,7 @@ class DocumentUploadState {
       isUploading: isUploading ?? this.isUploading,
       uploadProgress: uploadProgress ?? this.uploadProgress,
       errorMessage: errorMessage != null ? errorMessage() : this.errorMessage,
+      diagnostics: diagnostics != null ? diagnostics() : this.diagnostics,
       successResult: successResult != null ? successResult() : this.successResult,
     );
   }
@@ -74,6 +114,11 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
     if (!document.name.toLowerCase().endsWith('.pdf')) {
       state = state.copyWith(
         errorMessage: () => 'Only PDF documents are supported for ingestion.',
+        diagnostics: () => const DocumentUploadDiagnostics(
+          statusCode: 400,
+          errorCode: 'INVALID_FILE_TYPE',
+          message: 'Only PDF documents are supported for ingestion.',
+        ),
         selectedDocument: () => null,
       );
       return;
@@ -82,6 +127,11 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
     if (document.size > DocumentRepository.maxUploadSizeBytes) {
       state = state.copyWith(
         errorMessage: () => 'File exceeds the 50MB upload limit.',
+        diagnostics: () => const DocumentUploadDiagnostics(
+          statusCode: 413,
+          errorCode: 'FILE_TOO_LARGE',
+          message: 'File exceeds the 50MB upload limit.',
+        ),
         selectedDocument: () => null,
       );
       return;
@@ -90,6 +140,7 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
     state = state.copyWith(
       selectedDocument: () => document,
       errorMessage: () => null,
+      diagnostics: () => null,
       successResult: () => null,
       uploadProgress: 0.0,
     );
@@ -117,16 +168,29 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
     } catch (err) {
       state = state.copyWith(
         errorMessage: () => 'Failed to access document picker: $err',
+        diagnostics: () => DocumentUploadDiagnostics(
+          message: 'Failed to access document picker: $err',
+          stage: 'file_picker',
+        ),
       );
     }
   }
 
+  /// Resets the selected file and active upload status.
   void clearSelection() {
-    state = const DocumentUploadState();
+    state = state.copyWith(
+      selectedDocument: () => null,
+      errorMessage: () => null,
+      diagnostics: () => null,
+      successResult: () => null,
+      uploadProgress: 0.0,
+      isUploading: false,
+    );
   }
 
+  /// Cancels an in-progress upload request cleanly.
   void cancelUpload() {
-    if (state.isUploading && _cancelToken != null && !_cancelToken!.isCancelled) {
+    if (_cancelToken != null && !_cancelToken!.isCancelled) {
       _cancelToken!.cancel('User cancelled document upload');
     }
   }
@@ -146,9 +210,15 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
     final authState = ref.read(authControllerProvider);
     final userRole = authState is Authenticated ? authState.user.role : 'viewer';
     if (userRole != 'admin' && userRole != 'engineer' && userRole != 'manager') {
+      const diag = DocumentUploadDiagnostics(
+        statusCode: 403,
+        errorCode: 'FORBIDDEN',
+        message: 'Access denied: Only administrators and engineers can upload facility documents.',
+        stage: 'client_role_guard',
+      );
       state = state.copyWith(
-        errorMessage: () =>
-            'Access denied: Only administrators and engineers can upload facility documents.',
+        errorMessage: () => diag.message,
+        diagnostics: () => diag,
       );
       return;
     }
@@ -159,15 +229,23 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
       isUploading: true,
       uploadProgress: 0.0,
       errorMessage: () => null,
+      diagnostics: () => null,
       successResult: () => null,
     );
 
     try {
       final bytes = await doc.readBytes();
       if (bytes.isEmpty) {
+        const diag = DocumentUploadDiagnostics(
+          statusCode: 400,
+          errorCode: 'EMPTY_FILE',
+          message: 'Unable to read document file contents.',
+          stage: 'file_read',
+        );
         state = state.copyWith(
           isUploading: false,
-          errorMessage: () => 'Unable to read document file contents.',
+          errorMessage: () => diag.message,
+          diagnostics: () => diag,
         );
         return;
       }
@@ -199,14 +277,19 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
         state = state.copyWith(
           isUploading: false,
           errorMessage: () => 'Document upload was cancelled.',
+          diagnostics: () => const DocumentUploadDiagnostics(
+            errorCode: 'CANCELLED',
+            message: 'Document upload was cancelled.',
+          ),
         );
         return;
       }
 
-      final errorMsg = _parseUploadError(err);
+      final diag = _parseUploadError(err);
       state = state.copyWith(
         isUploading: false,
-        errorMessage: () => errorMsg,
+        errorMessage: () => diag.message,
+        diagnostics: () => diag,
       );
     } finally {
       _cancelToken = null;
@@ -222,38 +305,115 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
     await upload(title: title, revision: revision, equipmentId: equipmentId);
   }
 
-  String _parseUploadError(dynamic err) {
+  DocumentUploadDiagnostics _parseUploadError(dynamic err) {
     if (err is FormatException) {
-      return err.message;
+      return DocumentUploadDiagnostics(
+        statusCode: 400,
+        errorCode: 'CLIENT_VALIDATION',
+        message: err.message,
+      );
     }
     if (err is DioException) {
       final statusCode = err.response?.statusCode;
+      final data = err.response?.data;
+      String? errorCode;
+      String? serverMsg;
+      String? requestId;
+      String? stage;
+
+      if (data is Map) {
+        if (data['error'] is Map) {
+          final errObj = data['error'] as Map;
+          errorCode = errObj['code']?.toString();
+          serverMsg = errObj['message']?.toString();
+          requestId = errObj['requestId']?.toString();
+          stage = errObj['stage']?.toString();
+        } else if (data['message'] != null) {
+          serverMsg = data['message'].toString();
+        }
+      }
+
+      requestId ??= err.response?.headers.value('x-request-id');
+
+      if (statusCode == 401) {
+        return DocumentUploadDiagnostics(
+          statusCode: 401,
+          errorCode: errorCode ?? 'UNAUTHORIZED',
+          message: serverMsg ?? 'Session expired or unauthenticated. Please sign in again.',
+          requestId: requestId,
+          stage: stage ?? 'authentication',
+        );
+      }
       if (statusCode == 403) {
-        return 'Access denied: Only administrators and engineers can upload facility documents.';
+        return DocumentUploadDiagnostics(
+          statusCode: 403,
+          errorCode: errorCode ?? 'FORBIDDEN',
+          message: serverMsg ?? 'Access denied: Only administrators and engineers can upload facility documents.',
+          requestId: requestId,
+          stage: stage ?? 'authorization',
+        );
       }
       if (statusCode == 413) {
-        return 'File exceeds the 50MB upload limit.';
+        return DocumentUploadDiagnostics(
+          statusCode: 413,
+          errorCode: errorCode ?? 'FILE_TOO_LARGE',
+          message: serverMsg ?? 'File exceeds the 50MB upload limit.',
+          requestId: requestId,
+          stage: stage ?? 'upload_limits',
+        );
       }
       if (statusCode == 429) {
-        return 'Upload rate limit reached. Please wait a moment before trying again.';
-      }
-      if (statusCode == 503) {
-        return 'Database or storage service is temporarily unavailable for document ingestion.';
+        return DocumentUploadDiagnostics(
+          statusCode: 429,
+          errorCode: errorCode ?? 'RATE_LIMIT_EXCEEDED',
+          message: serverMsg ?? 'Upload rate limit reached. Please wait a moment before trying again.',
+          requestId: requestId,
+          stage: stage ?? 'rate_limiter',
+        );
       }
       if (statusCode == 400) {
-        final data = err.response?.data;
-        if (data is Map && data['error'] is Map && data['error']['message'] != null) {
-          return data['error']['message'].toString();
-        }
-        return 'Invalid upload request parameters.';
+        return DocumentUploadDiagnostics(
+          statusCode: 400,
+          errorCode: errorCode ?? 'BAD_REQUEST',
+          message: serverMsg ?? 'Invalid document upload metadata or file format.',
+          requestId: requestId,
+          stage: stage ?? 'validation',
+        );
+      }
+      if (statusCode == 503) {
+        return DocumentUploadDiagnostics(
+          statusCode: 503,
+          errorCode: errorCode ?? 'SERVICE_UNAVAILABLE',
+          message: serverMsg ?? 'Database or storage service is temporarily unavailable for document ingestion.',
+          requestId: requestId,
+          stage: stage ?? 'storage_pipeline',
+        );
+      }
+      if (statusCode != null && statusCode >= 500) {
+        return DocumentUploadDiagnostics(
+          statusCode: statusCode,
+          errorCode: errorCode ?? 'SERVER_ERROR',
+          message: serverMsg ?? 'Server encountered an internal error during document processing.',
+          requestId: requestId,
+          stage: stage ?? 'server_processing',
+        );
       }
       if (err.type == DioExceptionType.connectionTimeout ||
           err.type == DioExceptionType.sendTimeout ||
           err.type == DioExceptionType.receiveTimeout ||
           err.type == DioExceptionType.connectionError) {
-        return 'Network connection to facility server timed out. Please check connectivity.';
+        return const DocumentUploadDiagnostics(
+          statusCode: null,
+          errorCode: 'NETWORK_TIMEOUT',
+          message: 'Network connection to facility server timed out. Please check connectivity.',
+          stage: 'network_transport',
+        );
       }
     }
-    return 'Failed to upload document. Please try again.';
+    return const DocumentUploadDiagnostics(
+      statusCode: null,
+      errorCode: 'UPLOAD_FAILED',
+      message: 'Failed to upload document. Please try again.',
+    );
   }
 }

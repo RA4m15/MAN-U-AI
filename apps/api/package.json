@@ -11,6 +11,7 @@
     "lint": "oxlint src",
     "seed": "tsx src/config/seed.ts",
     "provision-user": "tsx src/scripts/provision-user.ts",
+    "promote-user": "tsx src/scripts/promote-user.ts",
     "test": "vitest run --fileParallelism=false"
   },
   "dependencies": {
