@@ -87,6 +87,7 @@ export function SopFlowchartPage() {
   const [procedureTitle, setProcedureTitle] = useState<string>(
     locationState?.initialTitle || SOP_PRESETS[0].title
   );
+  const [isEditorOpen, setIsEditorOpen] = useState<boolean>(false);
   const [showApprovalModal, setShowApprovalModal] = useState<boolean>(false);
   const [approverName, setApproverName] = useState<string>(user?.name || "Lead Reliability Engineer");
   const [approverRole, setApproverRole] = useState<string>(
@@ -116,6 +117,7 @@ export function SopFlowchartPage() {
   const handleSelectPreset = (preset: typeof SOP_PRESETS[0]) => {
     setProcedureTitle(preset.title);
     setProcedureText(preset.text);
+    setIsEditorOpen(true);
   };
 
   const handleGenerate = async () => {
@@ -129,6 +131,7 @@ export function SopFlowchartPage() {
       if (res.data?.success) {
         setActiveFlowchart(res.data.data);
         setSelectedNodeId(res.data.data.nodes[0]?.id || null);
+        setIsEditorOpen(false);
       }
     } catch (err: any) {
       alert(`Generation failed: ${err.response?.data?.error?.message || err.message}`);
@@ -162,7 +165,7 @@ export function SopFlowchartPage() {
     activeFlowchart?.nodes.find((n) => n.id === selectedNodeId) || null;
 
   return (
-    <div className="flex flex-col h-full bg-canvas overflow-y-auto p-4 md:p-8 space-y-6 pb-24 animate-fade-in print:p-0 print:m-0 print:space-y-4 print:overflow-visible">
+    <div className="flex flex-col h-full bg-canvas overflow-y-auto p-4 md:p-8 space-y-6 pb-24 animate-fade-in max-w-7xl mx-auto w-full print:p-0 print:m-0 print:space-y-4 print:overflow-visible">
       {/* Page Header (Hidden during wall print) */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
         <div>
@@ -184,6 +187,14 @@ export function SopFlowchartPage() {
 
         {activeFlowchart && (
           <div className="flex items-center gap-2 self-start md:self-auto">
+            <button
+              onClick={() => setIsEditorOpen((prev) => !prev)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-2 hover:bg-surface-3 border border-hairline text-xs font-semibold text-ink transition-colors"
+              title="Edit or generate new procedure"
+            >
+              <FileText size={14} className="text-primary" />
+              <span>{isEditorOpen ? "Hide Form" : "Edit Procedure"}</span>
+            </button>
             <button
               onClick={handlePrint}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-surface-2 hover:bg-surface-3 border border-hairline text-xs font-bold text-ink transition-colors shadow-sm"
@@ -212,7 +223,8 @@ export function SopFlowchartPage() {
       </div>
 
       {/* Input & Generator Panel (Collapsible / hidden in print) */}
-      <div className="rounded-2xl bg-surface-1 border border-hairline p-5 shadow-xl space-y-4 print:hidden">
+      {(!activeFlowchart || isEditorOpen) && (
+        <div className="rounded-2xl bg-surface-1 border border-hairline p-5 shadow-xl space-y-4 print:hidden">
         <div className="flex items-center justify-between pb-2 border-b border-hairline/60">
           <span className="text-2xs font-extrabold uppercase tracking-wider text-ink-tertiary flex items-center gap-1.5">
             <FileText size={14} className="text-primary" />
@@ -273,6 +285,7 @@ export function SopFlowchartPage() {
           </button>
         </div>
       </div>
+      )}
 
       {/* Main Flowchart Screen */}
       {activeFlowchart ? (

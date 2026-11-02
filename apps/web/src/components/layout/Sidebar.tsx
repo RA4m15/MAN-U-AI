@@ -19,6 +19,7 @@ import {
   ChevronRight,
   LogOut,
   Zap,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { conversationsApi } from "@/lib/api";

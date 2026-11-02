@@ -56,7 +56,7 @@ export function ManagerDashboardPage() {
   const isLoading = equipmentLoading || documentsLoading || summariesLoading;
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto bg-canvas p-4 md:p-8 space-y-6">
+    <div className="flex flex-col h-full overflow-y-auto bg-canvas p-4 md:p-8 space-y-6 max-w-7xl mx-auto w-full">
       {/* Header */}
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
@@ -106,7 +106,7 @@ export function ManagerDashboardPage() {
 
       {/* Real Operational KPI Highlights */}
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="card bg-surface-1 border border-hairline rounded-xl p-4 flex flex-col justify-between">
+        <div className="card bg-surface-1/80 backdrop-blur-sm border border-hairline hover:border-emerald-500/40 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-emerald-500/5 group">
           <div className="flex items-center justify-between text-ink-tertiary">
             <span className="text-2xs font-semibold uppercase tracking-wider">Active Machinery</span>
             <Cpu size={15} className="text-success" />
@@ -121,7 +121,7 @@ export function ManagerDashboardPage() {
           </div>
         </div>
 
-        <div className="card bg-surface-1 border border-hairline rounded-xl p-4 flex flex-col justify-between">
+        <div className="card bg-surface-1/80 backdrop-blur-sm border border-hairline hover:border-emerald-500/40 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-emerald-500/5 group">
           <div className="flex items-center justify-between text-ink-tertiary">
             <span className="text-2xs font-semibold uppercase tracking-wider">Maintenance Alerts</span>
             <AlertTriangle size={15} className="text-warning" />
@@ -136,7 +136,7 @@ export function ManagerDashboardPage() {
           </div>
         </div>
 
-        <div className="card bg-surface-1 border border-hairline rounded-xl p-4 flex flex-col justify-between">
+        <div className="card bg-surface-1/80 backdrop-blur-sm border border-hairline hover:border-emerald-500/40 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-emerald-500/5 group">
           <div className="flex items-center justify-between text-ink-tertiary">
             <span className="text-2xs font-semibold uppercase tracking-wider">Approved SOPs & Manuals</span>
             <BookOpen size={15} className="text-primary" />
@@ -151,7 +151,7 @@ export function ManagerDashboardPage() {
           </div>
         </div>
 
-        <div className="card bg-surface-1 border border-hairline rounded-xl p-4 flex flex-col justify-between">
+        <div className="card bg-surface-1/80 backdrop-blur-sm border border-hairline hover:border-emerald-500/40 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-emerald-500/5 group">
           <div className="flex items-center justify-between text-ink-tertiary">
             <span className="text-2xs font-semibold uppercase tracking-wider">Shift Summaries</span>
             <ClipboardList size={15} className="text-primary" />
@@ -173,7 +173,7 @@ export function ManagerDashboardPage() {
           Operational Workflows & Modules
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <article className="card bg-surface-1 border border-primary/50 hover:border-primary rounded-xl p-5 flex flex-col justify-between shadow-sm transition-all">
+          <article className="card bg-surface-1/70 hover:bg-surface-2/90 border border-hairline hover:border-emerald-500/40 rounded-2xl p-6 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-emerald-500/5 group">
             <div>
               <div className="w-10 h-10 rounded-xl border border-primary/30 bg-primary/20 flex items-center justify-center text-primary mb-3">
                 <ClipboardList size={19} />

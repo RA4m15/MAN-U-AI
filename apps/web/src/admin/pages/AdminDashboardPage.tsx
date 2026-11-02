@@ -71,7 +71,7 @@ export function AdminDashboardPage() {
   const isLoading = insightsLoading || usersLoading || equipmentLoading || documentsLoading;
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto bg-canvas p-4 md:p-8 space-y-6">
+    <div className="flex flex-col h-full overflow-y-auto bg-canvas p-4 md:p-8 space-y-6 max-w-7xl mx-auto w-full">
       {/* Header */}
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
@@ -115,7 +115,7 @@ export function AdminDashboardPage() {
       {/* Key Metric KPIs */}
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {/* Total Users */}
-        <div className="card bg-surface-1 border border-hairline rounded-xl p-4 flex flex-col justify-between">
+        <div className="card bg-surface-1/80 backdrop-blur-sm border border-hairline hover:border-primary/40 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/5 group">
           <div className="flex items-center justify-between text-ink-tertiary">
             <span className="text-2xs font-semibold uppercase tracking-wider">Registered Personnel</span>
             <Users size={15} className="text-primary" />
@@ -131,7 +131,7 @@ export function AdminDashboardPage() {
         </div>
 
         {/* Monitored Equipment */}
-        <div className="card bg-surface-1 border border-hairline rounded-xl p-4 flex flex-col justify-between">
+        <div className="card bg-surface-1/80 backdrop-blur-sm border border-hairline hover:border-primary/40 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/5 group">
           <div className="flex items-center justify-between text-ink-tertiary">
             <span className="text-2xs font-semibold uppercase tracking-wider">Monitored Equipment</span>
             <Cpu size={15} className="text-success" />
@@ -148,7 +148,7 @@ export function AdminDashboardPage() {
         </div>
 
         {/* Indexed Manuals & SOPs */}
-        <div className="card bg-surface-1 border border-hairline rounded-xl p-4 flex flex-col justify-between">
+        <div className="card bg-surface-1/80 backdrop-blur-sm border border-hairline hover:border-primary/40 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/5 group">
           <div className="flex items-center justify-between text-ink-tertiary">
             <span className="text-2xs font-semibold uppercase tracking-wider">Indexed Documents</span>
             <BookOpen size={15} className="text-warning" />
@@ -164,7 +164,7 @@ export function AdminDashboardPage() {
         </div>
 
         {/* RAG Telemetry */}
-        <div className="card bg-surface-1 border border-hairline rounded-xl p-4 flex flex-col justify-between">
+        <div className="card bg-surface-1/80 backdrop-blur-sm border border-hairline hover:border-primary/40 rounded-2xl p-5 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/5 group">
           <div className="flex items-center justify-between text-ink-tertiary">
             <span className="text-2xs font-semibold uppercase tracking-wider">RAG Inquiries</span>
             <Bot size={15} className="text-primary" />
@@ -188,7 +188,7 @@ export function AdminDashboardPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <Link
             to="/admin/users"
-            className="card bg-surface-1 hover:bg-surface-2 border border-hairline rounded-xl p-5 flex flex-col justify-between transition-colors group"
+            className="card bg-surface-1/70 hover:bg-surface-2/90 border border-hairline hover:border-primary/40 rounded-2xl p-6 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/5 group"
           >
             <div>
               <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mb-3">
@@ -208,7 +208,7 @@ export function AdminDashboardPage() {
 
           <Link
             to="/admin/insights"
-            className="card bg-surface-1 hover:bg-surface-2 border border-hairline rounded-xl p-5 flex flex-col justify-between transition-colors group"
+            className="card bg-surface-1/70 hover:bg-surface-2/90 border border-hairline hover:border-primary/40 rounded-2xl p-6 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/5 group"
           >
             <div>
               <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mb-3">
@@ -228,7 +228,7 @@ export function AdminDashboardPage() {
 
           <Link
             to="/admin/activity"
-            className="card bg-surface-1 hover:bg-surface-2 border border-hairline rounded-xl p-5 flex flex-col justify-between transition-colors group"
+            className="card bg-surface-1/70 hover:bg-surface-2/90 border border-hairline hover:border-primary/40 rounded-2xl p-6 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/5 group"
           >
             <div>
               <div className="w-10 h-10 rounded-xl bg-warning/10 border border-warning/20 flex items-center justify-center text-warning mb-3">
@@ -248,7 +248,7 @@ export function AdminDashboardPage() {
 
           <Link
             to="/admin/integrations"
-            className="card bg-surface-1 hover:bg-surface-2 border border-hairline rounded-xl p-5 flex flex-col justify-between transition-colors group"
+            className="card bg-surface-1/70 hover:bg-surface-2/90 border border-hairline hover:border-primary/40 rounded-2xl p-6 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/5 group"
           >
             <div>
               <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mb-3">
@@ -268,7 +268,7 @@ export function AdminDashboardPage() {
 
           <Link
             to="/admin/settings"
-            className="card bg-surface-1 hover:bg-surface-2 border border-hairline rounded-xl p-5 flex flex-col justify-between transition-colors group"
+            className="card bg-surface-1/70 hover:bg-surface-2/90 border border-hairline hover:border-primary/40 rounded-2xl p-6 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/5 group"
           >
             <div>
               <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mb-3">
@@ -288,7 +288,7 @@ export function AdminDashboardPage() {
 
           <Link
             to="/admin/knowledge"
-            className="card bg-surface-1 hover:bg-surface-2 border border-hairline rounded-xl p-5 flex flex-col justify-between transition-colors group"
+            className="card bg-surface-1/70 hover:bg-surface-2/90 border border-hairline hover:border-primary/40 rounded-2xl p-6 flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/5 group"
           >
             <div>
               <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mb-3">

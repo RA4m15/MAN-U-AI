@@ -20,6 +20,7 @@ import {
   Zap,
   LayoutDashboard,
   Workflow,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { conversationsApi } from "@/lib/api";
@@ -119,6 +120,15 @@ export function AdminSidebar({ onMobileClose }: AdminSidebarProps) {
             Admin Console
           </span>
         </div>
+        {onMobileClose && (
+          <button
+            onClick={onMobileClose}
+            className="ml-auto p-1.5 rounded-lg text-ink-tertiary hover:text-ink hover:bg-surface-2 transition-colors"
+            title="Close menu"
+          >
+            <X size={15} />
+          </button>
+        )}
       </div>
 
       {/* Conversation Search */}
