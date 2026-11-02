@@ -100,3 +100,4 @@ Final step: Record service completion in plant CMMS logbook.
     expect(mermaid).toContain('node-3 -->|"Yes"| node-4');
   });
 });
+
