@@ -288,15 +288,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                     const SizedBox(height: 12.0),
 
-                    // Square Avatar Slot (Signature 48px, 2px Primary Border)
+                    // Logo Icon Slot
                     Center(
                       child: Container(
-                        width: 48.0,
-                        height: 48.0,
+                        width: 52.0,
+                        height: 52.0,
                         decoration: BoxDecoration(
                           color: AppColors.surfaceAlt,
-                          borderRadius: BorderRadius.circular(8.0),
-                          border: Border.all(color: AppColors.primary, width: 2.0),
+                          borderRadius: BorderRadius.circular(16.0),
+                          border: Border.all(color: AppColors.border, width: 1.0),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.04),
+                              blurRadius: 8.0,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
                         clipBehavior: Clip.antiAlias,
                         child: Image.asset(
@@ -608,20 +615,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     return Container(
       decoration: BoxDecoration(
-        color: isSelected ? AppColors.primary : AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(8.0), // rounded.lg
+        color: isSelected ? AppColors.primaryAction : AppColors.surfaceAlt,
+        borderRadius: BorderRadius.circular(20.0),
         border: Border.all(
-          color: isSelected ? AppColors.primary : AppColors.border,
+          color: isSelected ? AppColors.primaryAction : AppColors.border,
           width: 1.0,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isSelected ? 0.08 : 0.02),
+            blurRadius: 4.0,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(8.0),
+          borderRadius: BorderRadius.circular(20.0),
           onTap: () => _fillCredentials(email, password),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 9.0),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -629,7 +643,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   width: 8.0,
                   height: 8.0,
                   decoration: BoxDecoration(
-                    color: dotColor,
+                    color: isSelected ? Colors.white : dotColor,
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -637,7 +651,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 Text(
                   label,
                   style: AppTypography.labelMd.copyWith(
-                    fontSize: 11.0,
+                    fontSize: 11.5,
                     color: isSelected ? Colors.white : AppColors.onSurface,
                   ),
                 ),

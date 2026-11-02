@@ -22,7 +22,9 @@ class ManuAiApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'MAN-U-AI',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: ThemeMode.light,
       routerConfig: router,
     );
   }

@@ -185,10 +185,10 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
 
     return Container(
       margin: const EdgeInsets.only(top: 14.0),
-      padding: const EdgeInsets.all(12.0),
+      padding: const EdgeInsets.all(14.0),
       decoration: BoxDecoration(
         color: AppColors.surfaceMuted,
-        borderRadius: BorderRadius.circular(6.0),
+        borderRadius: BorderRadius.circular(16.0),
         border: Border.all(color: AppColors.border, width: 1.0),
       ),
       child: Column(
@@ -209,8 +209,8 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
                 child: Text(
                   'EXPLODED 3D DIAGRAMS & SIMULATIONS',
                   style: AppTypography.labelMd.copyWith(
-                    color: Colors.white,
-                    fontSize: 10.5,
+                    color: AppColors.onSurface,
+                    fontSize: 11.0,
                     letterSpacing: 0.8,
                   ),
                 ),
@@ -250,9 +250,16 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
                   child: Container(
                     width: 230.0,
                     decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(6.0),
+                      color: AppColors.surfaceAlt,
+                      borderRadius: BorderRadius.circular(14.0),
                       border: Border.all(color: AppColors.border, width: 1.0),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.03),
+                          blurRadius: 6.0,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: Stack(
                       children: [
@@ -447,9 +454,15 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
           margin: const EdgeInsets.only(top: 8.0, bottom: 8.0, left: 48.0),
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
           decoration: BoxDecoration(
-            color: AppColors.surfaceAlt,
-            borderRadius: BorderRadius.circular(8.0), // rounded.lg
-            border: Border.all(color: AppColors.border, width: 1.0),
+            color: AppColors.primaryAction,
+            borderRadius: BorderRadius.circular(18.0),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 8.0,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -462,16 +475,6 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
                     fontWeight: FontWeight.w400,
                     color: Colors.white,
                   ),
-                ),
-              ),
-              const SizedBox(width: 10.0),
-              Container(
-                width: 3.0,
-                height: 16.0,
-                margin: const EdgeInsets.only(top: 2.0),
-                decoration: BoxDecoration(
-                  color: AppColors.primary,
-                  borderRadius: BorderRadius.circular(1.5),
                 ),
               ),
             ],
@@ -563,11 +566,18 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
 
             // Message Body Card
             Container(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(18.0),
               decoration: BoxDecoration(
                 color: AppColors.surfaceAlt,
-                borderRadius: BorderRadius.circular(8.0), // rounded.lg
+                borderRadius: BorderRadius.circular(20.0),
                 border: Border.all(color: AppColors.border, width: 1.0),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.03),
+                    blurRadius: 10.0,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

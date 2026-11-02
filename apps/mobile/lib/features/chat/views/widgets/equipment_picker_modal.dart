@@ -6,7 +6,7 @@ import '../../../../core/theme/widgets/terminal_components.dart';
 import '../../../equipment/controllers/equipment_controller.dart';
 import '../../../equipment/models/equipment_model.dart';
 
-/// Terminal Cobalt Mobile Equipment Picker Modal
+/// MAN-U-AI Modern Light Equipment Picker Modal
 class EquipmentPickerModal extends ConsumerWidget {
   final EquipmentModel? selectedEquipment;
   final ValueChanged<EquipmentModel?> onSelected;
@@ -34,10 +34,10 @@ class EquipmentPickerModal extends ConsumerWidget {
     final equipmentAsync = ref.watch(equipmentListProvider);
 
     return Container(
-      padding: const EdgeInsets.all(20.0),
+      padding: const EdgeInsets.fromLTRB(20.0, 20.0, 20.0, 24.0),
       decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(8.0)), // rounded.lg
+        color: AppColors.background,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24.0)),
         border: Border(
           top: BorderSide(color: AppColors.border, width: 1.0),
           left: BorderSide(color: AppColors.border, width: 1.0),
@@ -75,17 +75,24 @@ class EquipmentPickerModal extends ConsumerWidget {
             // Option: General Facility (No Equipment Filter)
             Container(
               decoration: BoxDecoration(
-                color: selectedEquipment == null ? AppColors.surfaceMuted : AppColors.surfaceAlt,
-                borderRadius: BorderRadius.circular(8.0),
+                color: AppColors.surfaceAlt,
+                borderRadius: BorderRadius.circular(16.0),
                 border: Border.all(
                   color: selectedEquipment == null ? AppColors.primary : AppColors.border,
-                  width: 1.0,
+                  width: selectedEquipment == null ? 1.8 : 1.0,
                 ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.02),
+                    blurRadius: 6.0,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(8.0),
+                  borderRadius: BorderRadius.circular(16.0),
                   onTap: () {
                     onSelected(null);
                     Navigator.of(context).pop();
@@ -95,17 +102,16 @@ class EquipmentPickerModal extends ConsumerWidget {
                     child: Row(
                       children: [
                         Container(
-                          width: 36.0,
-                          height: 36.0,
+                          width: 40.0,
+                          height: 40.0,
                           decoration: BoxDecoration(
-                            color: AppColors.surface,
-                            borderRadius: BorderRadius.circular(6.0),
-                            border: Border.all(color: AppColors.border, width: 1.0),
+                            color: AppColors.surfaceMuted,
+                            borderRadius: BorderRadius.circular(10.0),
                           ),
                           child: const Center(
                             child: Icon(
                               Icons.all_inclusive_rounded,
-                              size: 18.0,
+                              size: 20.0,
                               color: AppColors.primary,
                             ),
                           ),
@@ -117,7 +123,11 @@ class EquipmentPickerModal extends ConsumerWidget {
                             children: [
                               Text(
                                 'GENERAL PLANT CONSULTATION',
-                                style: AppTypography.bodyMd.copyWith(fontSize: 13.0),
+                                style: AppTypography.bodyMd.copyWith(
+                                  fontSize: 13.0,
+                                  fontWeight: selectedEquipment == null ? FontWeight.w700 : FontWeight.w500,
+                                  color: AppColors.onSurface,
+                                ),
                               ),
                               const SizedBox(height: 2.0),
                               Text(
@@ -168,38 +178,44 @@ class EquipmentPickerModal extends ConsumerWidget {
                       return Container(
                         margin: const EdgeInsets.only(bottom: 8.0),
                         decoration: BoxDecoration(
-                          color: isSelected ? AppColors.surfaceMuted : AppColors.surfaceAlt,
-                          borderRadius: BorderRadius.circular(8.0),
+                          color: AppColors.surfaceAlt,
+                          borderRadius: BorderRadius.circular(16.0),
                           border: Border.all(
                             color: isSelected ? AppColors.primary : AppColors.border,
-                            width: 1.0,
+                            width: isSelected ? 1.8 : 1.0,
                           ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.02),
+                              blurRadius: 4.0,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
                         ),
                         child: Material(
                           color: Colors.transparent,
                           child: InkWell(
-                            borderRadius: BorderRadius.circular(8.0),
+                            borderRadius: BorderRadius.circular(16.0),
                             onTap: () {
                               onSelected(eq);
                               Navigator.of(context).pop();
                             },
                             child: Padding(
-                              padding: const EdgeInsets.all(12.0),
+                              padding: const EdgeInsets.all(14.0),
                               child: Row(
                                 children: [
-                                  // Categorical Identity Dot inside 36px tile
+                                  // Categorical Identity Dot inside tile
                                   Container(
-                                    width: 36.0,
-                                    height: 36.0,
+                                    width: 40.0,
+                                    height: 40.0,
                                     decoration: BoxDecoration(
-                                      color: AppColors.surface,
-                                      borderRadius: BorderRadius.circular(6.0),
-                                      border: Border.all(color: AppColors.border, width: 1.0),
+                                      color: AppColors.surfaceMuted,
+                                      borderRadius: BorderRadius.circular(10.0),
                                     ),
                                     child: Center(
                                       child: Container(
-                                        width: 8.0,
-                                        height: 8.0,
+                                        width: 10.0,
+                                        height: 10.0,
                                         decoration: BoxDecoration(
                                           color: dotColor,
                                           shape: BoxShape.circle,
@@ -215,8 +231,9 @@ class EquipmentPickerModal extends ConsumerWidget {
                                         Text(
                                           eq.displayName.toUpperCase(),
                                           style: AppTypography.bodyMd.copyWith(
-                                            fontSize: 12.5,
-                                            color: isSelected ? Colors.white : AppColors.onSurface,
+                                            fontSize: 13.0,
+                                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                            color: AppColors.onSurface,
                                           ),
                                         ),
                                         const SizedBox(height: 2.0),

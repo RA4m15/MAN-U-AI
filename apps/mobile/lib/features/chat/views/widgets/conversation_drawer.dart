@@ -10,7 +10,7 @@ import '../../controllers/conversation_controller.dart';
 import '../../../tasks/controllers/task_controller.dart';
 import '../../../tasks/views/tasks_screen.dart';
 
-/// Terminal Cobalt Mobile Conversation Drawer
+/// MAN-U-AI Modern Light Conversation Drawer
 /// Operational telemetry panel for navigating past diagnostic logs.
 class ConversationDrawer extends ConsumerWidget {
   const ConversationDrawer({super.key});
@@ -55,9 +55,9 @@ class ConversationDrawer extends ConsumerWidget {
     final currentUser = authState is Authenticated ? authState.user : null;
 
     return Drawer(
-      backgroundColor: AppColors.surface,
+      backgroundColor: AppColors.background,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.zero,
+        borderRadius: BorderRadius.horizontal(right: Radius.circular(24.0)),
         side: BorderSide(color: AppColors.border, width: 1.0),
       ),
       child: SafeArea(
@@ -66,44 +66,53 @@ class ConversationDrawer extends ConsumerWidget {
           children: [
             // Drawer Header
             Padding(
-              padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 12.0),
+              padding: const EdgeInsets.fromLTRB(18.0, 16.0, 18.0, 12.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
                       Container(
-                        width: 38.0,
-                        height: 38.0,
+                        width: 40.0,
+                        height: 40.0,
                         decoration: BoxDecoration(
-                          color: Colors.black,
-                          borderRadius: BorderRadius.circular(8.0),
-                          border: Border.all(color: AppColors.primary, width: 1.5),
+                          color: AppColors.surfaceAlt,
+                          borderRadius: BorderRadius.circular(12.0),
+                          border: Border.all(color: AppColors.border, width: 1.0),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.04),
+                              blurRadius: 6.0,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
                         clipBehavior: Clip.antiAlias,
-                        child: Image.asset(
-                          'assets/images/logo.png',
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) => const Center(
-                            child: Icon(
-                              Icons.bolt_rounded,
-                              color: AppColors.primary,
-                              size: 20.0,
-                            ),
+                        child: Center(
+                          child: Icon(
+                            Icons.precision_manufacturing_rounded,
+                            color: AppColors.primary,
+                            size: 22.0,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 10.0),
+                      const SizedBox(width: 12.0),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             'MAN-U-AI',
-                            style: AppTypography.headlineMd.copyWith(fontSize: 16.0),
+                            style: AppTypography.headlineMd.copyWith(
+                              fontSize: 16.0,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                           Text(
-                            'TELEMETRY LOGS',
-                            style: AppTypography.caption.copyWith(color: AppColors.primary),
+                            'COPILOT SESSIONS',
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ],
                       ),
@@ -115,7 +124,7 @@ class ConversationDrawer extends ConsumerWidget {
                   MachinedPrimaryButton(
                     buttonKey: const Key('drawer_new_consultation_button'),
                     label: 'NEW CONSULTATION',
-                    height: 44.0,
+                    height: 46.0,
                     icon: Icons.add_rounded,
                     onPressed: () {
                       ref.read(chatControllerProvider.notifier).startNewConsultation();
@@ -138,25 +147,36 @@ class ConversationDrawer extends ConsumerWidget {
                         ),
                       );
                     },
-                    borderRadius: BorderRadius.circular(8.0),
+                    borderRadius: BorderRadius.circular(16.0),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
+                      padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 12.0),
                       decoration: BoxDecoration(
                         color: AppColors.surfaceAlt,
-                        borderRadius: BorderRadius.circular(8.0),
-                        border: Border.all(color: AppColors.primary, width: 1.2),
+                        borderRadius: BorderRadius.circular(16.0),
+                        border: Border.all(color: AppColors.border, width: 1.0),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 6.0,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
                       child: Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(6.0),
+                            padding: const EdgeInsets.all(7.0),
                             decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(6.0),
+                              color: AppColors.surfaceMuted,
+                              borderRadius: BorderRadius.circular(10.0),
                             ),
-                            child: const Icon(Icons.assignment_outlined, color: AppColors.primaryHover, size: 18.0),
+                            child: const Icon(
+                              Icons.assignment_outlined,
+                              color: AppColors.primary,
+                              size: 18.0,
+                            ),
                           ),
-                          const SizedBox(width: 10.0),
+                          const SizedBox(width: 12.0),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -164,8 +184,8 @@ class ConversationDrawer extends ConsumerWidget {
                                 Text(
                                   "TODAY'S SHIFT TASKS",
                                   style: AppTypography.bodyMd.copyWith(
-                                    fontSize: 12.0,
-                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w700,
                                     color: AppColors.onSurface,
                                   ),
                                 ),
@@ -182,11 +202,17 @@ class ConversationDrawer extends ConsumerWidget {
                           Consumer(
                             builder: (ctx, r, _) {
                               final count = r.watch(activeTasksCountProvider);
-                              if (count <= 0) return const Icon(Icons.chevron_right, size: 18, color: AppColors.onSurfaceVariant);
+                              if (count <= 0) {
+                                return const Icon(
+                                  Icons.chevron_right_rounded,
+                                  size: 18,
+                                  color: AppColors.textMuted,
+                                );
+                              }
                               return Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: AppColors.primary,
+                                  color: AppColors.primaryAction,
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                                 child: Text(
@@ -209,7 +235,7 @@ class ConversationDrawer extends ConsumerWidget {
             ),
 
             const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16.0),
+              padding: EdgeInsets.symmetric(horizontal: 18.0),
               child: SectionHeader(
                 title: 'CONSULTATION SESSIONS',
                 padding: EdgeInsets.symmetric(vertical: 8.0),
@@ -254,7 +280,7 @@ class ConversationDrawer extends ConsumerWidget {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const Icon(Icons.chat_bubble_outline_rounded,
-                              size: 28.0, color: AppColors.onSurfaceVariant),
+                              size: 28.0, color: AppColors.textMuted),
                           const SizedBox(height: 8.0),
                           Text(
                             'NO PRIOR SESSIONS LOGGED',
@@ -266,7 +292,7 @@ class ConversationDrawer extends ConsumerWidget {
                   }
 
                   return ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                    padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 4.0),
                     itemCount: conversations.length,
                     itemBuilder: (context, index) {
                       final conv = conversations[index];
@@ -276,17 +302,24 @@ class ConversationDrawer extends ConsumerWidget {
                       return Container(
                         margin: const EdgeInsets.only(bottom: 8.0),
                         decoration: BoxDecoration(
-                          color: isSelected ? AppColors.surfaceMuted : AppColors.surfaceAlt,
-                          borderRadius: BorderRadius.circular(8.0),
+                          color: isSelected ? AppColors.surfaceAlt : AppColors.surfaceAlt,
+                          borderRadius: BorderRadius.circular(14.0),
                           border: Border.all(
                             color: isSelected ? AppColors.primary : AppColors.border,
-                            width: 1.0,
+                            width: isSelected ? 1.8 : 1.0,
                           ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.02),
+                              blurRadius: 4.0,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
                         ),
                         child: Material(
                           color: Colors.transparent,
                           child: InkWell(
-                            borderRadius: BorderRadius.circular(8.0),
+                            borderRadius: BorderRadius.circular(14.0),
                             onTap: () {
                               ref.read(chatControllerProvider.notifier).selectConversation(conv);
                               Navigator.of(context).pop();
@@ -295,19 +328,18 @@ class ConversationDrawer extends ConsumerWidget {
                               padding: const EdgeInsets.all(12.0),
                               child: Row(
                                 children: [
-                                  // Categorical Identity Dot inside 32px tile
+                                  // Categorical Identity Dot inside tile
                                   Container(
-                                    width: 32.0,
-                                    height: 32.0,
+                                    width: 34.0,
+                                    height: 34.0,
                                     decoration: BoxDecoration(
-                                      color: AppColors.surface,
-                                      borderRadius: BorderRadius.circular(6.0),
-                                      border: Border.all(color: AppColors.border, width: 1.0),
+                                      color: AppColors.surfaceMuted,
+                                      borderRadius: BorderRadius.circular(10.0),
                                     ),
                                     child: Center(
                                       child: Container(
-                                        width: 8.0,
-                                        height: 8.0,
+                                        width: 9.0,
+                                        height: 9.0,
                                         decoration: BoxDecoration(
                                           color: catColor,
                                           shape: BoxShape.circle,
@@ -315,7 +347,7 @@ class ConversationDrawer extends ConsumerWidget {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 10.0),
+                                  const SizedBox(width: 12.0),
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -325,14 +357,18 @@ class ConversationDrawer extends ConsumerWidget {
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: AppTypography.bodyMd.copyWith(
-                                            fontSize: 12.5,
-                                            color: isSelected ? Colors.white : AppColors.onSurface,
+                                            fontSize: 13.0,
+                                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                            color: AppColors.onSurface,
                                           ),
                                         ),
                                         const SizedBox(height: 2.0),
                                         Text(
                                           '${conv.equipmentName ?? "GENERAL"} // ${_formatTimestamp(conv.lastMessageAt ?? conv.createdAt)}',
-                                          style: AppTypography.caption,
+                                          style: AppTypography.caption.copyWith(
+                                            fontSize: 10.0,
+                                            color: AppColors.onSurfaceVariant,
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -359,17 +395,20 @@ class ConversationDrawer extends ConsumerWidget {
               child: Row(
                 children: [
                   SquareAvatar(
-                    size: 40.0,
+                    size: 42.0,
                     initial: currentUser?.name,
                   ),
-                  const SizedBox(width: 10.0),
+                  const SizedBox(width: 12.0),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           currentUser?.name ?? 'OPERATOR',
-                          style: AppTypography.bodyMd.copyWith(fontSize: 12.5),
+                          style: AppTypography.bodyMd.copyWith(
+                            fontSize: 13.0,
+                            fontWeight: FontWeight.w600,
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -386,7 +425,7 @@ class ConversationDrawer extends ConsumerWidget {
                   ButtonIconTile(
                     key: const Key('drawer_logout_button'),
                     icon: Icons.logout_rounded,
-                    size: 36.0,
+                    size: 38.0,
                     iconColor: AppColors.error,
                     tooltip: 'Sign out',
                     onPressed: () {

@@ -11,8 +11,8 @@ enum TerminalTab {
   tasks,
 }
 
-/// Terminal Cobalt Mobile 5-Slot Bottom Navigation Bar
-/// With signature center floating FAB inside a bordered socket.
+/// MAN-U-AI Modern Light Bottom Navigation Bar
+/// Clean elevated light bar with floating center Copilot action FAB.
 /// Uses responsive Expanded tab layout to prevent overflow on narrow screens.
 class TerminalBottomNavBar extends StatelessWidget {
   final TerminalTab activeTab;
@@ -31,12 +31,19 @@ class TerminalBottomNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 88.0,
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(
+      height: 82.0,
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        border: const Border(
           top: BorderSide(color: AppColors.border, width: 1.0),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 16.0,
+            offset: const Offset(0, -4),
+          ),
+        ],
       ),
       child: SafeArea(
         top: false,
@@ -45,32 +52,35 @@ class TerminalBottomNavBar extends StatelessWidget {
           alignment: Alignment.center,
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+              padding: const EdgeInsets.symmetric(horizontal: 10.0),
               child: Row(
                 children: [
                   // Tab 1: Chat / Consult
                   Expanded(
                     child: _buildTabItem(
                       tab: TerminalTab.chat,
-                      icon: Icons.chat_bubble_rounded,
+                      icon: Icons.chat_bubble_outline_rounded,
+                      activeIcon: Icons.chat_bubble_rounded,
                       label: 'CONSULT',
                     ),
                   ),
-                  // Tab 2: Equipment / Area
+                  // Tab 2: Equipment / Fleet
                   Expanded(
                     child: _buildTabItem(
                       tab: TerminalTab.equipment,
-                      icon: Icons.precision_manufacturing_rounded,
+                      icon: Icons.precision_manufacturing_outlined,
+                      activeIcon: Icons.precision_manufacturing_rounded,
                       label: 'EQUIP',
                     ),
                   ),
-                  // Center Gap for FAB
-                  const SizedBox(width: 48.0),
+                  // Center Gap for Floating FAB
+                  const SizedBox(width: 56.0),
                   // Tab 4: Diagram / Hotspots
                   Expanded(
                     child: _buildTabItem(
                       tab: TerminalTab.diagram,
-                      icon: Icons.schema_rounded,
+                      icon: Icons.schema_outlined,
+                      activeIcon: Icons.schema_rounded,
                       label: 'DIAGRAM',
                     ),
                   ),
@@ -79,6 +89,7 @@ class TerminalBottomNavBar extends StatelessWidget {
                     child: _buildTabItem(
                       tab: TerminalTab.tasks,
                       icon: Icons.assignment_outlined,
+                      activeIcon: Icons.assignment_rounded,
                       label: 'TASKS',
                       badgeCount: tasksBadgeCount,
                     ),
@@ -87,33 +98,43 @@ class TerminalBottomNavBar extends StatelessWidget {
               ),
             ),
 
-            // Center Floating FAB lifted 24px above bottom bar in a bordered well
+            // Center Floating Copilot Action FAB
             Positioned(
-              top: -24.0,
+              top: -20.0,
               child: GestureDetector(
                 onTap: onFabPressed,
                 child: Container(
-                  width: 68.0,
-                  height: 68.0,
-                  padding: const EdgeInsets.all(6.0),
+                  width: 62.0,
+                  height: 62.0,
+                  padding: const EdgeInsets.all(4.0),
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
+                    color: AppColors.background,
                     shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.border, width: 1.0),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 12.0,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: AppColors.primary,
                       shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.15),
-                        width: 1.0,
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFF00BBD4), // Cyan
+                          Color(0xFF087EFF), // Electric blue
+                        ],
                       ),
-                      boxShadow: const [
+                      boxShadow: [
                         BoxShadow(
-                          color: Color(0x660057FF), // rgba(0,87,255,0.4)
-                          blurRadius: 15.0,
+                          color: const Color(0x66087EFF),
+                          blurRadius: 14.0,
                           spreadRadius: 1.0,
+                          offset: const Offset(0, 2),
                         ),
                       ],
                     ),
@@ -121,7 +142,7 @@ class TerminalBottomNavBar extends StatelessWidget {
                       child: Icon(
                         Icons.bolt_rounded,
                         color: Colors.white,
-                        size: 28.0,
+                        size: 26.0,
                       ),
                     ),
                   ),
@@ -137,35 +158,40 @@ class TerminalBottomNavBar extends StatelessWidget {
   Widget _buildTabItem({
     required TerminalTab tab,
     required IconData icon,
+    required IconData activeIcon,
     required String label,
     int badgeCount = 0,
   }) {
     final isActive = activeTab == tab;
-    final color = isActive ? AppColors.primary : AppColors.onSurfaceVariant;
 
     return InkWell(
       onTap: () => onTabSelected(tab),
-      borderRadius: BorderRadius.circular(8.0),
+      borderRadius: BorderRadius.circular(16.0),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 4.0),
+        padding: const EdgeInsets.symmetric(vertical: 6.0),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Stack(
               clipBehavior: Clip.none,
               children: [
-                Icon(icon, size: 22.0, color: color),
+                Icon(
+                  isActive ? activeIcon : icon,
+                  size: 22.0,
+                  color: isActive ? AppColors.onSurface : AppColors.onSurfaceVariant,
+                ),
                 if (badgeCount > 0)
                   Positioned(
                     top: -4,
-                    right: -8,
+                    right: -10,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                       decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(8),
+                        color: AppColors.primaryAction,
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+                      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
                       child: Text(
                         '$badgeCount',
                         style: const TextStyle(
@@ -179,15 +205,16 @@ class TerminalBottomNavBar extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 3.0),
+            const SizedBox(height: 4.0),
             Text(
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppTypography.caption.copyWith(
-                color: color,
+                color: isActive ? AppColors.onSurface : AppColors.onSurfaceVariant,
                 fontSize: 9.5,
-                fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
+                fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                letterSpacing: 0.4,
               ),
             ),
           ],

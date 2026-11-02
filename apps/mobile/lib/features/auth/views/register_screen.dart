@@ -121,8 +121,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         height: 56.0,
                         decoration: BoxDecoration(
                           color: AppColors.surfaceAlt,
-                          borderRadius: BorderRadius.circular(8.0),
-                          border: Border.all(color: AppColors.primary, width: 2.0),
+                          borderRadius: BorderRadius.circular(16.0),
+                          border: Border.all(color: AppColors.border, width: 1.0),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.04),
+                              blurRadius: 8.0,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
                         child: const Center(
                           child: Icon(

@@ -19,6 +19,8 @@ import '../../media/views/media_capture_screen.dart';
 import '../../media/views/widgets/media_upload_modal.dart';
 import '../../tasks/controllers/task_controller.dart';
 import '../../tasks/views/tasks_screen.dart';
+import '../../diagnostics/views/guided_diagnostics_screen.dart';
+import '../../equipment/views/plant_reliability_insight_screen.dart';
 
 /// Terminal Cobalt Mobile Chat Screen
 /// Industrial. Instrumented. Operational.
@@ -168,6 +170,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  void _openGuidedDiagnostics(BuildContext context) {
+    final currentEq = ref.read(chatControllerProvider).selectedEquipment;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GuidedDiagnosticsScreen(
+          equipmentName: currentEq?.displayName ?? 'Boiler B-201',
+          onCompleteDiagnosis: (prompt) {
+            ref.read(chatControllerProvider.notifier).sendMessage(prompt);
+          },
+        ),
+      ),
+    );
+  }
+
+  void _openPlantInsight(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlantReliabilityInsightScreen(
+          onConsultCopilot: (prompt) {
+            ref.read(chatControllerProvider.notifier).sendMessage(prompt);
+          },
+        ),
+      ),
+    );
+  }
+
   void _handleTabSelect(TerminalTab tab) {
     setState(() {
       _activeTab = tab;
@@ -177,7 +205,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case TerminalTab.chat:
         break;
       case TerminalTab.equipment:
-        _showEquipmentPicker(context);
+        _openPlantInsight(context);
         break;
       case TerminalTab.diagram:
         _showExplodedDiagram(context);
@@ -189,14 +217,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         _openTasksScreen(context);
         break;
       case TerminalTab.fabAction:
-        _handleFabAction();
+        _openGuidedDiagnostics(context);
         break;
     }
   }
 
   void _handleFabAction() {
-    // Quick Copilot Action FAB: Prompts the primary quick diagnostic
-    ref.read(chatControllerProvider.notifier).sendMessage('Provide safety isolation steps and LOTO checklist for current equipment');
+    _openGuidedDiagnostics(context);
   }
 
   @override
@@ -428,7 +455,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               key: const Key('offline_mode_banner'),
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              color: AppColors.primary.withValues(alpha: 0.12),
+              decoration: const BoxDecoration(
+                color: Color(0xFFEFF6FF),
+                border: Border(bottom: BorderSide(color: Color(0xFFBFDBFE), width: 1.0)),
+              ),
               child: Row(
                 children: [
                   const SizedBox(
@@ -457,7 +487,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               key: const Key('offline_mode_banner'),
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              color: AppColors.warning.withValues(alpha: 0.12),
+              decoration: const BoxDecoration(
+                color: Color(0xFFFFFBEB),
+                border: Border(bottom: BorderSide(color: Color(0xFFFDE68A), width: 1.0)),
+              ),
               child: Row(
                 children: [
                   const StatusDot(color: AppColors.warning, size: 8.0),
@@ -469,7 +502,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         Text(
                           'SERVER UNAVAILABLE // CACHED DATA ONLY',
                           style: AppTypography.caption.copyWith(
-                            color: AppColors.warning,
+                            color: Color(0xFFB45309),
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -507,7 +540,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               key: const Key('offline_mode_banner'),
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              color: AppColors.warning.withValues(alpha: 0.12),
+              decoration: const BoxDecoration(
+                color: Color(0xFFFFFBEB),
+                border: Border(bottom: BorderSide(color: Color(0xFFFDE68A), width: 1.0)),
+              ),
               child: Row(
                 children: [
                   const StatusDot(color: AppColors.warning, size: 8.0),
@@ -519,7 +555,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         Text(
                           'DEAD-ZONE MODE ACTIVE // LOCAL PROCEDURES ONLY',
                           style: AppTypography.caption.copyWith(
-                            color: AppColors.warning,
+                            color: Color(0xFFB45309),
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -734,22 +770,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Widget _buildEmptyState(BuildContext context, String? userName) {
+    final selectedEq = ref.watch(chatControllerProvider).selectedEquipment;
+
+    final filterEquipmentList = [
+      'Boiler B-201',
+      'Slurry Pump P-102',
+      'Conveyor A61',
+      'Turbocompressor B01',
+      'LOTO Safety',
+    ];
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
       child: Column(
         children: [
-          const SizedBox(height: 16.0),
+          const SizedBox(height: 8.0),
 
-          // Square Avatar Tile (Signature 64px, 2px Primary Border)
-          const SquareAvatar(
-            size: 56.0,
-            icon: Icons.bolt_rounded,
+          // Central Glowing AI Orb — Signature centerpiece from reference
+          const AiOrbWidget(
+            size: 130.0,
+            isPulsing: true,
           ),
-          const SizedBox(height: 14.0),
+          const SizedBox(height: 18.0),
 
           Text(
             'New Consultation',
-            style: AppTypography.headlineLg.copyWith(fontSize: 22.0),
+            style: AppTypography.headlineLg.copyWith(
+              fontSize: 22.0,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 4.0),
           Text(
@@ -760,13 +809,96 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ),
           const SizedBox(height: 8.0),
-          Text(
-            'Ask technical questions grounded in OEM manuals, equipment blueprints, and engineering standards.'
-                .toUpperCase(),
-            textAlign: TextAlign.center,
-            style: AppTypography.caption,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              'Ask technical questions grounded in OEM manuals, equipment blueprints, and engineering standards.'
+                  .toUpperCase(),
+              textAlign: TextAlign.center,
+              style: AppTypography.caption.copyWith(
+                height: 1.4,
+                color: AppColors.onSurfaceVariant,
+              ),
+            ),
           ),
-          const SizedBox(height: 28.0),
+          const SizedBox(height: 20.0),
+
+          // Equipment Filter Chips (Horizontally scrollable, reference style)
+          SizedBox(
+            height: 38.0,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: filterEquipmentList.length,
+              separatorBuilder: (context, index) => const SizedBox(width: 8.0),
+              itemBuilder: (context, idx) {
+                final eqName = filterEquipmentList[idx];
+                final isSelected = selectedEq?.name.contains(eqName) ?? false;
+
+                return InkWell(
+                  borderRadius: BorderRadius.circular(20.0),
+                  onTap: () {
+                    final notifier = ref.read(chatControllerProvider.notifier);
+                    if (isSelected) {
+                      notifier.setSelectedEquipment(null);
+                    } else {
+                      notifier.sendMessage('Status and maintenance procedure for $eqName');
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                    decoration: BoxDecoration(
+                      color: isSelected ? AppColors.primaryAction : AppColors.surfaceAlt,
+                      borderRadius: BorderRadius.circular(20.0),
+                      border: Border.all(
+                        color: isSelected ? AppColors.primaryAction : AppColors.border,
+                        width: 1.0,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: isSelected ? 0.08 : 0.02),
+                          blurRadius: 4.0,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: Text(
+                        eqName,
+                        style: AppTypography.caption.copyWith(
+                          color: isSelected ? Colors.white : AppColors.onSurfaceVariant,
+                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 24.0),
+
+          // Section Header with the 4px Primary Bar
+          const SectionHeader(
+            title: 'GUIDED WORKFLOWS & FLEET TELEMETRY',
+            padding: EdgeInsets.only(bottom: 12.0),
+          ),
+
+          InstrumentListRow(
+            title: 'Guided Diagnostic Assessment',
+            subtitle: '5-STEP ROOT CAUSE ISOLATION // FIELD TELEMETRY',
+            categoricalColor: AppColors.accentCyan,
+            icon: Icons.tune_rounded,
+            onTap: () => _openGuidedDiagnostics(context),
+          ),
+          InstrumentListRow(
+            title: 'Plant Reliability & Telemetry Insight',
+            subtitle: 'AREA 4 FLEET HEALTH // +8% UPTIME SCOREBOARD',
+            categoricalColor: AppColors.primary,
+            icon: Icons.analytics_rounded,
+            onTap: () => _openPlantInsight(context),
+          ),
+          const SizedBox(height: 12.0),
 
           // Section Header with the 4px Primary Bar
           const SectionHeader(

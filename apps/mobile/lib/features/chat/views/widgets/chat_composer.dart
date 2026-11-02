@@ -4,8 +4,8 @@ import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/widgets/terminal_components.dart';
 import '../../../equipment/models/equipment_model.dart';
 
-/// Terminal Cobalt Mobile Chat Composer
-/// Inputs: surface-muted (#2C2C2C), 1px border (#333333), focus ring #0057FF.
+/// MAN-U-AI Modern Light Chat Composer
+/// Sleek floating card on light canvas with crisp squircle actions.
 /// Layout: [ Camera ] [ Media Upload ] [ Message input ........ ] [ Send ]
 class ChatComposer extends StatefulWidget {
   final bool isSending;
@@ -79,10 +79,17 @@ class _ChatComposerState extends State<ChatComposer> {
     final mediaUploadAction = widget.onUploadMedia ?? widget.onUploadDocument;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(top: BorderSide(color: AppColors.border, width: 1.0)),
+      padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceAlt,
+        border: const Border(top: BorderSide(color: AppColors.border, width: 1.0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 10.0,
+            offset: const Offset(0, -2),
+          ),
+        ],
       ),
       child: SafeArea(
         top: false,
@@ -93,17 +100,17 @@ class _ChatComposerState extends State<ChatComposer> {
             // Active Equipment Context Tag
             if (activeEquipmentName != null && activeEquipmentName.isNotEmpty) ...[
               Container(
-                margin: const EdgeInsets.only(bottom: 6.0),
-                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
+                margin: const EdgeInsets.only(bottom: 8.0),
+                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.5),
                 decoration: BoxDecoration(
-                  color: AppColors.surfaceAlt,
-                  borderRadius: BorderRadius.circular(4.0),
+                  color: AppColors.surfaceMuted,
+                  borderRadius: BorderRadius.circular(12.0),
                   border: Border.all(color: AppColors.border, width: 1.0),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const StatusDot(color: AppColors.accentCategorical2, size: 8.0),
+                    const StatusDot(color: AppColors.primary, size: 8.0),
                     const SizedBox(width: 8.0),
                     Flexible(
                       child: Text(
@@ -111,6 +118,7 @@ class _ChatComposerState extends State<ChatComposer> {
                         style: AppTypography.caption.copyWith(
                           color: AppColors.onSurface,
                           fontWeight: FontWeight.w700,
+                          fontSize: 10.5,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -122,7 +130,7 @@ class _ChatComposerState extends State<ChatComposer> {
                         onTap: widget.onClearEquipment,
                         child: const Icon(
                           Icons.close_rounded,
-                          size: 13.0,
+                          size: 14.0,
                           color: AppColors.onSurfaceVariant,
                         ),
                       ),
@@ -142,30 +150,30 @@ class _ChatComposerState extends State<ChatComposer> {
                   key: const Key('composer_camera_button'),
                   icon: Icons.camera_alt_rounded,
                   tooltip: 'Capture Machine Photo or Video',
-                  size: 40.0,
-                  iconColor: AppColors.onSurfaceVariant,
+                  size: 42.0,
+                  iconColor: AppColors.onSurface,
                   onPressed: widget.isSending ? null : cameraAction,
                 ),
-                const SizedBox(width: 6.0),
+                const SizedBox(width: 8.0),
 
                 // 2. Media Upload Button
                 ButtonIconTile(
                   key: const Key('composer_media_upload_button'),
                   icon: Icons.add_photo_alternate_rounded,
                   tooltip: 'Upload Photos & Videos',
-                  size: 40.0,
-                  iconColor: AppColors.onSurfaceVariant,
+                  size: 42.0,
+                  iconColor: AppColors.onSurface,
                   onPressed: widget.isSending ? null : mediaUploadAction,
                 ),
-                const SizedBox(width: 6.0),
+                const SizedBox(width: 8.0),
 
                 // 3. Message Input Field (takes the majority of available width)
                 Expanded(
                   child: Container(
-                    constraints: const BoxConstraints(minHeight: 40.0, maxHeight: 110.0),
+                    constraints: const BoxConstraints(minHeight: 42.0, maxHeight: 110.0),
                     decoration: BoxDecoration(
                       color: AppColors.surfaceMuted,
-                      borderRadius: BorderRadius.circular(8.0),
+                      borderRadius: BorderRadius.circular(16.0),
                       border: Border.all(color: AppColors.border, width: 1.0),
                     ),
                     child: TextField(
@@ -178,15 +186,17 @@ class _ChatComposerState extends State<ChatComposer> {
                       enabled: !widget.isSending,
                       style: AppTypography.bodyMd.copyWith(
                         fontWeight: FontWeight.w400,
-                        color: Colors.white,
+                        color: AppColors.onSurface,
+                        fontSize: 13.5,
                       ),
                       decoration: InputDecoration(
-                        hintText: 'QUERY EQUIPMENT SOP OR FAULT CODE...',
-                        hintStyle: AppTypography.labelUppercase.copyWith(
-                          color: AppColors.onSurfaceVariant,
-                          fontSize: 11.0,
+                        hintText: 'Describe anomaly or prompt Copilot...',
+                        hintStyle: AppTypography.bodyMd.copyWith(
+                          color: AppColors.textMuted,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w400,
                         ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,
                         focusedBorder: InputBorder.none,
@@ -194,29 +204,23 @@ class _ChatComposerState extends State<ChatComposer> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 6.0),
+                const SizedBox(width: 8.0),
 
-                // 4. Cobalt Primary Send Button
+                // 4. Primary Dark Send Button
                 Container(
-                  width: 40.0,
-                  height: 40.0,
+                  width: 42.0,
+                  height: 42.0,
                   decoration: BoxDecoration(
                     color: _canSend && !widget.isSending
-                        ? AppColors.primary
-                        : AppColors.surfaceAlt,
-                    borderRadius: BorderRadius.circular(8.0),
-                    border: Border.all(
-                      color: _canSend && !widget.isSending
-                          ? const Color(0x800057FF)
-                          : AppColors.border,
-                      width: 1.0,
-                    ),
+                        ? AppColors.primaryAction
+                        : AppColors.surfaceMuted,
+                    shape: BoxShape.circle,
                     boxShadow: _canSend && !widget.isSending
-                        ? const [
+                        ? [
                             BoxShadow(
-                              color: Color(0x4D0057FF),
-                              blurRadius: 15.0,
-                              spreadRadius: 1.0,
+                              color: Colors.black.withValues(alpha: 0.15),
+                              blurRadius: 8.0,
+                              offset: const Offset(0, 2),
                             ),
                           ]
                         : null,
@@ -225,7 +229,7 @@ class _ChatComposerState extends State<ChatComposer> {
                     color: Colors.transparent,
                     child: InkWell(
                       key: const Key('chat_send_button'),
-                      borderRadius: BorderRadius.circular(8.0),
+                      customBorder: const CircleBorder(),
                       onTap: _canSend && !widget.isSending ? _handleSend : null,
                       child: Center(
                         child: widget.isSending
@@ -242,7 +246,7 @@ class _ChatComposerState extends State<ChatComposer> {
                                 size: 20.0,
                                 color: _canSend && !widget.isSending
                                     ? Colors.white
-                                    : AppColors.onSurfaceVariant,
+                                    : AppColors.textMuted,
                               ),
                       ),
                     ),

@@ -3,26 +3,29 @@ import 'package:google_fonts/google_fonts.dart';
 import 'app_colors.dart';
 import 'app_typography.dart';
 
-/// Terminal Cobalt Mobile AppTheme
+/// MAN-U-AI Mobile AppTheme
+/// Featuring the modern Light Industrial design system inspired by minimal technical copilot interfaces.
 class AppTheme {
   AppTheme._();
 
-  static ThemeData get darkTheme {
-    final jetbrainsMonoFamily = GoogleFonts.jetBrainsMono().fontFamily;
+  /// Default Light Industrial Theme
+  static ThemeData get lightTheme {
+    final fontFamily = GoogleFonts.spaceGrotesk().fontFamily;
 
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
-      fontFamily: jetbrainsMonoFamily,
-      scaffoldBackgroundColor: AppColors.surface,
-      colorScheme: const ColorScheme.dark(
+      brightness: Brightness.light,
+      fontFamily: fontFamily,
+      scaffoldBackgroundColor: AppColors.background,
+      colorScheme: const ColorScheme.light(
         surface: AppColors.surfaceAlt,
-        primary: AppColors.primary,
-        onPrimary: AppColors.onPrimary,
-        secondary: AppColors.primaryHover,
-        onSecondary: AppColors.onPrimary,
+        onSurface: AppColors.onSurface,
+        primary: AppColors.primaryAction,
+        onPrimary: AppColors.onPrimaryAction,
+        secondary: AppColors.primary,
+        onSecondary: Colors.white,
         error: AppColors.error,
-        onError: AppColors.onPrimary,
+        onError: Colors.white,
         outline: AppColors.border,
       ),
       textTheme: TextTheme(
@@ -43,17 +46,17 @@ class AppTheme {
         color: AppColors.surfaceAlt,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8.0),
+          borderRadius: BorderRadius.circular(18.0),
           side: const BorderSide(color: AppColors.border, width: 1.0),
         ),
         margin: EdgeInsets.zero,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: AppColors.surfaceMuted,
+        fillColor: AppColors.surfaceAlt,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
         hintStyle: AppTypography.labelUppercase.copyWith(
-          color: AppColors.onSurfaceVariant,
+          color: AppColors.textMuted,
         ),
         labelStyle: AppTypography.labelUppercase.copyWith(
           color: AppColors.onSurfaceVariant,
@@ -62,39 +65,39 @@ class AppTheme {
           color: AppColors.error,
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8.0),
+          borderRadius: BorderRadius.circular(14.0),
           borderSide: const BorderSide(color: AppColors.border, width: 1.0),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8.0),
+          borderRadius: BorderRadius.circular(14.0),
           borderSide: const BorderSide(color: AppColors.border, width: 1.0),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8.0),
-          borderSide: const BorderSide(color: AppColors.primary, width: 2.0),
+          borderRadius: BorderRadius.circular(14.0),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.8),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8.0),
+          borderRadius: BorderRadius.circular(14.0),
           borderSide: const BorderSide(color: AppColors.error, width: 1.0),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8.0),
-          borderSide: const BorderSide(color: AppColors.error, width: 2.0),
+          borderRadius: BorderRadius.circular(14.0),
+          borderSide: const BorderSide(color: AppColors.error, width: 1.8),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          foregroundColor: AppColors.onPrimary,
+          backgroundColor: AppColors.primaryAction,
+          foregroundColor: AppColors.onPrimaryAction,
           elevation: 0,
-          minimumSize: const Size.fromHeight(56.0),
+          minimumSize: const Size.fromHeight(54.0),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8.0),
-            side: const BorderSide(color: Color(0x800057FF), width: 2.0),
+            borderRadius: BorderRadius.circular(28.0),
           ),
           textStyle: AppTypography.headlineMd.copyWith(
-            fontSize: 16.0,
-            letterSpacing: 1.2,
+            fontSize: 15.5,
+            letterSpacing: 0.5,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ),
@@ -103,9 +106,9 @@ class AppTheme {
           foregroundColor: AppColors.onSurface,
           backgroundColor: AppColors.surfaceAlt,
           side: const BorderSide(color: AppColors.border, width: 1.0),
-          minimumSize: const Size.fromHeight(40.0),
+          minimumSize: const Size.fromHeight(44.0),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8.0),
+            borderRadius: BorderRadius.circular(20.0),
           ),
           textStyle: AppTypography.labelMd,
         ),
@@ -122,7 +125,7 @@ class AppTheme {
         space: 1.0,
       ),
       appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.surface,
+        backgroundColor: AppColors.background,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
@@ -131,4 +134,7 @@ class AppTheme {
       ),
     );
   }
+
+  /// Dark Theme (Preserved for compatibility)
+  static ThemeData get darkTheme => lightTheme;
 }

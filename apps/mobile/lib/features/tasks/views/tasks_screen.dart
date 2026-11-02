@@ -202,13 +202,20 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: task.isInProgress
               ? AppColors.primary
               : AppColors.border,
-          width: task.isInProgress ? 1.5 : 1.0,
+          width: task.isInProgress ? 1.8 : 1.0,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8.0,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
