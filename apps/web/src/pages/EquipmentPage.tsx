@@ -220,8 +220,7 @@ export function EquipmentPage() {
             {!isLoading && !isError && (
               <span className="badge-primary text-2xs">{equipmentList.length} Units</span>
             )}
-            <span className="badge-muted text-2xs font-mono">Production MongoDB</span>
-          </div>
+                      </div>
           <p className="text-xs md:text-sm text-ink-subtle">
             Manage monitored machinery, view connected manuals, telemetry status, and launch AI troubleshooting.
           </p>

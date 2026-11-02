@@ -50,13 +50,11 @@ export function InsightsPage() {
           <div className="flex items-center gap-2 mb-1">
             <BarChart3 className="text-primary w-5 h-5" />
             <h1 className="text-xl md:text-2xl font-bold tracking-tight text-ink">
-              System Insights & Reliability Metrics
+              System Insights
             </h1>
-            <span className="badge-primary text-2xs">Persisted Database Counts</span>
-            <span className="badge-muted text-2xs font-mono">Production MongoDB</span>
-          </div>
+                                  </div>
           <p className="text-xs md:text-sm text-ink-subtle">
-            Authoritative counts from persisted application records, RAG query volume, and active knowledge index coverage.
+            Plant operations telemetry, AI query volume, and knowledge index coverage.
           </p>
         </div>
 

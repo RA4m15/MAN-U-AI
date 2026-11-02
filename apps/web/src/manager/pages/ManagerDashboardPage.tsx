@@ -64,13 +64,13 @@ export function ManagerDashboardPage() {
             <span className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
               Operations Workspace
             </span>
-            <span className="badge-primary text-2xs">Manager / Operator Access</span>
+            <span className="badge-muted text-2xs font-mono">Operations</span>
           </div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink">
             Manager Dashboard
           </h1>
           <p className="text-sm text-ink-subtle mt-1 max-w-2xl">
-            Operational center for shopfloor machines, maintenance coordination, SOP compliance, and AI troubleshooting.
+            Shopfloor machinery monitoring, shift tasks, and technical AI copilot.
           </p>
         </div>
 

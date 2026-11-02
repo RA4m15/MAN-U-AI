@@ -164,10 +164,9 @@ export function SummariesPage() {
             {!isLoading && !isError && (
               <span className="badge-primary text-2xs">{summaries.length} Saved</span>
             )}
-            <span className="badge-muted text-2xs font-mono">Persisted MongoDB</span>
-          </div>
+                      </div>
           <p className="text-xs md:text-sm text-ink-subtle">
-            Generate and review shift handoffs, maintenance logs, and incident root cause summaries synthesized from authentic plant records.
+            Shift handovers, maintenance logs, and root cause engineering briefs.
           </p>
         </div>
 
@@ -200,7 +199,7 @@ export function SummariesPage() {
       {isLoading && (
         <div className="card bg-surface-1 border border-hairline p-12 flex flex-col items-center justify-center text-center space-y-3">
           <Loader2 size={24} className="animate-spin text-primary" />
-          <p className="text-xs text-ink-subtle">Loading persisted operational summaries from MongoDB...</p>
+          <p className="text-xs text-ink-subtle">Loading operational summaries...</p>
         </div>
       )}
 

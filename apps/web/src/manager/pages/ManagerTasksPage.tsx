@@ -15,6 +15,7 @@ import {
   Calendar,
   Layers,
   Sparkles,
+  X,
 } from "lucide-react";
 import { tasksApi, equipmentApi, getSocket } from "@/lib/api";
 import type { TaskDTO, TaskPriority, TaskStatus, CreateTaskInput } from "@man-u-ai/shared";
@@ -453,7 +454,7 @@ export function ManagerTasksPage() {
                 }}
                 className="text-ink-subtle hover:text-ink text-sm p-1.5"
               >
-                ✕
+                <X size={16} />
               </button>
             </div>
 
