@@ -6,7 +6,7 @@ export const RegisterSchema = z.object({
   name: z.string().trim().min(2, "Name must be at least 2 characters").max(100, "Name cannot exceed 100 characters"),
   email: z.string().trim().email("Invalid email format").max(255, "Email cannot exceed 255 characters"),
   password: z.string().min(8, "Password must be at least 8 characters").max(128, "Password cannot exceed 128 characters"),
-  role: z.enum(["admin", "engineer", "viewer", "manager"]).optional().default("viewer"),
+  role: z.enum(["admin", "engineer", "operator", "manager"]).optional().default("operator"),
 });
 export type RegisterInput = z.infer<typeof RegisterSchema>;
 
@@ -18,7 +18,7 @@ export type LoginInput = z.infer<typeof LoginSchema>;
 
 // ─── User ───────────────────────────────────────────────────────────────────
 
-export type UserRole = "admin" | "engineer" | "viewer" | "manager";
+export type UserRole = "admin" | "engineer" | "operator" | "manager";
 
 export interface UserDTO {
   id: string;
@@ -572,5 +572,45 @@ export const UpdateTaskSchema = z.object({
   dueDate: z.string().optional(),
 });
 export type UpdateTaskInput = z.infer<typeof UpdateTaskSchema>;
+
+// ─── Machine Media Ingestion ────────────────────────────────────────────────
+
+export type MediaType = "image" | "video";
+export type MediaStatus = "uploading" | "uploaded" | "processing" | "indexed" | "failed";
+
+export interface MediaDTO {
+  id: string;
+  title: string;
+  description?: string;
+  mediaType: MediaType;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  durationSeconds?: number;
+  equipmentId?: string;
+  uploadedById: string;
+  status: MediaStatus;
+  processingError?: string;
+  technicalFindings?: string;
+  extractedText?: string;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const IngestMediaSchema = z.object({
+  title: z.string().trim().min(1, "Title is required").max(200, "Title cannot exceed 200 characters"),
+  description: z.string().trim().max(2000, "Description cannot exceed 2000 characters").optional().default(""),
+  equipmentId: z
+    .string()
+    .trim()
+    .refine((val) => !val || /^[0-9a-fA-F]{24}$/.test(val), {
+      message: "Invalid equipment ID format: must be a 24-character hexadecimal ObjectId",
+    })
+    .optional(),
+  tags: z.array(z.string().trim().min(1).max(50)).max(20).optional().default([]),
+});
+export type IngestMediaInput = z.infer<typeof IngestMediaSchema>;
+
 
 

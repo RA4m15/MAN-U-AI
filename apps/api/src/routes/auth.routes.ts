@@ -69,7 +69,7 @@ authRouter.post("/register", authLimiter, async (req: Request, res: Response) =>
     }
 
     // Assign fixed server-controlled least-privileged non-admin role permitted for user-facing chat
-    const assignedRole: UserRole = "viewer";
+    const assignedRole: UserRole = "operator";
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await User.create({
       name: name.trim(),
@@ -183,7 +183,7 @@ authRouter.post("/login", authLimiter, async (req: Request, res: Response) => {
           name: "Sam Taylor (Operator)",
           email: "operator@plant.io",
           password: "OperatorPassword123!",
-          role: "viewer" as UserRole,
+          role: "operator" as UserRole,
         },
       ];
 

@@ -108,7 +108,7 @@ export async function ensureUsers(options?: EnsureUsersOptions): Promise<{ creat
     {
       name: "Sam Taylor (Dev Operator)",
       email: "operator@plant.io",
-      role: "viewer",
+      role: "operator",
     },
   ];
 

@@ -47,7 +47,7 @@ describe("MAN-U-AI Task 19.9.20 — Security Audit Findings Remediation & Regres
     );
     await User.findByIdAndUpdate(
       viewerOid,
-      { name: "Security Viewer", email: "sec.viewer@plant.io", passwordHash: "dummy", role: "viewer", isActive: true },
+      { name: "Security Viewer", email: "sec.viewer@plant.io", passwordHash: "dummy", role: "operator", isActive: true },
       { upsert: true }
     );
     await User.findByIdAndUpdate(
@@ -58,7 +58,7 @@ describe("MAN-U-AI Task 19.9.20 — Security Audit Findings Remediation & Regres
     // User in DB is viewer, but old token will claim admin
     await User.findByIdAndUpdate(
       demotedOid,
-      { name: "Demoted User", email: "sec.demoted@plant.io", passwordHash: "dummy", role: "viewer", isActive: true },
+      { name: "Demoted User", email: "sec.demoted@plant.io", passwordHash: "dummy", role: "operator", isActive: true },
       { upsert: true }
     );
     await User.findByIdAndUpdate(
@@ -84,7 +84,7 @@ describe("MAN-U-AI Task 19.9.20 — Security Audit Findings Remediation & Regres
 
     adminToken = jwt.sign({ id: adminOid.toString(), email: "sec.admin@plant.io", role: "admin" }, env.JWT_SECRET, { expiresIn: "1h" });
     engineerToken = jwt.sign({ id: engineerOid.toString(), email: "sec.engineer@plant.io", role: "engineer" }, env.JWT_SECRET, { expiresIn: "1h" });
-    viewerToken = jwt.sign({ id: viewerOid.toString(), email: "sec.viewer@plant.io", role: "viewer" }, env.JWT_SECRET, { expiresIn: "1h" });
+    viewerToken = jwt.sign({ id: viewerOid.toString(), email: "sec.viewer@plant.io", role: "operator" }, env.JWT_SECRET, { expiresIn: "1h" });
     managerToken = jwt.sign({ id: managerOid.toString(), email: "sec.manager@plant.io", role: "manager" }, env.JWT_SECRET, { expiresIn: "1h" });
     inactiveToken = jwt.sign({ id: inactiveOid.toString(), email: "sec.inactive@plant.io", role: "engineer" }, env.JWT_SECRET, { expiresIn: "1h" });
     // Stale token claiming admin for a demoted user
@@ -190,13 +190,13 @@ describe("MAN-U-AI Task 19.9.20 — Security Audit Findings Remediation & Regres
         socket.on("connect", async () => {
           let roleUpdatedEventFired = false;
           socket.on("auth:updated", (data: any) => {
-            if (data.role === "viewer") {
+            if (data.role === "operator") {
               roleUpdatedEventFired = true;
             }
           });
 
           // Demote the user
-          await syncUserSocketState(adminOid.toString(), "viewer");
+          await syncUserSocketState(adminOid.toString(), "operator");
 
           setTimeout(() => {
             expect(roleUpdatedEventFired).toBe(true);

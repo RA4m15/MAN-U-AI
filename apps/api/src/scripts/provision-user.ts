@@ -336,17 +336,17 @@ export async function provisionUserCli(options: ProvisionUserCliOptions): Promis
   // B. Make missing --role a validation error; require explicitly supplied allowed role
   if (!roleArg) {
     throw new Error(
-      "Error: --role=<role> is required. Allowed roles are: admin, engineer, viewer.\nUsage: npm run provision-user -- --email=operator@plant.io --role=admin --target-db=<dbname> --confirm"
+      "Error: --role=<role> is required. Allowed roles are: admin, engineer, operator, manager.\nUsage: npm run provision-user -- --email=operator@plant.io --role=admin --target-db=<dbname> --confirm"
     );
   }
 
-  const allowedRoles = ["admin", "engineer", "viewer"];
+  const allowedRoles = ["admin", "engineer", "operator", "manager"];
   if (!allowedRoles.includes(roleArg.toLowerCase())) {
     throw new Error(
       `Error: Invalid role "${roleArg}". Allowed roles are: ${allowedRoles.join(", ")}.`
     );
   }
-  const role = roleArg.toLowerCase() as "admin" | "engineer" | "viewer";
+  const role = roleArg.toLowerCase() as "admin" | "engineer" | "operator" | "manager";
 
   // C. Target database resolution, validation, and safe recovery
   const anyInput = input as any;

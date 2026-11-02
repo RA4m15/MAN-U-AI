@@ -64,7 +64,7 @@ describe("Manager / Operator Role RBAC & Access Boundaries", () => {
       name: "Guest Sandbox Viewer",
       email: `viewer-${runId}@plant.io`,
       passwordHash: "mockedHashForTestOnly123!",
-      role: "viewer",
+      role: "operator",
     });
     viewerToken = jwt.sign(
       { id: viewerId, email: `viewer-${runId}@plant.io`, name: "Guest Sandbox Viewer", role: "viewer" },
@@ -163,7 +163,7 @@ describe("Manager / Operator Role RBAC & Access Boundaries", () => {
       name: "Candidate Operator",
       email: `candidate-${runId}@plant.io`,
       passwordHash: "hash123",
-      role: "viewer",
+      role: "operator",
     });
 
     const res = await request(app)

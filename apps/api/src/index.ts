@@ -99,7 +99,7 @@ io.use(async (socket, next) => {
     id: decoded.id,
     email: decoded.email,
     name: decoded.name,
-    role: decoded.role || "viewer",
+    role: decoded.role || "operator",
     unverifiedRole: decoded.role,
   };
   return next();

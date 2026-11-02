@@ -36,7 +36,7 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
     );
 
     userBToken = jwt.sign(
-      { id: userBId, email: "hardening.b@plant.io", name: "Hardening User B", role: "viewer" },
+      { id: userBId, email: "hardening.b@plant.io", name: "Hardening User B", role: "operator" },
       env.JWT_SECRET,
       { expiresIn: "1h" }
     );
@@ -133,7 +133,7 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
           name: "Prod User",
           email: `prod-user-${Date.now()}@test.com`,
           password: "Password123!",
-          role: "viewer",
+          role: "operator",
         });
 
       expect(res.status).toBe(403);
@@ -303,7 +303,7 @@ describe("PHASE 4 — Final Production Hardening & Verification Suite", () => {
     // User B queries regarding User A's private blueprint
     const resB = await ragService.answerQuestion(
       "What is the O-Ring compression tolerance for Submersible Seal?",
-      { id: userBId, role: "viewer" }
+      { id: userBId, role: "operator" }
     );
 
     // User B must NOT receive citations from User A's document

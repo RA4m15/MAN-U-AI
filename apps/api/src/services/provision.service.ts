@@ -7,8 +7,8 @@ import type { UserRole } from "@man-u-ai/shared";
 export const ProvisionUserSchema = z.object({
   email: z.string().email("Invalid email format").trim().toLowerCase(),
   name: z.string().min(1).max(100).trim().optional(),
-  role: z.enum(["admin", "engineer", "viewer"], {
-    message: "Invalid role. Allowed roles are: admin, engineer, viewer",
+  role: z.enum(["admin", "engineer", "operator", "manager"], {
+    message: "Invalid role. Allowed roles are: admin, engineer, operator, manager",
   }),
   password: z
     .string()
@@ -32,8 +32,8 @@ export interface ProvisionedUserResult {
 
 export const PromoteUserSchema = z.object({
   email: z.string().email("Invalid email format").trim().toLowerCase(),
-  role: z.enum(["admin", "engineer", "viewer", "manager"], {
-    message: "Invalid role. Allowed roles are: admin, engineer, viewer, manager",
+  role: z.enum(["admin", "engineer", "operator", "manager"], {
+    message: "Invalid role. Allowed roles are: admin, engineer, operator, manager",
   }),
   confirm: z.boolean().refine((val) => val === true, {
     message: "Explicit confirmation required. Confirmation flag must be true to modify the database.",
@@ -204,5 +204,138 @@ export async function promoteUser(input: PromoteUserInput): Promise<PromotedUser
     orgId: existingUser.orgId,
     alreadySet,
     updatedAt: existingUser.updatedAt,
+  };
+}
+
+export interface MigrateLegacyViewersInput {
+  dryRun?: boolean;
+  confirm?: boolean;
+  expectedDatabase?: string;
+  operatorEmail?: string;
+  authorizedEngineerEmail?: string;
+}
+
+export interface MigrationAccountResult {
+  id: string;
+  email: string;
+  previousRole: string;
+  newRole: UserRole;
+  actionTaken: "promoted_to_engineer" | "migrated_to_operator" | "unchanged";
+}
+
+export interface MigrateLegacyViewersResult {
+  dryRun: boolean;
+  totalFound: number;
+  migratedCount: number;
+  promotedEngineerCount: number;
+  accounts: MigrationAccountResult[];
+}
+
+/**
+ * Controlled, auditable migration service to safely convert legacy 'viewer' accounts:
+ * - engineer@plant.io (or custom authorizedEngineerEmail) is promoted to 'engineer'
+ * - all other legacy 'viewer' accounts become 'operator'
+ * - passwords, emails, names, orgIds remain strictly untouched
+ * - records an AuditEvent per modified account
+ * - supports dry-run mode and requires explicit confirm: true for writes
+ */
+export async function migrateLegacyViewers(
+  input: MigrateLegacyViewersInput
+): Promise<MigrateLegacyViewersResult> {
+  const isDryRun = input.dryRun !== false && input.confirm !== true;
+  const targetEngineerEmail = (input.authorizedEngineerEmail || "engineer@plant.io").toLowerCase().trim();
+
+  if (!isDryRun && input.expectedDatabase) {
+    const currentDb = mongoose.connection.db?.databaseName;
+    if (currentDb && currentDb.toLowerCase() !== input.expectedDatabase.toLowerCase()) {
+      throw new Error(
+        `Target database mismatch: connected to "${currentDb}" but explicit confirmation required "${input.expectedDatabase}".`
+      );
+    }
+  }
+
+  // Find all users with legacy viewer role (using lean/raw collection query to bypass schema validation)
+  const legacyUsers = await User.collection.find({
+    role: { $in: ["viewer", "VIEWER", "Viewer"] },
+  }).toArray();
+
+  const accounts: MigrationAccountResult[] = [];
+  let migratedCount = 0;
+  let promotedEngineerCount = 0;
+
+  for (const doc of legacyUsers) {
+    const email = (doc.email || "").toLowerCase().trim();
+    const id = doc._id.toString();
+    const prevRole = String(doc.role || "viewer");
+
+    let targetRole: UserRole = "operator";
+    let action: "promoted_to_engineer" | "migrated_to_operator" = "migrated_to_operator";
+
+    if (email === targetEngineerEmail) {
+      targetRole = "engineer";
+      action = "promoted_to_engineer";
+    }
+
+    accounts.push({
+      id,
+      email: doc.email,
+      previousRole: prevRole,
+      newRole: targetRole,
+      actionTaken: action,
+    });
+
+    if (action === "promoted_to_engineer") {
+      promotedEngineerCount++;
+    } else {
+      migratedCount++;
+    }
+
+    if (!isDryRun) {
+      await User.collection.updateOne(
+        { _id: doc._id },
+        { $set: { role: targetRole, updatedAt: new Date() } }
+      );
+
+      try {
+        await AuditEvent.create({
+          userId: doc._id,
+          userEmail: input.operatorEmail || "system-migration@internal",
+          action: "legacy_role_migration",
+          resourceType: "User",
+          resourceId: id,
+          details: {
+            targetEmail: doc.email,
+            previousRole: prevRole,
+            newRole: targetRole,
+            operator: input.operatorEmail || "cli_migration",
+            actionTaken: action,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      } catch (auditErr) {
+        console.warn("[Migrate] AuditEvent logging non-fatal error:", auditErr);
+      }
+    }
+  }
+
+  if (!isDryRun) {
+    // Also migrate any legacy DocumentPermissions
+    try {
+      const { DocumentPermission } = await import("../models");
+      await DocumentPermission.collection.updateMany(
+        { role: { $in: ["viewer", "VIEWER", "Viewer"] } },
+        { $set: { role: "operator", updatedAt: new Date() } }
+      );
+    } catch (permErr) {
+      console.warn("[Migrate] DocumentPermission migration warning:", permErr);
+    }
+  }
+
+  return {
+    dryRun: isDryRun,
+    totalFound: legacyUsers.length,
+    migratedCount,
+    promotedEngineerCount,
+    accounts,
   };
 }

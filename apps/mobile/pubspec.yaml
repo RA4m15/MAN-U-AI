@@ -19,6 +19,8 @@ dependencies:
   google_fonts: any
   flutter_markdown: any
   file_picker: any
+  camera: ^0.12.2
+  image_picker: ^1.2.4
 
 dev_dependencies:
   flutter_test:

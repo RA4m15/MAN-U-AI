@@ -309,7 +309,7 @@ class AuthController extends Notifier<AuthState> {
   }
 
   /// Refreshes the active user profile and role claims directly from backend GET /auth/me.
-  /// Prevents stale cached Viewer sessions from persisting after administrator provisioning.
+  /// Prevents stale cached Operator sessions from persisting after administrator provisioning.
   Future<UserModel?> refreshUserProfile() async {
     final currentToken = await _repository.getStoredToken();
     if (currentToken == null || currentToken.isEmpty) {

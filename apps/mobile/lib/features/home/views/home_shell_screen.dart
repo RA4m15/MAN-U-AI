@@ -110,7 +110,7 @@ class HomeShellScreen extends ConsumerWidget {
                         border: Border.all(color: roleColor.withValues(alpha: 0.4)),
                       ),
                       child: Text(
-                        (user?.role ?? 'viewer').toUpperCase(),
+                        (user?.role ?? 'operator').toUpperCase(),
                         style: TextStyle(
                           color: roleColor,
                           fontSize: 11.0,

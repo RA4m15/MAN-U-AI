@@ -170,7 +170,7 @@ void main() {
             'id': 'usr-7001',
             'name': name,
             'email': email,
-            'role': 'viewer',
+            'role': 'operator',
             'createdAt': '2026-10-24T00:00:00.000Z',
           },
         },
@@ -187,7 +187,7 @@ void main() {
       expect(result.token, equals(token));
       expect(result.user.id, equals('usr-7001'));
       expect(result.user.name, equals(name));
-      expect(result.user.role, equals('viewer'));
+      expect(result.user.role, equals('operator'));
 
       verify(() => mockStorage.saveToken(token)).called(1);
       verify(() => mockStorage.saveUser(any(that: isA<UserModel>()))).called(1);
@@ -226,7 +226,7 @@ void main() {
               'id': 'usr-fail-1',
               'name': name,
               'email': email,
-              'role': 'viewer',
+              'role': 'operator',
             },
           },
         }),

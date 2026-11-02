@@ -132,10 +132,10 @@ diagramRouter.post("/:figureId/annotate", requireAuth, async (req: Request, res:
 diagramRouter.post("/:figureId/hotspots", requireAuth, async (req: Request, res: Response) => {
   try {
     const role = (req as any).user?.role;
-    if (role === "viewer") {
+    if (role === "operator") {
       return res.status(403).json({
         success: false,
-        error: { code: "FORBIDDEN", message: "Viewers cannot edit diagram hotspots." },
+        error: { code: "FORBIDDEN", message: "Operators cannot edit diagram hotspots." },
       });
     }
 

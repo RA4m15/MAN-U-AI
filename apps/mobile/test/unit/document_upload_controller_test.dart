@@ -28,7 +28,7 @@ void main() {
     id: 'usr-view-01',
     name: 'John Viewer',
     email: 'viewer@plant.io',
-    role: 'viewer',
+    role: 'operator',
   );
 
   const adminUser = UserModel(
@@ -129,7 +129,7 @@ void main() {
   });
 
   group('DocumentUploadController.upload role authorization and dispatch', () {
-    test('blocks Viewer role from uploading and displays permission error without calling backend', () async {
+    test('blocks Operator role from uploading and displays permission error without calling backend', () async {
       container = createContainer(currentUser: viewerUser);
       final controller = container.read(documentUploadControllerProvider.notifier);
 

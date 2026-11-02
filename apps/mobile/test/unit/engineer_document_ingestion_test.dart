@@ -308,7 +308,7 @@ void main() {
       id: 'usr-viewer-01',
       name: 'Jordan Lee',
       email: 'viewer@plant.io',
-      role: 'viewer',
+      role: 'operator',
     );
 
     setUp(() {
@@ -365,7 +365,7 @@ void main() {
       expect(finalState.successResult?.id, equals('doc-blr-99'));
     });
 
-    test('Viewer user is prevented from uploading before network call', () async {
+    test('Operator user is prevented from uploading before network call', () async {
       final container = ProviderContainer(
         overrides: [
           documentRepositoryProvider.overrideWithValue(mockRepo),

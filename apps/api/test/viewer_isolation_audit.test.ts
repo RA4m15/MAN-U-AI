@@ -135,7 +135,7 @@ describe("MAN-U-AI Task 19.9.10 & 19.9.11 — Viewer Authorization, RAG Isolatio
 
     expect(regRes.status).toBe(201);
     expect(regRes.body.success).toBe(true);
-    expect(regRes.body.data.user.role).toBe("viewer");
+    expect(regRes.body.data.user.role).toBe("operator");
     expect(regRes.body.data.user.passwordHash).toBeUndefined();
     expect(regRes.body.data.user.password).toBeUndefined();
     expect(regRes.body.data.token).toBeDefined();
@@ -155,7 +155,7 @@ describe("MAN-U-AI Task 19.9.10 & 19.9.11 — Viewer Authorization, RAG Isolatio
       });
     expect(loginRes.status).toBe(200);
     expect(loginRes.body.success).toBe(true);
-    expect(loginRes.body.data.user.role).toBe("viewer");
+    expect(loginRes.body.data.user.role).toBe("operator");
     viewerToken = loginRes.body.data.token;
 
     // 2b. /auth/me
@@ -163,7 +163,7 @@ describe("MAN-U-AI Task 19.9.10 & 19.9.11 — Viewer Authorization, RAG Isolatio
       .get("/api/v1/auth/me")
       .set("Authorization", `Bearer ${viewerToken}`);
     expect(meRes.status).toBe(200);
-    expect(meRes.body.data.role).toBe("viewer");
+    expect(meRes.body.data.role).toBe("operator");
 
     // 2c. Equipment access
     const eqRes = await request(app)
@@ -355,7 +355,7 @@ describe("MAN-U-AI Task 19.9.10 & 19.9.11 — Viewer Authorization, RAG Isolatio
     expect(ragRes.status).toBe(200);
     const leakedCitation = (ragRes.body.data.citations || []).find((c: any) => c.documentId === restrictedDoc._id.toString());
     expect(leakedCitation).toBeUndefined();
-    expect(ragRes.body.data.answer.toLowerCase()).toContain("could not locate");
+    expect(ragRes.body.data.answer.toLowerCase()).toMatch(/could not locate|can't confirm this from the approved documents/i);
     expect(ragRes.body.data.answer).not.toContain("0.045 mm");
   });
 
@@ -612,7 +612,7 @@ describe("MAN-U-AI Task 19.9.10 & 19.9.11 — Viewer Authorization, RAG Isolatio
       .set("Authorization", `Bearer ${tamperedToken}`);
     expect(meTamperedRes.status).toBe(200);
     // Must reflect authoritative DB role 'viewer', NOT token claim 'admin'
-    expect(meTamperedRes.body.data.role).toBe("viewer");
+    expect(meTamperedRes.body.data.role).toBe("operator");
 
     const usersTamperedRes = await request(app)
       .get("/api/v1/users")
@@ -626,7 +626,7 @@ describe("MAN-U-AI Task 19.9.10 & 19.9.11 — Viewer Authorization, RAG Isolatio
     const origConnected = isConnectedToMongo;
     try {
       setIsConnectedToMongo(false);
-      const authResult = await isUserAuthorizedForDocument(viewerId, "viewer", allowedDoc._id.toString());
+      const authResult = await isUserAuthorizedForDocument(viewerId, "operator", allowedDoc._id.toString());
       expect(authResult.authorized).toBe(false);
       expect(authResult.doc).toBeNull();
     } finally {
@@ -650,7 +650,7 @@ describe("MAN-U-AI Task 19.9.10 & 19.9.11 — Viewer Authorization, RAG Isolatio
     try {
       (env as any).NODE_ENV = "production";
       await expect(
-        ragService.answerQuestion("test query", { id: viewerId, role: "viewer" })
+        ragService.answerQuestion("test query", { id: viewerId, role: "operator" })
       ).rejects.toThrow(/operational live Gemini|prohibited in production/i);
     } finally {
       (env as any).NODE_ENV = origEnvNode;

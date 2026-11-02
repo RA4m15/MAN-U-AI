@@ -13,7 +13,8 @@ import 'widgets/conversation_drawer.dart';
 import 'widgets/equipment_picker_modal.dart';
 import 'widgets/plant_glossary_modal.dart';
 import '../../diagram/views/interactive_diagram_viewer_screen.dart';
-import '../../documents/views/widgets/document_upload_modal.dart';
+// document upload accessed via media screen
+import '../../media/views/media_capture_screen.dart';
 import '../../tasks/controllers/task_controller.dart';
 import '../../tasks/views/tasks_screen.dart';
 
@@ -65,12 +66,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   void _showUploadModal(BuildContext context) {
     final currentEq = ref.read(chatControllerProvider).selectedEquipment;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (ctx) => DocumentUploadModal(
-        defaultEquipment: currentEq,
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MediaCaptureScreen(
+          initialEquipment: currentEq,
+        ),
       ),
     );
   }

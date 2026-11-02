@@ -207,10 +207,10 @@ export function AdminUsersPage() {
             onChange={(e) => setNewUserRole(e.target.value as UserRole)}
             className="input text-xs"
           >
-            <option value="manager">Plant Manager / Operator</option>
+            <option value="manager">Plant Manager</option>
             <option value="admin">Site Administrator</option>
             <option value="engineer">Reliability Engineer</option>
-            <option value="viewer">Restricted Sandbox Viewer</option>
+            <option value="operator">Shopfloor Operator</option>
           </select>
           <button
             type="submit"
@@ -297,7 +297,7 @@ export function AdminUsersPage() {
                         <option value="admin">Administrator</option>
                         <option value="manager">Plant Manager</option>
                         <option value="engineer">Reliability Engineer</option>
-                        <option value="viewer">Restricted Viewer</option>
+                        <option value="operator">Shopfloor Operator</option>
                       </select>
                     </td>
                     <td className="py-3 px-4">

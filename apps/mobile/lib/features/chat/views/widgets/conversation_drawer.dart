@@ -374,7 +374,7 @@ class ConversationDrawer extends ConsumerWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
-                          (currentUser?.role ?? 'VIEWER').toUpperCase(),
+                          (currentUser?.role ?? 'OPERATOR').toUpperCase(),
                           style: AppTypography.caption.copyWith(
                             color: AppColors.primary,
                             fontWeight: FontWeight.w700,

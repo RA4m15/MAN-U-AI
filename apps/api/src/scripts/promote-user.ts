@@ -42,11 +42,11 @@ export async function promoteUserCli(options: PromoteUserCliOptions): Promise<Pr
 
   if (!roleArg) {
     throw new Error(
-      "Error: --role=<role> is required. Allowed roles: admin, engineer, viewer, manager.\nUsage: pnpm --filter @man-u-ai/api promote-user -- --email=engineer@plant.io --role=engineer --target-db=<dbname> --confirm"
+      "Error: --role=<role> is required. Allowed roles: admin, engineer, operator, manager.\nUsage: pnpm --filter @man-u-ai/api promote-user -- --email=engineer@plant.io --role=engineer --target-db=<dbname> --confirm"
     );
   }
 
-  const allowedRoles: readonly string[] = ["admin", "engineer", "viewer", "manager"];
+  const allowedRoles: readonly string[] = ["admin", "engineer", "operator", "manager"];
   if (!allowedRoles.includes(roleArg.toLowerCase())) {
     throw new Error(
       `Error: Invalid role "${roleArg}". Allowed roles: ${allowedRoles.join(", ")}.`

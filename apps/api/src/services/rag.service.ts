@@ -198,7 +198,7 @@ export class RagService {
           let resolvedRole = userRole;
           if (!resolvedRole && userIdStr && mongoose.Types.ObjectId.isValid(userIdStr)) {
             const u = await User.findById(userIdStr);
-            resolvedRole = u?.role || "viewer";
+            resolvedRole = u?.role || "operator";
           }
 
           if (resolvedRole === "admin") {
@@ -232,7 +232,7 @@ export class RagService {
 
             const ids = accessibleDocs.map((d) => d._id.toString());
             console.log(
-              `[RAG Pipeline] [Request ID: ${reqId}] [Stage: authorization] Resolved ${ids.length} authorized document IDs for role '${resolvedRole || "viewer"}'`
+              `[RAG Pipeline] [Request ID: ${reqId}] [Stage: authorization] Resolved ${ids.length} authorized document IDs for role '${resolvedRole || "operator"}'`
             );
             return ids;
           }

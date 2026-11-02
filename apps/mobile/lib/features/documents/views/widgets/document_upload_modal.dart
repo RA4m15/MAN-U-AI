@@ -173,7 +173,7 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
               ),
               const SizedBox(height: 12.0),
 
-              // Non-permitted role banner (Viewer role)
+              // Non-permitted role banner (Operator role)
               if (!isPermitted) ...[
                 Container(
                   padding: const EdgeInsets.all(14.0),
@@ -201,7 +201,7 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
                       ),
                       const SizedBox(height: 8.0),
                       Text(
-                        'Your account has ${user?.role.toUpperCase() ?? 'VIEWER'} permissions. Ingestion of facility SOPs and equipment manuals is restricted to Engineers and Administrators.',
+                        'Your account has ${user?.role.toUpperCase() ?? 'OPERATOR'} permissions. Ingestion of facility SOPs and equipment manuals is restricted to Engineers and Administrators.',
                         style: const TextStyle(
                           color: AppColors.inkMuted,
                           fontSize: 12.0,

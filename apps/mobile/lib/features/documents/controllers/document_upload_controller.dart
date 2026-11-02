@@ -208,7 +208,7 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
 
     // Role verification: check if current user role permits document upload
     final authState = ref.read(authControllerProvider);
-    final userRole = authState is Authenticated ? authState.user.role : 'viewer';
+    final userRole = authState is Authenticated ? authState.user.role : 'operator';
     if (userRole != 'admin' && userRole != 'engineer' && userRole != 'manager') {
       const diag = DocumentUploadDiagnostics(
         statusCode: 403,

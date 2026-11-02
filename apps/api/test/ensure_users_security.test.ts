@@ -220,7 +220,7 @@ describe("Ensure-Users Script Production Security & Safeguards", () => {
         name: "Existing Person",
         email: testEmail,
         passwordHash: customHash,
-        role: "viewer",
+        role: "operator",
         orgId: "plant-alpha",
         isActive: true,
       });
@@ -234,7 +234,7 @@ describe("Ensure-Users Script Production Security & Safeguards", () => {
       expect(userAfter).not.toBeNull();
       const isPasswordPreserved = await bcrypt.compare(customPassword, userAfter!.passwordHash);
       expect(isPasswordPreserved).toBe(true);
-      expect(userAfter!.role).toBe("viewer"); // Not promoted to admin!
+      expect(userAfter!.role).toBe("operator"); // Not promoted to admin!
     });
   });
 });

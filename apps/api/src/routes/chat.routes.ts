@@ -30,7 +30,7 @@ chatRouter.post("/", requireAuth, async (req: AuthenticatedRequest, res: Respons
 
   const userContext = req.user
     ? { id: req.user.id, role: req.user.role }
-    : { id: "usr-demo-01", role: "viewer" };
+    : { id: "usr-demo-01", role: "operator" };
 
   try {
     let resolvedEquipmentId = equipmentId;

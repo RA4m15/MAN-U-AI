@@ -130,7 +130,7 @@ export function SettingsPage() {
         id: String(u.id || u._id),
         name: u.name || "Not provided",
         email: u.email || "Not provided",
-        role: (u.role as UserRole) || "viewer",
+        role: (u.role as UserRole) || "operator",
         status: u.status || "Status unavailable",
         lastLogin: u.lastLogin
           ? new Date(u.lastLogin).toLocaleDateString()
@@ -527,7 +527,7 @@ export function SettingsPage() {
               >
                 <option value="engineer">Reliability Engineer</option>
                 <option value="admin">Site Administrator</option>
-                <option value="viewer">Shopfloor Operator</option>
+                <option value="operator">Shopfloor Operator</option>
               </select>
               <button
                 type="submit"
@@ -632,7 +632,7 @@ export function SettingsPage() {
                           >
                             <option value="admin">Administrator</option>
                             <option value="engineer">Engineer</option>
-                            <option value="viewer">Viewer</option>
+                            <option value="operator">Operator</option>
                           </select>
                         </td>
                         <td className="py-3 px-4">

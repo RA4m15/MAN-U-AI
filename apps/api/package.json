@@ -12,6 +12,7 @@
     "seed": "tsx src/config/seed.ts",
     "provision-user": "tsx src/scripts/provision-user.ts",
     "promote-user": "tsx src/scripts/promote-user.ts",
+    "migrate-legacy-viewers": "tsx src/scripts/migrate-legacy-viewers.ts",
     "test": "vitest run --fileParallelism=false"
   },
   "dependencies": {

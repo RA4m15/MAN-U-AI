@@ -241,7 +241,7 @@ export async function seedDatabase() {
           });
           await DocumentPermission.create({
             documentId: doc._id,
-            role: "viewer",
+            role: "operator",
             canRead: true,
             canWrite: false,
           });

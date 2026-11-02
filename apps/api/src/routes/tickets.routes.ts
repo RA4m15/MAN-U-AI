@@ -69,10 +69,10 @@ ticketRouter.get("/", requireAuth, async (req: Request, res: Response) => {
 ticketRouter.patch("/:id", requireAuth, async (req: Request, res: Response) => {
   try {
     const userRole = (req as any).user?.role;
-    if (userRole === "viewer") {
+    if (userRole === "operator") {
       return res.status(403).json({
         success: false,
-        error: { code: "FORBIDDEN", message: "Viewers cannot modify documentation request tickets." },
+        error: { code: "FORBIDDEN", message: "Operators cannot modify documentation request tickets." },
       });
     }
 

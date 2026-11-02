@@ -31,7 +31,7 @@ const UserSchema = new Schema<IUser>(
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ["admin", "engineer", "viewer", "manager"], default: "viewer" },
+    role: { type: String, enum: ["admin", "engineer", "operator", "manager"], default: "operator" },
     orgId: { type: String, default: "default-plant-org" },
     isActive: { type: Boolean, default: true },
   },
@@ -244,7 +244,7 @@ export interface IDocumentPermission extends MongooseDocument {
 const DocumentPermissionSchema = new Schema<IDocumentPermission>(
   {
     documentId: { type: Schema.Types.ObjectId, ref: "Document", required: true, index: true },
-    role: { type: String, enum: ["admin", "engineer", "viewer", "manager"] },
+    role: { type: String, enum: ["admin", "engineer", "operator", "manager"] },
     userId: { type: Schema.Types.ObjectId, ref: "User" },
     canRead: { type: Boolean, default: true },
     canWrite: { type: Boolean, default: false },
@@ -711,4 +711,63 @@ const TaskMongooseSchema = new Schema<ITask>(
 TaskMongooseSchema.index({ status: 1, createdAt: -1 });
 
 export const Task = mongoose.model<ITask>("Task", TaskMongooseSchema);
+
+// ─── Machine Media Evidence Model ───────────────────────────────────────────
+
+export interface IMedia extends MongooseDocument {
+  title: string;
+  description?: string;
+  mediaType: "image" | "video";
+  originalFilename: string;
+  storagePath: string;
+  storageProvider: string;
+  mimeType: string;
+  sizeBytes: number;
+  durationSeconds?: number;
+  equipmentId?: mongoose.Types.ObjectId;
+  uploadedById: mongoose.Types.ObjectId;
+  status: "uploading" | "uploaded" | "processing" | "indexed" | "failed";
+  processingError?: string;
+  technicalFindings?: string;
+  extractedText?: string;
+  tags: string[];
+  thumbnailPath?: string;
+  metadata?: Record<string, any>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const MediaSchema = new Schema<IMedia>(
+  {
+    title: { type: String, required: true, trim: true },
+    description: { type: String, trim: true, default: "" },
+    mediaType: { type: String, enum: ["image", "video"], required: true, index: true },
+    originalFilename: { type: String, required: true },
+    storagePath: { type: String, required: true },
+    storageProvider: { type: String, default: "local" },
+    mimeType: { type: String, required: true },
+    sizeBytes: { type: Number, required: true },
+    durationSeconds: { type: Number },
+    equipmentId: { type: Schema.Types.ObjectId, ref: "Equipment", index: true },
+    uploadedById: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    status: {
+      type: String,
+      enum: ["uploading", "uploaded", "processing", "indexed", "failed"],
+      default: "processing",
+      index: true,
+    },
+    processingError: { type: String },
+    technicalFindings: { type: String },
+    extractedText: { type: String },
+    tags: { type: [String], default: [] },
+    thumbnailPath: { type: String },
+    metadata: { type: Schema.Types.Mixed },
+  },
+  { timestamps: true }
+);
+
+MediaSchema.index({ createdAt: -1 });
+MediaSchema.index({ equipmentId: 1, createdAt: -1 });
+
+export const MediaModel = mongoose.model<IMedia>("Media", MediaSchema);
 

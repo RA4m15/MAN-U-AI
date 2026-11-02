@@ -21,7 +21,7 @@ const engineerToken = jwt.sign(
 );
 
 const viewerToken = jwt.sign(
-  { id: "usr-view-test", email: "operator@plant.io", name: "Shop Operator", role: "viewer" },
+  { id: "usr-view-test", email: "operator@plant.io", name: "Shop Operator", role: "operator" },
   env.JWT_SECRET,
   { expiresIn: "1h" }
 );

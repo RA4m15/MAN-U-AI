@@ -29,13 +29,15 @@ describe("Stage 6: Real Production Engineer Provisioning & Document Ingestion Su
 
     // 1. Initial State: Simulate exact production state where engineer@plant.io exists as a Viewer
     passwordHashBefore = await bcrypt.hash(rawPassword, 10);
-    await User.create({
+    await User.collection.insertOne({
       name: "Alex Mercer",
       email: targetEmail,
       passwordHash: passwordHashBefore,
-      role: "viewer", // Starts as VIEWER
+      role: "operator", // Starts as OPERATOR
       orgId: "plant-alpha",
       isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
   });
 
@@ -53,7 +55,7 @@ describe("Stage 6: Real Production Engineer Provisioning & Document Ingestion Su
 
     expect(loginRes.status).toBe(200);
     expect(loginRes.body.success).toBe(true);
-    expect(loginRes.body.data.user.role).toBe("viewer");
+    expect(loginRes.body.data.user.role).toBe("operator");
 
     viewerToken = loginRes.body.data.token;
     expect(viewerToken).toBeDefined();
@@ -64,7 +66,7 @@ describe("Stage 6: Real Production Engineer Provisioning & Document Ingestion Su
       .set("Authorization", `Bearer ${viewerToken}`);
 
     expect(meRes.status).toBe(200);
-    expect(meRes.body.data.role).toBe("viewer");
+    expect(meRes.body.data.role).toBe("operator");
   });
 
   it("2. Viewer account is strictly forbidden from uploading technical documents (HTTP 403)", async () => {
@@ -99,7 +101,7 @@ describe("Stage 6: Real Production Engineer Provisioning & Document Ingestion Su
 
     // Verify user role is unchanged in database
     const user = await User.findOne({ email: targetEmail });
-    expect(user?.role).toBe("viewer");
+    expect(user?.role).toBe("operator");
   });
 
   it("5. CLI promote-user rejects invalid arguments and enforces confirmation", async () => {
@@ -178,7 +180,7 @@ describe("Stage 6: Real Production Engineer Provisioning & Document Ingestion Su
     });
 
     expect(result.email).toBe(targetEmail);
-    expect(result.previousRole).toBe("viewer");
+    expect(result.previousRole).toBe("operator");
     expect(result.role).toBe("engineer");
     expect(result.alreadySet).toBe(false);
 
@@ -197,7 +199,7 @@ describe("Stage 6: Real Production Engineer Provisioning & Document Ingestion Su
 
     // Output inspection: confirms before and after role are printed without secrets
     expect(capturedOutput).toContain("Target Account:  engineer@plant.io");
-    expect(capturedOutput).toContain("Previous Role: viewer");
+    expect(capturedOutput).toContain("Previous Role: operator");
     expect(capturedOutput).toContain("Current Role:  engineer");
     expect(capturedOutput).not.toContain(rawPassword);
 
@@ -207,7 +209,7 @@ describe("Stage 6: Real Production Engineer Provisioning & Document Ingestion Su
       "details.targetEmail": targetEmail,
     });
     expect(auditRecord).toBeDefined();
-    expect(auditRecord?.details.previousRole).toBe("viewer");
+    expect(auditRecord?.details.previousRole).toBe("operator");
     expect(auditRecord?.details.newRole).toBe("engineer");
   });
 

@@ -101,7 +101,7 @@ void main() {
     id: 'u-view',
     name: 'John Viewer',
     email: 'viewer@plant.io',
-    role: 'viewer',
+    role: 'operator',
   );
 
   setUp(() {
@@ -274,7 +274,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Document Ingestion Restricted'), findsOneWidget);
-      expect(find.textContaining('Your account has VIEWER permissions'), findsOneWidget);
+      expect(find.textContaining('Your account has OPERATOR permissions'), findsOneWidget);
       expect(find.byKey(const Key('pick_pdf_button')), findsNothing);
       expect(find.byKey(const Key('submit_upload_button')), findsNothing);
     });
