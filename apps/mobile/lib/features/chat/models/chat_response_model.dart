@@ -1,4 +1,5 @@
 import 'citation_model.dart';
+import 'exploded_view_model.dart';
 import 'safety_preconditions_model.dart';
 
 class ChatResponseModel {
@@ -10,6 +11,9 @@ class ChatResponseModel {
   final SafetyPreconditionsModel? safetyPreconditions;
   final SuggestedTicketModel? suggestedTicket;
   final List<String> expandedTerms;
+  final String messageType;
+  final ExplodedViewModel? explodedView;
+  final Map<String, dynamic>? machineContext;
 
   const ChatResponseModel({
     required this.answer,
@@ -20,6 +24,9 @@ class ChatResponseModel {
     this.safetyPreconditions,
     this.suggestedTicket,
     this.expandedTerms = const [],
+    this.messageType = 'text',
+    this.explodedView,
+    this.machineContext,
   });
 
   factory ChatResponseModel.fromJson(Map<String, dynamic> json) {
@@ -50,6 +57,15 @@ class ChatResponseModel {
       terms = (json['expandedTerms'] as List).map((e) => e.toString()).toList();
     }
 
+    final msgType = json['messageType']?.toString() ??
+        (json['explodedView'] != null ? 'exploded_view' : 'text');
+    ExplodedViewModel? expView;
+    if (json['explodedView'] is Map) {
+      expView = ExplodedViewModel.fromJson(
+        Map<String, dynamic>.from(json['explodedView'] as Map),
+      );
+    }
+
     return ChatResponseModel(
       answer: json['answer']?.toString() ?? '',
       citations: parsedCitations,
@@ -61,6 +77,11 @@ class ChatResponseModel {
       safetyPreconditions: safety,
       suggestedTicket: ticket,
       expandedTerms: terms,
+      messageType: msgType,
+      explodedView: expView,
+      machineContext: json['machineContext'] is Map
+          ? Map<String, dynamic>.from(json['machineContext'] as Map)
+          : null,
     );
   }
 }

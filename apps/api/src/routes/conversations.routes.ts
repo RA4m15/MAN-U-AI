@@ -258,6 +258,9 @@ conversationsRouter.get("/:id/messages", requireAuth, async (req: AuthenticatedR
         warningLevel: m.warningLevel,
         confidenceScore: (m as any).confidenceScore,
         provider: (m as any).provider,
+        machineContext: m.machineContext,
+        messageType: m.messageType || (m.explodedView ? "exploded_view" : "text"),
+        explodedView: m.explodedView,
         createdAt: m.createdAt.toISOString(),
       })),
     });

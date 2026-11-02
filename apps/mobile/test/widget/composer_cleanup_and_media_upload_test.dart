@@ -135,6 +135,11 @@ class _TestChatController extends Notifier<ChatState> implements ChatController 
   }
 
   @override
+  Future<void> openExplodedViewForMachine(EquipmentModel machine) async {
+    setSelectedEquipment(machine);
+  }
+
+  @override
   Future<void> sendMessage(String text) async {}
 }
 

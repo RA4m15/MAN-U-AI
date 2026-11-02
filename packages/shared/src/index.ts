@@ -142,11 +142,30 @@ export interface CitationDTO {
   reviewDate?: string;
 }
 
+export interface ExplodedViewDTO {
+  machineId: string;
+  machineName: string;
+  modelUrl: string;
+  title: string;
+  description: string;
+  conversationId?: string;
+  initialStep?: number;
+  totalSteps?: number;
+  sequenceConfig?: Record<string, any>;
+  viewerInstanceId?: string;
+  isCadPending?: boolean;
+  referenceImage?: string | null;
+  documentation?: string[];
+}
+
 export interface MessageDTO {
   id: string;
   conversationId: string;
   role: MessageRole;
   content: string;
+  messageType?: string;
+  explodedView?: ExplodedViewDTO;
+  machineContext?: MachineContextDTO;
   citations?: CitationDTO[];
   warningLevel?: "none" | "caution" | "critical";
   safetyPreconditions?: SafetyPreconditionsDTO;

@@ -5,8 +5,6 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/widgets/terminal_components.dart';
 import '../../chat/controllers/chat_controller.dart';
-import '../../chat/models/exploded_view_model.dart';
-import '../../chat/views/widgets/exploded_view_chat_message.dart';
 import '../controllers/equipment_controller.dart';
 import '../models/equipment_model.dart';
 
@@ -75,71 +73,8 @@ class _MachineCatalogScreenState extends ConsumerState<MachineCatalogScreen> {
 
   void _onExploreExplodedView(EquipmentModel machine) {
     if (machine.hasCadModel) {
-      // Start exploded view consultation in chat
-      ref.read(chatControllerProvider.notifier).setSelectedEquipment(machine);
-      ref.read(chatControllerProvider.notifier).startNewConsultation();
-      final modelUrl = machine.cadModel?.storageReference != null
-          ? '/cad/models/${machine.cadModel!.storageReference}'
-          : 'http://localhost:5173/cad/models/slurry_pump_p102.step';
-
-      final payload = ExplodedViewModel(
-        machineId: machine.id,
-        machineName: machine.name,
-        modelUrl: modelUrl,
-        title: '${machine.name} — Interactive 3D Exploded View',
-        description: '3D CAD assembly loaded for interactive structural inspection.',
-        initialStep: 1,
-        totalSteps: 4,
-        isCadPending: false,
-        referenceImage: machine.referenceImage,
-        documentation: machine.documentation,
-      );
-
-      // Show bottom sheet with embedded viewer
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (ctx) => DraggableScrollableSheet(
-          initialChildSize: 0.85,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          builder: (_, scrollController) => Container(
-            decoration: const BoxDecoration(
-              color: AppColors.background,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24.0)),
-              border: Border(top: BorderSide(color: AppColors.border, width: 1.0)),
-            ),
-            child: ListView(
-              controller: scrollController,
-              padding: const EdgeInsets.all(20.0),
-              children: [
-                Center(
-                  child: Container(
-                    width: 40.0,
-                    height: 4.0,
-                    margin: const EdgeInsets.only(bottom: 16.0),
-                    decoration: BoxDecoration(
-                      color: AppColors.border,
-                      borderRadius: BorderRadius.circular(2.0),
-                    ),
-                  ),
-                ),
-                ExplodedViewChatMessage(payload: payload),
-                const SizedBox(height: 16.0),
-                MachinedPrimaryButton(
-                  label: 'CONSULT COPILOT ABOUT THIS ASSEMBLY',
-                  icon: Icons.chat_bubble_outline_rounded,
-                  onPressed: () {
-                    Navigator.of(ctx).pop();
-                    _onOpenMachineChat(machine);
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
+      ref.read(chatControllerProvider.notifier).openExplodedViewForMachine(machine);
+      context.go('/home');
     } else {
       // Machine CAD is pending - show honest informational modal
       _showCadPendingSheet(machine);
@@ -295,7 +230,8 @@ class _MachineCatalogScreenState extends ConsumerState<MachineCatalogScreen> {
               icon: Icons.chat_bubble_outline_rounded,
               onPressed: () {
                 Navigator.of(ctx).pop();
-                _onOpenMachineChat(machine);
+                ref.read(chatControllerProvider.notifier).openExplodedViewForMachine(machine);
+                context.go('/home');
               },
             ),
           ],
@@ -635,26 +571,31 @@ class _MachineCatalogScreenState extends ConsumerState<MachineCatalogScreen> {
 
                 const SizedBox(height: 16.0),
 
-                // Actions: Open Machine Chat & Explore Exploded View
+                // Actions: Explore 3D Machine (Primary) & Open Chat (Secondary)
                 Row(
                   children: [
                     Expanded(
-                      child: MachinedPrimaryButton(
-                        key: Key('open_machine_chat_${machine.id}'),
-                        label: 'OPEN CHAT',
-                        icon: Icons.chat_bubble_outline_rounded,
-                        height: 40.0,
-                        onPressed: () => _onOpenMachineChat(machine),
+                      flex: 3,
+                      child: Container(
+                        key: Key('explore_exploded_view_${machine.id}'),
+                        child: MachinedPrimaryButton(
+                          key: Key('explore_3d_machine_${machine.id}'),
+                          label: 'EXPLORE 3D MACHINE',
+                          icon: Icons.view_in_ar_rounded,
+                          height: 40.0,
+                          onPressed: () => _onExploreExplodedView(machine),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8.0),
                     Expanded(
+                      flex: 2,
                       child: SecondaryButton(
-                        key: Key('explore_exploded_view_${machine.id}'),
-                        label: hasCad ? 'EXPLODE 3D' : 'CAD STATUS',
-                        icon: hasCad ? Icons.view_in_ar_rounded : Icons.info_outline_rounded,
+                        key: Key('open_machine_chat_${machine.id}'),
+                        label: 'CHAT',
+                        icon: Icons.chat_bubble_outline_rounded,
                         height: 40.0,
-                        onPressed: () => _onExploreExplodedView(machine),
+                        onPressed: () => _onOpenMachineChat(machine),
                       ),
                     ),
                   ],

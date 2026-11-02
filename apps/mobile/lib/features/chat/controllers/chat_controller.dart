@@ -6,6 +6,7 @@ import '../../equipment/controllers/equipment_controller.dart';
 import '../../equipment/models/equipment_model.dart';
 import '../../offline/services/offline_area_storage.service.dart';
 import '../models/chat_message_model.dart';
+import '../models/exploded_view_model.dart';
 import '../models/cad_component_selection_state.dart';
 import '../models/conversation_model.dart';
 import '../repositories/chat_repository.dart';
@@ -70,6 +71,35 @@ final chatControllerProvider =
 
 class ChatController extends Notifier<ChatState> {
   late ChatRepository _chatRepository;
+
+  bool _isExplodedViewIntent(String text) {
+    final q = text.toLowerCase().trim();
+    final isSpecOrTroubleshoot = RegExp(
+      r'\b(spec|specification|specs|lubrication|lubricate|temperature|vibration|pressure|torque|clearance|troubleshoot|procedure|oil|grease|schedule|interval|frequency|why|how much|how do|what is the (torque|temp|oil|pressure|spec|clearance))\b',
+      caseSensitive: false,
+    ).hasMatch(q);
+
+    final isExplicit3D = RegExp(
+      r'\b(exploded[\s-]view|explode\b.*(assembly|machine|model|view)|open\b.*3d|show\b.*3d|view\b.*3d|load\b.*3d|launch\b.*3d|3d\s*(cad|model|viewer|assembly))\b',
+      caseSensitive: false,
+    ).hasMatch(q);
+
+    if (isSpecOrTroubleshoot && !isExplicit3D) {
+      return false;
+    }
+
+    final patterns = [
+      RegExp(r'\b(exploded[\s-]view|explode\b.*(assembly|machine|model|view)|show\b.*explosion)\b', caseSensitive: false),
+      RegExp(r'\b(open|show|display|load|launch|inspect|view)\b.*\b(3d\s*(model|cad|viewer|assembly|mesh)|cad\s*(model|viewer|assembly))\b', caseSensitive: false),
+      RegExp(r'\b(3d\s*(model|cad|viewer|assembly))\b', caseSensitive: false),
+      RegExp(r'\b(show|view|inspect|display|open)\b.*\b(internal\s*structure|machine\s*assembly|assembly\s*view|assembly\s*hierarchy)\b', caseSensitive: false),
+      RegExp(r'\b(let\s+me\s+inspect\s+(this|the)\s+machine|open\s+(this|the)\s+machine\s+model|inspect\s+(this|the)\s+machine)\b', caseSensitive: false),
+      RegExp(r'\b(show|open|display|inspect)\b.*\b(machine\s*components|components\s*in\s*3d)\b', caseSensitive: false),
+      RegExp(r'^(show|open|view|launch)\s+(exploded\s+view|3d\s+model|cad\s+model)$', caseSensitive: false),
+    ];
+
+    return patterns.any((p) => p.hasMatch(q));
+  }
 
   @override
   ChatState build() {
@@ -189,6 +219,56 @@ class ChatController extends Notifier<ChatState> {
             ),
           );
 
+      if (_isExplodedViewIntent(trimmed)) {
+        final targetEq = state.selectedEquipment;
+        final bool hasCad = targetEq?.hasCadModel ?? true;
+        final mId = targetEq?.id ?? 'machine_001';
+        final mName = targetEq?.name ?? 'Industrial Slurry Pump P-102';
+
+        final offlineExpView = ExplodedViewModel(
+          machineId: mId,
+          machineName: mName,
+          modelUrl: hasCad ? (targetEq?.cadModel?.storageReference ?? '/cad/models/slurry_pump_p102.step') : '',
+          title: '$mName — ${hasCad ? "3D Interactive Exploded View" : "CAD Model Pending"}',
+          description: hasCad
+              ? 'Interactive 3D assembly loaded in offline mode. Use step controls to inspect exploded stages.'
+              : 'CAD model pending upload. Ingest a valid .STEP file to view 3D assembly.',
+          conversationId: currentConv?.id,
+          initialStep: hasCad ? 1 : 0,
+          totalSteps: hasCad ? 4 : 0,
+          isCadPending: !hasCad,
+          referenceImage: targetEq?.referenceImage,
+          documentation: targetEq?.documentation ?? [],
+        );
+
+        final assistantMsg = ChatMessageModel(
+          role: 'assistant',
+          content: hasCad
+              ? 'Displaying interactive 3D exploded view for $mName (Offline Mode).'
+              : 'CAD model pending for $mName. An interactive 3D assembly is not yet available for this equipment.',
+          createdAt: DateTime.now(),
+          conversationId: currentConv?.id,
+          isOfflineFallback: true,
+          messageType: 'exploded_view',
+          explodedView: offlineExpView,
+          machineContext: machineCtx ?? {'machineId': mId, 'machineName': mName},
+        );
+
+        final newMessages = List<ChatMessageModel>.from(state.messages)..add(assistantMsg);
+        state = state.copyWith(
+          messages: newMessages,
+          isSending: false,
+        );
+
+        if (currentConv != null) {
+          await ref.read(localCacheServiceProvider).cacheMessages(
+                currentConv.id,
+                newMessages,
+              );
+        }
+        return;
+      }
+
       final offlineResp = await ref.read(offlineAreaStorageServiceProvider).searchOfflinePassages(
             targetEquipmentId ?? 'equip-drypix-6000',
             trimmed,
@@ -278,7 +358,9 @@ class ChatController extends Notifier<ChatState> {
         expandedTerms: response.expandedTerms,
         createdAt: DateTime.now(),
         conversationId: currentConv.id,
-        machineContext: machineCtx,
+        messageType: response.messageType,
+        explodedView: response.explodedView,
+        machineContext: response.machineContext ?? machineCtx,
       );
 
       final finalMessages = List<ChatMessageModel>.from(state.messages)..add(assistantMsg);
@@ -393,5 +475,77 @@ class ChatController extends Notifier<ChatState> {
       }
     }
     return fallback;
+  }
+
+/// Opens an interactive 3D exploded view for the specified machine directly in chat.
+  /// Does not terminate or reset previous conversation history.
+  Future<void> openExplodedViewForMachine(EquipmentModel machine) async {
+    state = state.copyWith(selectedEquipment: () => machine);
+
+    ConversationModel? currentConv = state.activeConversation;
+    if (currentConv == null) {
+      try {
+        currentConv = await ref.read(conversationListProvider.notifier).createConversation(
+              title: '${machine.name} 3D Exploration',
+              equipmentId: machine.id,
+            );
+        state = state.copyWith(activeConversation: () => currentConv);
+      } catch (_) {
+        // Fallback for offline/unreachable consultation
+      }
+    }
+
+    final bool hasCad = machine.hasCadModel;
+    final String modelUrl = (machine.cadModel?.storageReference != null && machine.cadModel!.storageReference!.isNotEmpty)
+        ? machine.cadModel!.storageReference!
+        : (hasCad ? '/cad/models/slurry_pump_p102.step' : '');
+
+    final expView = ExplodedViewModel(
+      machineId: machine.id,
+      machineName: machine.name,
+      modelUrl: modelUrl,
+      title: hasCad
+          ? '${machine.name} — Interactive 3D Exploded View'
+          : '${machine.name} — CAD Model Pending',
+      description: hasCad
+          ? 'Interactive 3D assembly loaded. Use step controls to inspect exploded stages or tap components for specifications.'
+          : 'CAD model for this equipment has not been ingested yet. An actual CAD assembly (.STEP/.STP/.IGES) must be uploaded to generate 3D exploded views.',
+      conversationId: currentConv?.id,
+      initialStep: hasCad ? 1 : 0,
+      totalSteps: hasCad ? 4 : 0,
+      isCadPending: !hasCad,
+      referenceImage: machine.referenceImage,
+      documentation: machine.documentation,
+    );
+
+    final assistantMsg = ChatMessageModel(
+      id: 'exploded_${DateTime.now().microsecondsSinceEpoch}',
+      role: 'assistant',
+      content: hasCad
+          ? 'Displaying interactive 3D exploded view for ${machine.name}. You can navigate through sequential assembly stages, inspect individual components, or ask technical questions about any highlighted part.'
+          : 'CAD model pending for ${machine.name}. An interactive 3D assembly is not yet available for this equipment. Upload an authoritative CAD model (.STEP/.STP/.IGES) to enable exploded-view inspection.',
+      createdAt: DateTime.now(),
+      conversationId: currentConv?.id,
+      messageType: 'exploded_view',
+      explodedView: expView,
+      machineContext: {
+        'machineId': machine.id,
+        'machineName': machine.name,
+      },
+    );
+
+    final newMessages = List<ChatMessageModel>.from(state.messages)..add(assistantMsg);
+    state = state.copyWith(
+      messages: newMessages,
+      isSending: false,
+      sendingError: () => null,
+    );
+
+    if (currentConv != null) {
+      await ref.read(localCacheServiceProvider).cacheMessages(
+            currentConv.id,
+            newMessages,
+          );
+    }
   }
 }

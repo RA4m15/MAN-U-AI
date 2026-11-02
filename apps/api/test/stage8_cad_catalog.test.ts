@@ -5,6 +5,7 @@ import { app } from "../src/app";
 import { connectDatabase } from "../src/config/database";
 import { seedDatabase } from "../src/config/seed";
 import { env } from "../src/config/env";
+import { isExplodedViewIntent } from "../src/routes/chat.routes";
 
 const adminToken = jwt.sign(
   { id: "admin-user-id", email: "sarah.admin@plant.io", name: "Sarah Admin", role: "admin" },
@@ -127,6 +128,90 @@ describe("Stage 8 — Machine Catalog & CAD Lifecycle Management Suite", () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.cadModel.available).toBe(false);
+    });
+  });
+  describe("Part 4: AI Chat Intent Handling & Exploded-View Structured Response", () => {
+    it("correctly identifies exploded-view intents while rejecting maintenance spec questions", () => {
+      // Must match
+      expect(isExplodedViewIntent("Show me the exploded view")).toBe(true);
+      expect(isExplodedViewIntent("Open the 3D model")).toBe(true);
+      expect(isExplodedViewIntent("Show the internal structure")).toBe(true);
+      expect(isExplodedViewIntent("Let me inspect this machine")).toBe(true);
+      expect(isExplodedViewIntent("Show machine components")).toBe(true);
+      expect(isExplodedViewIntent("Open machine assembly")).toBe(true);
+      expect(isExplodedViewIntent("Exploded view of the slurry pump")).toBe(true);
+      expect(isExplodedViewIntent("Load 3D CAD viewer for this pump")).toBe(true);
+
+      // Must NOT match ordinary maintenance queries
+      expect(isExplodedViewIntent("What is the bearing lubrication spec?")).toBe(false);
+      expect(isExplodedViewIntent("What is the bearing clearance?")).toBe(false);
+      expect(isExplodedViewIntent("What torque is required for the casing bolts?")).toBe(false);
+      expect(isExplodedViewIntent("Why is bearing temperature high?")).toBe(false);
+      expect(isExplodedViewIntent("How to replace the mechanical seal?")).toBe(false);
+    });
+
+    it("returns structured exploded_view response when user asks to show exploded view for available CAD machine", async () => {
+      const res = await request(app)
+        .post("/api/v1/chat")
+        .set("Authorization", `Bearer ${engineerToken}`)
+        .send({
+          message: "Show me the exploded view",
+          machineContext: {
+            machineId: "machine_001",
+            machineName: "Industrial Slurry Pump P-102",
+          },
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.messageType).toBe("exploded_view");
+      expect(res.body.data.explodedView).toBeDefined();
+      expect(res.body.data.explodedView.machineId).toBe("machine_001");
+      expect(res.body.data.explodedView.isCadPending).toBe(false);
+      expect(res.body.data.explodedView.modelUrl).toContain("slurry_pump_p102.step");
+      expect(res.body.data.explodedView.totalSteps).toBe(4);
+    });
+
+    it("returns honest pending response when user asks for 3D model of pending CAD machine", async () => {
+      const res = await request(app)
+        .post("/api/v1/chat")
+        .set("Authorization", `Bearer ${engineerToken}`)
+        .send({
+          message: "Open the 3D model for this machine",
+          machineContext: {
+            machineId: "machine_002",
+            machineName: "CAT Generator Set",
+          },
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.messageType).toBe("exploded_view");
+      expect(res.body.data.explodedView).toBeDefined();
+      expect(res.body.data.explodedView.isCadPending).toBe(true);
+      expect(res.body.data.explodedView.modelUrl).toBe("");
+      expect(res.body.data.explodedView.referenceImage).toBeDefined();
+      expect(res.body.data.answer).toContain("CAD model pending");
+    });
+
+    it("routes ordinary maintenance question to standard RAG pipeline without triggering exploded view", async () => {
+      const res = await request(app)
+        .post("/api/v1/chat")
+        .set("Authorization", `Bearer ${engineerToken}`)
+        .send({
+          message: "What is the bearing lubrication spec?",
+          machineContext: {
+            machineId: "machine_001",
+            selectedPartId: "bearing_assembly_01",
+          },
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      // Must NOT be exploded view
+      expect(res.body.data.messageType).not.toBe("exploded_view");
+      expect(res.body.data.explodedView).toBeUndefined();
+      expect(res.body.data.answer).toBeDefined();
     });
   });
 });

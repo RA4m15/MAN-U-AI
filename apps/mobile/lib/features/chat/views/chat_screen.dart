@@ -376,6 +376,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               onPressed: () => _showEquipmentPicker(context),
             ),
           ],
+          // Dedicated EXPLORE 3D MACHINE entry point in AppBar
+          if (selectedEq != null) ...[
+            IconButton(
+              key: const Key('appbar_explore_3d_button'),
+              icon: const Icon(Icons.view_in_ar_rounded, size: 19.0, color: AppColors.primary),
+              tooltip: 'EXPLORE 3D MACHINE',
+              padding: const EdgeInsets.symmetric(horizontal: 2.0),
+              constraints: const BoxConstraints(minWidth: 32.0, minHeight: 36.0),
+              visualDensity: VisualDensity.compact,
+              onPressed: () {
+                ref.read(chatControllerProvider.notifier).openExplodedViewForMachine(selectedEq);
+              },
+            ),
+          ],
           // Shift Tasks with Active Count Badge
           Consumer(
             builder: (ctx, r, _) {
@@ -606,6 +620,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       style: AppTypography.caption,
                     ),
                   ),
+                  if (selectedEq != null) ...[
+                    InkWell(
+                      key: const Key('banner_explore_3d_button'),
+                      onTap: () {
+                        ref.read(chatControllerProvider.notifier).openExplodedViewForMachine(selectedEq);
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.view_in_ar_rounded, size: 12.0, color: AppColors.primary),
+                            const SizedBox(width: 4.0),
+                            Text(
+                              'EXPLORE 3D MACHINE',
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8.0),
+                  ],
                   InkWell(
                     onTap: () => _downloadOfflineAreaPack(
                       currentEquipmentId,

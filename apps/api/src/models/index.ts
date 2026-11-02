@@ -358,6 +358,22 @@ export interface IMessage extends MongooseDocument {
   conversationId: mongoose.Types.ObjectId;
   role: MessageRole;
   content: string;
+  messageType?: string;
+  explodedView?: {
+    machineId: string;
+    machineName: string;
+    modelUrl: string;
+    title: string;
+    description: string;
+    conversationId?: string;
+    initialStep?: number;
+    totalSteps?: number;
+    sequenceConfig?: Record<string, any>;
+    viewerInstanceId?: string;
+    isCadPending?: boolean;
+    referenceImage?: string | null;
+    documentation?: string[];
+  };
   citations: Array<{
     documentId: string;
     documentTitle: string;
@@ -393,6 +409,22 @@ const MessageSchema = new Schema<IMessage>(
     conversationId: { type: Schema.Types.ObjectId, ref: "Conversation", required: true, index: true },
     role: { type: String, enum: ["user", "assistant", "system"], required: true },
     content: { type: String, required: true },
+    messageType: { type: String, default: "text" },
+    explodedView: {
+      machineId: { type: String },
+      machineName: { type: String },
+      modelUrl: { type: String },
+      title: { type: String },
+      description: { type: String },
+      conversationId: { type: String },
+      initialStep: { type: Number },
+      totalSteps: { type: Number },
+      sequenceConfig: { type: Schema.Types.Mixed },
+      viewerInstanceId: { type: String },
+      isCadPending: { type: Boolean, default: false },
+      referenceImage: { type: String },
+      documentation: [{ type: String }],
+    },
     citations: [
       {
         documentId: { type: String },

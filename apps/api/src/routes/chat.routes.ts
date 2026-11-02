@@ -6,10 +6,44 @@ import { Message, Conversation, Equipment } from "../models";
 import { isConnectedToMongo } from "../config/database";
 import { extractStructuredErrorInfo, logStructuredError } from "../utils/errorReporting";
 import { toMongoObjectId } from "./documents.routes";
-import { SendMessageSchema, MachineContextDTO } from "@man-u-ai/shared";
+import { SendMessageSchema, MachineContextDTO, ExplodedViewDTO } from "@man-u-ai/shared";
 import { machineComponentService } from "../services/component.service";
 
 export const chatRouter: Router = Router();
+
+/**
+ * Detects whether an incoming user query is requesting an interactive 3D exploded view,
+ * CAD assembly visualization, or internal structural inspection of machine components.
+ * Regular maintenance questions mentioning components (e.g., lubrication specs) return false.
+ */
+export function isExplodedViewIntent(text: string): boolean {
+  if (!text || typeof text !== "string") return false;
+  const q = text.toLowerCase().trim();
+
+  // Guard against questions that are purely maintenance, specification or troubleshooting queries
+  const isSpecOrTroubleshoot =
+    /\b(spec|specification|specs|lubrication|lubricate|temperature|vibration|pressure|torque|clearance|troubleshoot|procedure|oil|grease|schedule|interval|frequency|why|how much|how do|what is the (torque|temp|oil|pressure|spec|clearance))\b/i.test(q);
+
+  const isExplicit3D =
+    /\b(exploded[\s-]view|explode\b.*(assembly|machine|model|view)|open\b.*3d|show\b.*3d|view\b.*3d|load\b.*3d|launch\b.*3d|3d\s*(cad|model|viewer|assembly))\b/i.test(q);
+
+  if (isSpecOrTroubleshoot && !isExplicit3D) {
+    return false;
+  }
+
+  const patterns = [
+    /\b(exploded[\s-]view|explode\b.*(assembly|machine|model|view)|show\b.*explosion)\b/i,
+    /\b(open|show|display|load|launch|inspect|view)\b.*\b(3d\s*(model|cad|viewer|assembly|mesh)|cad\s*(model|viewer|assembly))\b/i,
+    /\b(3d\s*(model|cad|viewer|assembly))\b/i,
+    /\b(show|view|inspect|display|open)\b.*\b(internal\s*structure|machine\s*assembly|assembly\s*view|assembly\s*hierarchy)\b/i,
+    /\b(let\s+me\s+inspect\s+(this|the)\s+machine|open\s+(this|the)\s+machine\s+model|inspect\s+(this|the)\s+machine)\b/i,
+    /\b(show|open|display|inspect)\b.*\b(machine\s*components|components\s*in\s*3d)\b/i,
+    /^(show|open|view|launch)\s+(exploded\s+view|3d\s+model|cad\s+model)$/i,
+  ];
+
+  return patterns.some((p) => p.test(q));
+}
+
 
 chatRouter.post("/", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   const parsed = SendMessageSchema.safeParse(req.body);
@@ -141,6 +175,108 @@ chatRouter.post("/", requireAuth, async (req: AuthenticatedRequest, res: Respons
           equipmentId: toMongoObjectId(resolvedEquipmentId),
         });
       }
+    }
+
+        // Intent Detection: Exploded View & 3D Interactive Model Inspection
+    if (isExplodedViewIntent(message)) {
+      let targetMachineId: string | undefined = validatedMachineContext?.machineId;
+      if (!targetMachineId && resolvedEquipmentId) {
+        targetMachineId = resolvedEquipmentId;
+      }
+      if (!targetMachineId) {
+        const q = message.toLowerCase();
+        if (q.includes("turbomachinery") || q.includes("turbine")) {
+          targetMachineId = "machine_turbomachinery";
+        } else if (q.includes("generator") || q.includes("cat")) {
+          targetMachineId = "machine_002";
+        } else if (q.includes("skid") || q.includes("process equipment")) {
+          targetMachineId = "machine_003";
+        } else if (q.includes("cnc") || q.includes("machining")) {
+          targetMachineId = "machine_004";
+        } else if (q.includes("conveyor") || q.includes("a61")) {
+          targetMachineId = "equip-cb-a61";
+        } else {
+          targetMachineId = "machine_001";
+        }
+      }
+
+      const resolvedMachine = await machineComponentService.resolveMachine(targetMachineId);
+      const machineName = resolvedMachine?.name || validatedMachineContext?.machineName || "Industrial Equipment";
+      const isCadAvailable = Boolean(resolvedMachine?.cadModel?.available);
+      const isCadPending = !isCadAvailable;
+      const modelUrl = isCadAvailable
+        ? (resolvedMachine?.cadModel?.storageReference || "/cad/models/slurry_pump_p102.step")
+        : "";
+
+      const title = isCadAvailable
+        ? `${machineName} — 3D Interactive Exploded View`
+        : `${machineName} — CAD Model Pending`;
+
+      const description = isCadAvailable
+        ? "Interactive 3D assembly loaded. Use step controls to inspect exploded stages or tap components for specifications."
+        : "CAD model for this equipment has not been ingested yet. An actual CAD assembly (.STEP/.STP/.IGES) must be uploaded to generate 3D exploded views.";
+
+      const answer = isCadAvailable
+        ? `Displaying interactive 3D exploded view for ${machineName}. You can navigate through sequential assembly stages, inspect individual components, or ask technical questions about any highlighted part.`
+        : `CAD model pending for ${machineName}. An interactive 3D assembly is not yet available for this equipment. Upload an authoritative CAD model (.STEP/.STP/.IGES) to enable exploded-view inspection.`;
+
+      const explodedViewPayload: ExplodedViewDTO = {
+        machineId: resolvedMachine?.id || targetMachineId,
+        machineName: machineName,
+        modelUrl: modelUrl,
+        title: title,
+        description: description,
+        conversationId: conversationId,
+        initialStep: isCadAvailable ? 1 : 0,
+        totalSteps: isCadAvailable ? 4 : 0,
+        isCadPending: isCadPending,
+        referenceImage: resolvedMachine?.referenceImage || null,
+        documentation: resolvedMachine?.documentIds || [],
+      };
+
+      const outMachineContext: MachineContextDTO = validatedMachineContext || {
+        machineId: resolvedMachine?.id || targetMachineId,
+        machineName: machineName,
+      };
+
+      if (isConnectedToMongo && conversationId) {
+        try {
+          await Message.create({
+            conversationId,
+            role: "user",
+            content: message,
+            machineContext: outMachineContext,
+          });
+          await Message.create({
+            conversationId,
+            role: "assistant",
+            content: answer,
+            messageType: "exploded_view",
+            explodedView: explodedViewPayload,
+            machineContext: outMachineContext,
+          });
+          await Conversation.findByIdAndUpdate(conversationId, {
+            lastMessageAt: new Date(),
+          });
+        } catch (err) {
+          console.warn("[ChatRouter] Could not save messages to Mongo:", err);
+        }
+      }
+
+      if (res.headersSent) return;
+      return res.json({
+        success: true,
+        data: {
+          answer: answer,
+          citations: [],
+          warningLevel: "none",
+          confidenceScore: 1.0,
+          provider: "man-u-ai-cad-engine",
+          messageType: "exploded_view",
+          explodedView: explodedViewPayload,
+          machineContext: outMachineContext,
+        },
+      });
     }
 
     const result = await ragService.answerQuestion(
