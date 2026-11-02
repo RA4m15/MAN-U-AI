@@ -1,4 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <rect width="32" height="32" rx="8" fill="#0f1011"/>
-  <path d="M17 4L8 18H16L15 28L24 14H16L17 4Z" fill="#5e6ad2" stroke="#828fff" stroke-width="1.5" stroke-linejoin="round"/>
+  <rect width="32" height="32" rx="6" fill="#000000"/>
+  <!-- Orange Pixel Peak Accent -->
+  <rect x="14" y="5" width="4" height="5" fill="#FF5500"/>
+  <rect x="10.5" y="7.5" width="4.5" height="3.5" fill="#FF5500"/>
+  <rect x="17" y="7.5" width="4.5" height="3.5" fill="#FF5500"/>
+  <!-- White Stylized Pixel M -->
+  <!-- Left Pillar -->
+  <rect x="7" y="8" width="4.5" height="18" fill="#FFFFFF"/>
+  <!-- Right Pillar -->
+  <rect x="20.5" y="8" width="4.5" height="18" fill="#FFFFFF"/>
+  <!-- Center Chevron -->
+  <rect x="11.5" y="12" width="4.5" height="6.5" fill="#FFFFFF"/>
+  <rect x="16" y="12" width="4.5" height="6.5" fill="#FFFFFF"/>
+  <rect x="13.75" y="16.5" width="4.5" height="7" fill="#FFFFFF"/>
 </svg>

@@ -106,8 +106,8 @@ export function AdminSidebar({ onMobileClose }: AdminSidebarProps) {
     <div className="flex flex-col h-full bg-surface-1 border-r border-hairline">
       {/* Brand Header */}
       <div className="flex items-center gap-2.5 h-12 px-4 border-b border-hairline flex-shrink-0">
-        <div className="flex items-center justify-center w-7 h-7 rounded-md bg-primary/20 border border-primary/30">
-          <Zap size={13} className="text-primary" />
+        <div className="flex items-center justify-center w-7 h-7 rounded-md bg-black border border-primary/40 overflow-hidden flex-shrink-0">
+          <img src="/logo.png" alt="MAN-U-AI" className="w-full h-full object-contain" />
         </div>
         <div className="flex flex-col">
           <span className="text-sm font-semibold tracking-tight text-gradient-primary leading-tight">

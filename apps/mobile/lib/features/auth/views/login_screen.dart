@@ -298,11 +298,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           borderRadius: BorderRadius.circular(8.0),
                           border: Border.all(color: AppColors.primary, width: 2.0),
                         ),
-                        child: const Center(
-                          child: Icon(
-                            Icons.precision_manufacturing_rounded,
-                            color: AppColors.primary,
-                            size: 26.0,
+                        clipBehavior: Clip.antiAlias,
+                        child: Image.asset(
+                          'assets/images/logo.png',
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Center(
+                            child: Icon(
+                              Icons.precision_manufacturing_rounded,
+                              color: AppColors.primary,
+                              size: 26.0,
+                            ),
                           ),
                         ),
                       ),

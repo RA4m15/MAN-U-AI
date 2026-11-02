@@ -73,18 +73,23 @@ class ConversationDrawer extends ConsumerWidget {
                   Row(
                     children: [
                       Container(
-                        width: 36.0,
-                        height: 36.0,
+                        width: 38.0,
+                        height: 38.0,
                         decoration: BoxDecoration(
-                          color: AppColors.surfaceAlt,
+                          color: Colors.black,
                           borderRadius: BorderRadius.circular(8.0),
-                          border: Border.all(color: AppColors.primary, width: 2.0),
+                          border: Border.all(color: AppColors.primary, width: 1.5),
                         ),
-                        child: const Center(
-                          child: Icon(
-                            Icons.bolt_rounded,
-                            color: AppColors.primary,
-                            size: 20.0,
+                        clipBehavior: Clip.antiAlias,
+                        child: Image.asset(
+                          'assets/images/logo.png',
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Center(
+                            child: Icon(
+                              Icons.bolt_rounded,
+                              color: AppColors.primary,
+                              size: 20.0,
+                            ),
                           ),
                         ),
                       ),

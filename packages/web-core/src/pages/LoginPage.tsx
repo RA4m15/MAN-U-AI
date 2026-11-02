@@ -65,8 +65,21 @@ export function LoginPage() {
         
         {/* ── LEFT HERO & INDUSTRIAL SCHEMATIC PANEL (7 COLS) ── */}
         <section className="lg:col-span-7 flex flex-col justify-between p-4 sm:p-6 lg:p-6 xl:p-8 border-b lg:border-b-0 lg:border-r border-[#1E293B]/60 min-h-0 h-full overflow-hidden">
-          {/* Top Bar with BUILT FOR THE FLOOR. */}
-          <div className="flex items-center justify-end mb-2 sm:mb-4 flex-shrink-0">
+          {/* Top Bar with Brand Logo & BUILT FOR THE FLOOR. */}
+          <div className="flex items-center justify-between mb-2 sm:mb-4 flex-shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg overflow-hidden bg-black border border-primary/40 flex items-center justify-center flex-shrink-0">
+                <img src="/logo.png" alt="MAN-U-AI Logo" className="w-full h-full object-contain" />
+              </div>
+              <div className="flex flex-col">
+                <span className="font-bold text-white text-xs sm:text-sm font-mono tracking-wider leading-none">
+                  MAN-U-AI
+                </span>
+                <span className="text-[9px] text-[#0057FF] font-mono tracking-widest uppercase mt-0.5 leading-none">
+                  INDUSTRIAL INTELLIGENCE
+                </span>
+              </div>
+            </div>
             <div className="text-[10px] sm:text-xs font-mono text-slate-500 tracking-[0.2em] uppercase hidden sm:block">
               BUILT FOR THE FLOOR.
             </div>
@@ -116,8 +129,13 @@ export function LoginPage() {
           {/* Form Container */}
           <div className="my-auto py-1 sm:py-2 max-w-md w-full mx-auto flex flex-col justify-center flex-1 min-h-0">
             {/* Form Kicker */}
-            <div className="text-[10px] sm:text-xs font-mono text-[#0057FF] font-bold tracking-[0.22em] uppercase mb-0.5">
-              WELCOME TO FORGE
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-5 h-5 rounded-md overflow-hidden bg-black border border-primary/40 flex items-center justify-center flex-shrink-0">
+                <img src="/logo.png" alt="MAN-U-AI" className="w-full h-full object-contain" />
+              </div>
+              <div className="text-[10px] sm:text-xs font-mono text-[#0057FF] font-bold tracking-[0.22em] uppercase">
+                WELCOME TO FORGE
+              </div>
             </div>
 
             {/* Form Heading */}

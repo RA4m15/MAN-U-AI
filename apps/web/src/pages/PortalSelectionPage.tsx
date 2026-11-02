@@ -12,8 +12,8 @@ export function PortalSelectionPage() {
       {/* Header Branding */}
       <header className="w-full max-w-4xl flex items-center justify-between pb-6 border-b border-hairline z-10">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-lg shadow-primary/20">
-            <Cpu className="text-white" size={18} />
+          <div className="w-9 h-9 rounded-xl bg-black border border-primary/30 overflow-hidden flex items-center justify-center shadow-lg shadow-primary/20">
+            <img src="/logo.png" alt="MAN-U-AI" className="w-full h-full object-contain" />
           </div>
           <div>
             <div className="flex items-center gap-2">

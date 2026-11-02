@@ -570,8 +570,8 @@ export function AssistantPage() {
 function WelcomeScreen({ onPromptSelect }: { onPromptSelect: (p: string) => void }) {
   return (
     <div className="flex flex-col items-center justify-center min-h-full py-8 md:py-12 animate-fade-in">
-      <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/15 border border-primary/25 mb-5 shadow-glow-primary">
-        <Zap size={24} className="text-primary" />
+      <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-black border border-primary/30 mb-5 shadow-glow-primary overflow-hidden">
+        <img src="/logo.png" alt="MAN-U-AI Logo" className="w-10 h-10 object-contain" />
       </div>
       <h1 className="text-2xl font-bold tracking-tight text-ink mb-2">
         Industrial Multimodal Copilot
