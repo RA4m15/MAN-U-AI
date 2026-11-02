@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import bcrypt from "bcryptjs";
+import mongoose from "mongoose";
 import { app } from "../src/app";
 import { connectDatabase, isConnectedToMongo } from "../src/config/database";
 import { User, MediaModel, DocumentModel, AuditEvent } from "../src/models";
@@ -337,6 +338,53 @@ describe("Stage 7: Viewer-to-Operator Role Removal & Machine Media Ingestion Pip
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toContain("image/jpeg");
       expect(res.body).toBeDefined();
+    });
+
+    it("3.11 Rejects request when file is missing with 400 FILE_REQUIRED", async () => {
+      const res = await request(app)
+        .post("/api/v1/media/ingest")
+        .set("Authorization", `Bearer ${engineerToken}`)
+        .field("title", "Missing File Title");
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe("FILE_REQUIRED");
+    });
+
+    it("3.12 Rejects request when title is missing or empty with 400 TITLE_REQUIRED", async () => {
+      const res = await request(app)
+        .post("/api/v1/media/ingest")
+        .set("Authorization", `Bearer ${engineerToken}`)
+        .field("title", "   ")
+        .attach("file", validJpegBuffer, "valid.jpg");
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe("TITLE_REQUIRED");
+    });
+
+    it("3.13 Associates media with equipmentId when supplied", async () => {
+      const validEquipmentId = new mongoose.Types.ObjectId().toString();
+      const res = await request(app)
+        .post("/api/v1/media/ingest")
+        .set("Authorization", `Bearer ${engineerToken}`)
+        .field("title", "Stage7 Associated Equipment Evidence")
+        .field("equipmentId", validEquipmentId)
+        .attach("file", validJpegBuffer, "equipment_photo.jpg");
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.equipmentId).toBe(validEquipmentId);
+    });
+
+    it("3.14 Legacy /api prefix route compatibility works for /api/media/ingest", async () => {
+      const res = await request(app)
+        .post("/api/media/ingest")
+        .field("title", "No Auth Legacy Prefix")
+        .attach("file", validJpegBuffer, "test.jpg");
+
+      // Verify that the route exists under /api and reaches auth middleware (401, not 404)
+      expect(res.status).toBe(401);
     });
   });
 });
