@@ -471,10 +471,20 @@ export const WorkerWarningSchema = z.object({
 });
 export type WorkerWarningDTO = z.infer<typeof WorkerWarningSchema>;
 
+export const ManualSentenceSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  source_id: z.string().optional(),
+  documentTitle: z.string().optional(),
+  page: z.number().optional(),
+});
+export type ManualSentenceDTO = z.infer<typeof ManualSentenceSchema>;
+
 export const WorkerStepSchema = z.object({
   n: z.number(),
   text: z.string(),
   source_id: z.string().optional(),
+  source_sentence_id: z.string().optional(),
 });
 export type WorkerStepDTO = z.infer<typeof WorkerStepSchema>;
 
@@ -505,6 +515,7 @@ export const WorkerAnswerSchema = z.object({
   all_steps: z.array(WorkerStepSchema).optional(),
   sources: z.array(WorkerSourceSchema).default([]),
   manual_text: z.string().optional(),
+  manual_sentences: z.array(ManualSentenceSchema).optional(),
   follow_up: z.string().nullable().optional(),
   simpler_applied: z.boolean().optional(),
 });
@@ -614,3 +625,178 @@ export type IngestMediaInput = z.infer<typeof IngestMediaSchema>;
 
 
 
+
+
+// ─── Step-to-Source Lines & Number Fidelity Utilities ─────────────────────────
+
+export interface HighlightColorTheme {
+  id: string;
+  name: string;
+  badgeBg: string;
+  badgeBorder: string;
+  badgeText: string;
+  glow: string;
+  stroke: string;
+}
+
+export const STEP_SOURCE_COLOR_PALETTE: HighlightColorTheme[] = [
+  {
+    id: "amber",
+    name: "Amber",
+    badgeBg: "rgba(245, 158, 11, 0.20)",
+    badgeBorder: "rgba(245, 158, 11, 0.55)",
+    badgeText: "#FCD34D",
+    glow: "rgba(245, 158, 11, 0.40)",
+    stroke: "#F59E0B",
+  },
+  {
+    id: "emerald",
+    name: "Emerald",
+    badgeBg: "rgba(16, 185, 129, 0.20)",
+    badgeBorder: "rgba(16, 185, 129, 0.55)",
+    badgeText: "#6EE7B7",
+    glow: "rgba(16, 185, 129, 0.40)",
+    stroke: "#10B981",
+  },
+  {
+    id: "cyan",
+    name: "Cyan",
+    badgeBg: "rgba(6, 182, 212, 0.20)",
+    badgeBorder: "rgba(6, 182, 212, 0.55)",
+    badgeText: "#67E8F9",
+    glow: "rgba(6, 182, 212, 0.40)",
+    stroke: "#06B6D4",
+  },
+  {
+    id: "purple",
+    name: "Purple",
+    badgeBg: "rgba(168, 85, 247, 0.20)",
+    badgeBorder: "rgba(168, 85, 247, 0.55)",
+    badgeText: "#D8B4FE",
+    glow: "rgba(168, 85, 247, 0.40)",
+    stroke: "#A855F7",
+  },
+  {
+    id: "rose",
+    name: "Rose",
+    badgeBg: "rgba(244, 63, 94, 0.20)",
+    badgeBorder: "rgba(244, 63, 94, 0.55)",
+    badgeText: "#FDA4AF",
+    glow: "rgba(244, 63, 94, 0.40)",
+    stroke: "#F43F5E",
+  },
+  {
+    id: "sky",
+    name: "Sky",
+    badgeBg: "rgba(14, 165, 233, 0.20)",
+    badgeBorder: "rgba(14, 165, 233, 0.55)",
+    badgeText: "#7DD3FC",
+    glow: "rgba(14, 165, 233, 0.40)",
+    stroke: "#0EA5E9",
+  },
+];
+
+/**
+ * Extracts numeric values, units, pressure, torque, percentages, and model/error codes.
+ */
+export function extractNumbersWithUnits(text?: string | null): string[] {
+  if (!text || typeof text !== "string") return [];
+  const matches =
+    text.match(
+      /\b(?:\d+(?:\.\d+)?(?:\s*(?:Nm|bar|BAR|psi|PSI|rpm|RPM|mm|cm|m|kg|g|mg|V|A|mA|kW|W|Hz|kHz|MHz|°C|°F|%))?|[A-Z]{1,3}\d{1,4})\b/g
+    ) || [];
+  const unique = Array.from(new Set(matches.map((m) => m.trim())));
+  return unique.filter((u) => /\d/.test(u));
+}
+
+/**
+ * Splits text into individual clean sentences while respecting abbreviations, decimals, and section numbers.
+ */
+export function splitTextIntoManualSentences(
+  text: string,
+  meta?: { source_id?: string; documentTitle?: string; page?: number; startIdIndex?: number }
+): ManualSentenceDTO[] {
+  if (!text || typeof text !== "string") return [];
+
+  const startIndex = meta?.startIdIndex ?? 1;
+  const normalized = text
+    .replace(/\r\n/g, "\n")
+    .replace(/\n+/g, " ")
+    .replace(/([0-9])\.([0-9])/g, "$1___DOT___$2")
+    .replace(/\b(Fig|fig|Rev|rev|No|no|e\.g|i\.e|vs|approx|min|max|sec|vol|ref|p)\.\s+/gi, "$1___ABBRDOT___ ");
+
+  const rawSentences = normalized
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9"'])/)
+    .map((s) =>
+      s
+        .replace(/___DOT___/g, ".")
+        .replace(/___ABBRDOT___/g, ".")
+        .trim()
+    )
+    .filter((s) => s.length > 5);
+
+  return rawSentences.map((s, idx) => ({
+    id: `sent-${startIndex + idx}`,
+    text: s,
+    source_id: meta?.source_id,
+    documentTitle: meta?.documentTitle,
+    page: meta?.page,
+  }));
+}
+
+/**
+ * Matches a worker step to the most faithful sentence in manual sentences based on numeric alignment and token overlap.
+ */
+export function matchStepToSourceSentence(
+  stepText: string,
+  sentences: ManualSentenceDTO[],
+  stepSourceId?: string
+): string | undefined {
+  if (!sentences || sentences.length === 0) return undefined;
+
+  const stepNumbers = extractNumbersWithUnits(stepText);
+  let bestScore = -1;
+  let bestId = sentences[0].id;
+
+  const stepWords = stepText
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 3);
+
+  for (const sent of sentences) {
+    let score = 0;
+    const sentTextLower = sent.text.toLowerCase();
+
+    // 1. Exact numeric matches (highest weight: 50 points per matching number)
+    for (const num of stepNumbers) {
+      if (sentTextLower.includes(num.toLowerCase())) {
+        score += 50;
+      } else {
+        const digits = num.replace(/[^0-9.]/g, "");
+        if (digits.length > 0 && sentTextLower.includes(digits)) {
+          score += 25;
+        }
+      }
+    }
+
+    // 2. Word overlap (5 points per matching word)
+    for (const word of stepWords) {
+      if (sentTextLower.includes(word)) {
+        score += 5;
+      }
+    }
+
+    // 3. Source ID match bonus
+    if (stepSourceId && sent.source_id === stepSourceId) {
+      score += 15;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestId = sent.id;
+    }
+  }
+
+  return bestId;
+}

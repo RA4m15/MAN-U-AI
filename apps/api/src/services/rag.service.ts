@@ -810,7 +810,7 @@ When answered:
   "language": "${targetLanguage}",
   "headline": "<max 12 words: what is wrong or what to do>",
   "warnings": [{ "text": "<max 12 words warning>", "source_id": "<chunk id>" }],
-  "steps": [{ "n": 1, "text": "<max 15 words starting with action verb>", "source_id": "<chunk id>" }],
+  "steps": [{ "n": 1, "text": "<max 15 words starting with action verb>", "source_id": "<chunk id>", "source_sentence_id": "<e.g. sent-1>" }],
   "values": [{ "label": "Torque", "value": "<exact value from source>", "unit": "<exact unit from source>", "source_id": "<chunk id>" }],
   "has_more_steps": false,
   "sources": [{ "document": "title", "version": "v1", "page": 1, "section": "1.0" }],
