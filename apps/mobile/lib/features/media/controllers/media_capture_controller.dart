@@ -1,3 +1,5 @@
+import '../../../core/network/connectivity_controller.dart';
+import '../../../core/storage/local_cache_service.dart';
 import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:dio/dio.dart';
@@ -98,17 +100,21 @@ final mediaCaptureControllerProvider =
     StateNotifierProvider.autoDispose<MediaCaptureController, MediaCaptureState>(
         (ref) {
   final repo = ref.watch(mediaRepositoryProvider);
-  return MediaCaptureController(repo);
+  final cache = ref.watch(localCacheServiceProvider);
+  return MediaCaptureController(repo, cache, ref);
 });
 
 class MediaCaptureController extends StateNotifier<MediaCaptureState> {
   final MediaRepository _repository;
+  final LocalCacheService? _cache;
+  final Ref? _ref;
   CameraController? _cameraController;
   final ImagePicker _picker = ImagePicker();
   Timer? _recordingTimer;
   CancelToken? _cancelToken;
 
-  MediaCaptureController(this._repository) : super(const MediaCaptureState());
+  MediaCaptureController(this._repository, [this._cache, this._ref])
+      : super(const MediaCaptureState());
 
   CameraController? get cameraController => _cameraController;
 
@@ -375,6 +381,16 @@ class MediaCaptureController extends StateNotifier<MediaCaptureState> {
       isSuccess: false,
     );
 
+    final isDeadZone = _ref?.read(isDeadZoneProvider) ?? false;
+    if (isDeadZone) {
+      return await _saveToOfflineQueue(
+        isPhoto: isPhoto,
+        title: title,
+        description: description,
+        equipmentId: equipmentId,
+      );
+    }
+
     _cancelToken = CancelToken();
 
     try {
@@ -435,6 +451,20 @@ class MediaCaptureController extends StateNotifier<MediaCaptureState> {
         return true;
       }
     } on DioException catch (dioErr) {
+      final isNetworkIssue = dioErr.type == DioExceptionType.connectionTimeout ||
+          dioErr.type == DioExceptionType.sendTimeout ||
+          dioErr.type == DioExceptionType.receiveTimeout ||
+          dioErr.type == DioExceptionType.connectionError;
+
+      if (isNetworkIssue) {
+        _ref?.read(connectivityControllerProvider.notifier).checkReachability();
+        return await _saveToOfflineQueue(
+          isPhoto: isPhoto,
+          title: title,
+          description: description,
+          equipmentId: equipmentId,
+        );
+      }
       String msg = 'Media upload failed.';
       if (dioErr.type == DioExceptionType.cancel) {
         msg = 'Media upload was cancelled.';
@@ -460,6 +490,66 @@ class MediaCaptureController extends StateNotifier<MediaCaptureState> {
       return false;
     } finally {
       _cancelToken = null;
+    }
+  }
+
+  Future<bool> _saveToOfflineQueue({
+    required bool isPhoto,
+    required String title,
+    String? description,
+    String? equipmentId,
+  }) async {
+    if (_cache == null) return false;
+    try {
+      if (isPhoto) {
+        final photo = state.capturedPhotos.first;
+        final fileName = photo.name.isNotEmpty ? photo.name : 'inspection_photo.jpg';
+        await _cache.addPendingMedia(
+          PendingMediaItem(
+            id: 'pending_media_${DateTime.now().microsecondsSinceEpoch}',
+            filePath: photo.path,
+            fileName: fileName,
+            title: title,
+            description: description,
+            equipmentId: equipmentId,
+            mediaType: 'image',
+            tags: const ['machine_evidence', 'field_photo'],
+            createdAt: DateTime.now(),
+            status: 'pending',
+          ),
+        );
+      } else {
+        final video = state.capturedVideo!;
+        final fileName = video.name.isNotEmpty ? video.name : 'inspection_video.mp4';
+        await _cache.addPendingMedia(
+          PendingMediaItem(
+            id: 'pending_media_${DateTime.now().microsecondsSinceEpoch}',
+            filePath: video.path,
+            fileName: fileName,
+            title: title,
+            description: description,
+            equipmentId: equipmentId,
+            mediaType: 'video',
+            tags: const ['machine_evidence', 'field_video'],
+            createdAt: DateTime.now(),
+            status: 'pending',
+          ),
+        );
+      }
+
+      state = state.copyWith(
+        isUploading: false,
+        uploadProgress: 1.0,
+        isSuccess: true,
+        uploadErrorMessage: () => 'SAVED TO OFFLINE QUEUE // WILL SYNC ON RECONNECT',
+      );
+      return true;
+    } catch (e) {
+      state = state.copyWith(
+        isUploading: false,
+        uploadErrorMessage: () => 'Failed to save to offline queue: $e',
+      );
+      return false;
     }
   }
 

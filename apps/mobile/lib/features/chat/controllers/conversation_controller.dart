@@ -1,11 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/storage/local_cache_service.dart';
 import '../../auth/controllers/auth_controller.dart';
 import '../models/conversation_model.dart';
 import '../repositories/chat_repository.dart';
 
 final chatRepositoryProvider = Provider<ChatRepository>((ref) {
   final dio = ref.watch(dioProvider);
-  return ChatRepository(dio: dio);
+  final cache = ref.watch(localCacheServiceProvider);
+  return ChatRepository(dio: dio, cache: cache);
 });
 
 final conversationListProvider =
@@ -40,8 +42,7 @@ class ConversationListController extends AsyncNotifier<List<ConversationModel>> 
       equipmentId: equipmentId,
     );
 
-    final currentList = state.asData?.value ?? [];
-    state = AsyncData([newConv, ...currentList]);
+    state = AsyncData([newConv, ...state.value ?? []]);
     return newConv;
   }
 }

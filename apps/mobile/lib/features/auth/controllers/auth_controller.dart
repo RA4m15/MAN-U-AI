@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/config/env_config.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/storage/local_cache_service.dart';
 import '../../../core/storage/secure_storage_service.dart';
 import '../models/auth_state.dart';
 import '../models/user_model.dart';
@@ -61,13 +62,80 @@ class AuthController extends Notifier<AuthState> {
         state = const Unauthenticated(
           errorMessage: 'Admin accounts must use the MAN-U-AI Admin Panel.',
         );
+        try {
+          ref.read(localCacheServiceProvider).clearUserCache();
+        } catch (_) {}
         return;
       }
       state = Authenticated(user: user, token: token);
-    } catch (e) {
-      // If token verification fails (e.g. 401 expired), clear storage and return unauthenticated
+    } on DioException catch (dioErr) {
+      if (dioErr.response?.statusCode == 401) {
+        await _repository.logout();
+        state = const Unauthenticated(
+          errorMessage: 'Session expired. Please sign in again.',
+          isSessionExpired: true,
+        );
+        try {
+          ref.read(localCacheServiceProvider).clearUserCache();
+        } catch (_) {}
+        return;
+      }
+      // If network unreachable or timeout, restore offline session if valid (within 72 hours)
+      await _restoreOfflineSessionIfValid(token);
+    } catch (_) {
+      // Any other connection failure, restore offline session if valid
+      await _restoreOfflineSessionIfValid(token);
+    }
+  }
+
+  Future<void> _restoreOfflineSessionIfValid(String token) async {
+    UserModel? storedUser;
+    try {
+      storedUser = await _repository.getStoredUser();
+    } catch (_) {}
+
+    if (storedUser == null) {
       await _repository.logout();
       state = const Unauthenticated();
+      try {
+        ref.read(localCacheServiceProvider).clearUserCache();
+      } catch (_) {}
+      return;
+    }
+
+    if (storedUser.role == 'admin') {
+      await _repository.logout();
+      state = const Unauthenticated(
+        errorMessage: 'Admin accounts must use the MAN-U-AI Admin Panel.',
+      );
+      try {
+        ref.read(localCacheServiceProvider).clearUserCache();
+      } catch (_) {}
+      return;
+    }
+
+    DateTime? lastAuth;
+    try {
+      lastAuth = await _repository.getLastAuthTime();
+    } catch (_) {}
+
+    // Default valid offline window is 72 hours
+    const maxOfflineDuration = Duration(hours: 72);
+    final isWithinWindow = lastAuth != null &&
+        DateTime.now().difference(lastAuth) <= maxOfflineDuration;
+
+    if (isWithinWindow) {
+      // Valid previously authenticated session restored in offline/dead-zone mode
+      state = Authenticated(user: storedUser, token: token);
+    } else {
+      await _repository.logout();
+      state = const Unauthenticated(
+        errorMessage: 'Offline session expired. Please connect to the network to sign in.',
+        isSessionExpired: true,
+      );
+      try {
+        ref.read(localCacheServiceProvider).clearUserCache();
+      } catch (_) {}
     }
   }
 
@@ -97,6 +165,9 @@ class AuthController extends Notifier<AuthState> {
         state = const Unauthenticated(
           errorMessage: 'Admin accounts must use the MAN-U-AI Admin Panel.',
         );
+        try {
+          ref.read(localCacheServiceProvider).clearUserCache();
+        } catch (_) {}
         return false;
       }
 
@@ -105,6 +176,46 @@ class AuthController extends Notifier<AuthState> {
     } on DioException catch (dioErr) {
       final statusCode = dioErr.response?.statusCode;
       String message;
+
+      final isNetworkError = dioErr.type == DioExceptionType.connectionTimeout ||
+          dioErr.type == DioExceptionType.receiveTimeout ||
+          dioErr.type == DioExceptionType.sendTimeout ||
+          dioErr.type == DioExceptionType.connectionError;
+
+      if (isNetworkError) {
+        UserModel? storedUser;
+        String? storedToken;
+        try {
+          storedUser = await _repository.getStoredUser();
+          storedToken = await _repository.getStoredToken();
+        } catch (_) {}
+
+        if (storedUser != null &&
+            storedToken != null &&
+            storedUser.email.toLowerCase() == email.trim().toLowerCase()) {
+          DateTime? lastAuth;
+          try {
+            lastAuth = await _repository.getLastAuthTime();
+          } catch (_) {}
+
+          const maxOfflineDuration = Duration(hours: 72);
+          if (lastAuth != null &&
+              DateTime.now().difference(lastAuth) <= maxOfflineDuration) {
+            if (storedUser.role == 'admin') {
+              await _repository.logout();
+              state = const Unauthenticated(
+                errorMessage: 'Admin accounts must use the MAN-U-AI Admin Panel.',
+              );
+              try {
+                ref.read(localCacheServiceProvider).clearUserCache();
+              } catch (_) {}
+              return false;
+            }
+            state = Authenticated(user: storedUser, token: storedToken);
+            return true;
+          }
+        }
+      }
 
       if (statusCode == 401) {
         message = 'Invalid email or password.';
@@ -179,6 +290,9 @@ class AuthController extends Notifier<AuthState> {
         state = const Unauthenticated(
           errorMessage: 'Admin accounts must use the MAN-U-AI Admin Panel.',
         );
+        try {
+          ref.read(localCacheServiceProvider).clearUserCache();
+        } catch (_) {}
         return false;
       }
 
@@ -323,6 +437,9 @@ class AuthController extends Notifier<AuthState> {
         state = const Unauthenticated(
           errorMessage: 'Admin accounts must use the MAN-U-AI Admin Panel.',
         );
+        try {
+          ref.read(localCacheServiceProvider).clearUserCache();
+        } catch (_) {}
         return null;
       }
       state = Authenticated(user: freshUser, token: currentToken);
@@ -334,6 +451,9 @@ class AuthController extends Notifier<AuthState> {
           errorMessage: 'Session expired. Please sign in again.',
           isSessionExpired: true,
         );
+        try {
+          ref.read(localCacheServiceProvider).clearUserCache();
+        } catch (_) {}
       }
       return null;
     } catch (_) {
@@ -344,6 +464,9 @@ class AuthController extends Notifier<AuthState> {
   Future<void> logout() async {
     await _repository.logout();
     state = const Unauthenticated();
+    try {
+      ref.read(localCacheServiceProvider).clearUserCache();
+    } catch (_) {}
   }
 
   void handleUnauthorized() {
@@ -352,6 +475,9 @@ class AuthController extends Notifier<AuthState> {
         errorMessage: 'Session expired. Please sign in again.',
         isSessionExpired: true,
       );
+      try {
+        ref.read(localCacheServiceProvider).clearUserCache();
+      } catch (_) {}
     }
   }
 }

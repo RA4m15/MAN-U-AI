@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/storage/local_cache_service.dart';
 import '../../auth/controllers/auth_controller.dart';
 import '../../auth/models/auth_state.dart';
 import '../models/document_model.dart';
@@ -10,7 +11,8 @@ import '../repositories/document_repository.dart';
 
 final documentRepositoryProvider = Provider<DocumentRepository>((ref) {
   final dio = ref.watch(dioProvider);
-  return DocumentRepository(dio: dio);
+  final cache = ref.watch(localCacheServiceProvider);
+  return DocumentRepository(dio: dio, cache: cache);
 });
 
 /// Asynchronously provides the list of all facility documents authorized for the current user.

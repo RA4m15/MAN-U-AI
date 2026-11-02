@@ -1,15 +1,20 @@
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
+import '../../../core/storage/local_cache_service.dart';
 import '../models/document_model.dart';
 import '../models/figure_model.dart';
 import '../models/upload_document_response.dart';
 
 class DocumentRepository {
   final Dio dio;
+  final LocalCacheService? cache;
 
   static const int maxUploadSizeBytes = 50 * 1024 * 1024; // 50MB backend limit
 
-  DocumentRepository({required this.dio});
+  DocumentRepository({
+    required this.dio,
+    this.cache,
+  });
 
   /// Retrieves list of all authorized facility documents.
   Future<List<DocumentModel>> getDocuments({String? equipmentId}) async {
@@ -18,29 +23,92 @@ class DocumentRepository {
       queryParams['equipmentId'] = equipmentId;
     }
 
-    final response = await dio.get(
-      '/documents',
-      queryParameters: queryParams,
-    );
+    try {
+      final response = await dio.get(
+        '/documents',
+        queryParameters: queryParams,
+      );
 
-    final data = response.data;
-    if (data is Map<String, dynamic> && data['data'] is List) {
-      return (data['data'] as List)
-          .whereType<Map<String, dynamic>>()
-          .map((item) => DocumentModel.fromJson(item))
-          .toList();
+      final data = response.data;
+      if (data is Map<String, dynamic> && data['data'] is List) {
+        final list = (data['data'] as List)
+            .whereType<Map<String, dynamic>>()
+            .map((item) => DocumentModel.fromJson(item))
+            .toList();
+
+        if (equipmentId == null && cache != null && list.isNotEmpty) {
+          await cache!.cacheDocuments(list);
+        }
+        return list;
+      }
+      return [];
+    } catch (_) {
+      if (cache != null) {
+        final cached = await cache!.getCachedDocuments();
+        if (cached.isNotEmpty) {
+          if (equipmentId != null && equipmentId.isNotEmpty) {
+            return cached.where((d) => d.equipmentId == equipmentId).toList();
+          }
+          return cached;
+        }
+      }
+      return [];
     }
-    return [];
   }
 
   /// Retrieves metadata for a specific document by ID.
   Future<DocumentModel?> getDocumentById(String documentId) async {
-    final response = await dio.get('/documents/$documentId');
-    final data = response.data;
-    if (data is Map<String, dynamic> && data['data'] is Map<String, dynamic>) {
-      return DocumentModel.fromJson(data['data'] as Map<String, dynamic>);
+    try {
+      final response = await dio.get('/documents/$documentId');
+      final data = response.data;
+      if (data is Map<String, dynamic> && data['data'] is Map<String, dynamic>) {
+        return DocumentModel.fromJson(data['data'] as Map<String, dynamic>);
+      }
+      return null;
+    } catch (_) {
+      if (cache != null) {
+        final cached = await cache!.getCachedDocuments();
+        try {
+          return cached.firstWhere((d) => d.id == documentId);
+        } catch (_) {
+          return null;
+        }
+      }
+      return null;
     }
-    return null;
+  }
+
+  /// Downloads and caches a document PDF locally for offline viewing.
+  Future<String?> downloadAndCacheDocumentPdf(
+    String documentId, {
+    ProgressCallback? onProgress,
+  }) async {
+    try {
+      final response = await dio.get<List<int>>(
+        '/documents/$documentId/download',
+        options: Options(responseType: ResponseType.bytes),
+        onReceiveProgress: onProgress,
+      );
+
+      if (response.data != null && cache != null) {
+        return await cache!.cacheDocumentPdf(documentId, response.data!);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Checks if a document PDF has been downloaded locally.
+  Future<bool> isDocumentPdfCached(String documentId) async {
+    if (cache == null) return false;
+    return await cache!.isDocumentPdfCached(documentId);
+  }
+
+  /// Gets the local file path for a cached document PDF.
+  Future<String?> getDocumentPdfPath(String documentId) async {
+    if (cache == null) return null;
+    return await cache!.getDocumentPdfPath(documentId);
   }
 
   /// Streams genuine figure image bytes using authenticated session.

@@ -7,6 +7,7 @@ class SecureStorageService {
 
   static const String _keyToken = 'manuai_jwt_token';
   static const String _keyUser = 'manuai_user_data';
+  static const String _keyLastAuthTime = 'manuai_last_online_auth_time';
 
   SecureStorageService({FlutterSecureStorage? storage})
       : _storage = storage ??
@@ -55,8 +56,19 @@ class SecureStorageService {
     }
   }
 
+  Future<void> saveLastAuthTime(DateTime time) async {
+    await _storage.write(key: _keyLastAuthTime, value: time.toIso8601String());
+  }
+
+  Future<DateTime?> getLastAuthTime() async {
+    final raw = await _storage.read(key: _keyLastAuthTime);
+    if (raw == null || raw.isEmpty) return null;
+    return DateTime.tryParse(raw);
+  }
+
   Future<void> clearAll() async {
     await _storage.delete(key: _keyToken);
     await _storage.delete(key: _keyUser);
+    await _storage.delete(key: _keyLastAuthTime);
   }
 }

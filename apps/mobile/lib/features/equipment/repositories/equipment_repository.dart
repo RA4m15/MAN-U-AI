@@ -1,11 +1,16 @@
 import 'package:dio/dio.dart';
+import '../../../core/storage/local_cache_service.dart';
 import '../models/equipment_model.dart';
 import '../../offline/models/area_pack_model.dart';
 
 class EquipmentRepository {
   final Dio dio;
+  final LocalCacheService? cache;
 
-  EquipmentRepository({required this.dio});
+  EquipmentRepository({
+    required this.dio,
+    this.cache,
+  });
 
   static const List<EquipmentModel> fallbackEquipment = [
     EquipmentModel(
@@ -55,7 +60,7 @@ class EquipmentRepository {
     ),
   ];
 
-  /// Fetches all registered plant equipment records.
+  /// Fetches all registered plant equipment records with local cache support.
   Future<List<EquipmentModel>> getEquipment() async {
     try {
       final response = await dio.get('/equipment');
@@ -73,13 +78,26 @@ class EquipmentRepository {
           if (!list.any((e) => e.id == 'equip-cb-a61')) {
             list.insert(1, fallbackEquipment[1]);
           }
+          if (cache != null) {
+            await cache!.cacheEquipment(list);
+          }
           return list;
         }
       }
-      return fallbackEquipment;
+      return await _getCachedOrFallback();
     } catch (_) {
-      return fallbackEquipment;
+      return await _getCachedOrFallback();
     }
+  }
+
+  Future<List<EquipmentModel>> _getCachedOrFallback() async {
+    if (cache != null) {
+      final cached = await cache!.getCachedEquipment();
+      if (cached.isNotEmpty) {
+        return cached;
+      }
+    }
+    return fallbackEquipment;
   }
 
   /// Fetches offline documentation area pack for dead-zone plant operation.

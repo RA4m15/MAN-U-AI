@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/connectivity_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/widgets/terminal_components.dart';
@@ -206,6 +207,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
 
     final chatState = ref.watch(chatControllerProvider);
+    final networkState = ref.watch(connectivityControllerProvider);
     final activeConv = chatState.activeConversation;
     final selectedEq = chatState.selectedEquipment;
     final currentEquipmentId = activeConv?.equipmentId ?? selectedEq?.id;
@@ -238,7 +240,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         title: Row(
           children: [
             StatusDot(
-              color: chatState.isOfflineMode ? AppColors.warning : AppColors.success,
+              color: networkState.isReconnecting
+                  ? AppColors.primary
+                  : (networkState.isDeadZone || chatState.isOfflineMode)
+                      ? AppColors.warning
+                      : AppColors.success,
               size: 10.0,
             ),
             const SizedBox(width: 8.0),
@@ -253,21 +259,37 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         ),
         actions: [
-          // Dead Zone Switcher
+          // Automatic Dead Zone / Connectivity Telemetry Icon
           IconButton(
             key: const Key('toggle_offline_mode_button'),
             icon: Icon(
-              chatState.isOfflineMode
-                  ? Icons.signal_wifi_off_rounded
-                  : Icons.wifi_rounded,
-              color: chatState.isOfflineMode ? AppColors.warning : AppColors.onSurfaceVariant,
+              networkState.status == NetworkStatus.reconnecting
+                  ? Icons.sync_rounded
+                  : networkState.status == NetworkStatus.serverUnreachable
+                      ? Icons.cloud_off_rounded
+                      : (networkState.isDeadZone || chatState.isOfflineMode)
+                          ? Icons.signal_wifi_off_rounded
+                          : Icons.wifi_rounded,
+              color: networkState.status == NetworkStatus.reconnecting
+                  ? AppColors.primary
+                  : (networkState.isDeadZone || chatState.isOfflineMode)
+                      ? AppColors.warning
+                      : AppColors.success,
               size: 20.0,
             ),
-            tooltip: chatState.isOfflineMode
-                ? 'Dead-Zone Mode Active'
-                : 'Switch to Offline Mode',
+            tooltip: networkState.status == NetworkStatus.reconnecting
+                ? 'Connection Restored // Synchronizing Data'
+                : networkState.status == NetworkStatus.serverUnreachable
+                    ? 'Server Unavailable // Local Procedures Only'
+                    : (networkState.isDeadZone || chatState.isOfflineMode)
+                        ? 'Dead-Zone Mode Active // Tap to Probe Connection'
+                        : 'Online // Connected to MAN-U-AI Cloud',
             onPressed: () {
-              ref.read(chatControllerProvider.notifier).toggleOfflineMode();
+              if (networkState.isDeadZone) {
+                ref.read(connectivityControllerProvider.notifier).checkReachability(manual: true);
+              } else {
+                ref.read(chatControllerProvider.notifier).toggleOfflineMode();
+              }
             },
           ),
           // Plant Glossary
@@ -366,8 +388,37 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         children: [
           const Divider(color: AppColors.border, height: 1.0),
 
-          // Offline Dead-Zone Active Telemetry Banner
-          if (chatState.isOfflineMode) ...[
+          // Automatic Dead-Zone / Offline / Reconnecting Telemetry Banner
+          if (networkState.status == NetworkStatus.reconnecting) ...[
+            Container(
+              key: const Key('offline_mode_banner'),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              color: AppColors.primary.withValues(alpha: 0.12),
+              child: Row(
+                children: [
+                  const SizedBox(
+                    width: 12.0,
+                    height: 12.0,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.0,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 10.0),
+                  Expanded(
+                    child: Text(
+                      'CONNECTION RESTORED // SYNCHRONIZING DATA',
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (networkState.status == NetworkStatus.serverUnreachable) ...[
             Container(
               key: const Key('offline_mode_banner'),
               width: double.infinity,
@@ -378,23 +429,93 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   const StatusDot(color: AppColors.warning, size: 8.0),
                   const SizedBox(width: 8.0),
                   Expanded(
-                    child: Text(
-                      'DEAD-ZONE MODE ACTIVE // LOCAL PROCEDURES ONLY',
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.warning,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'SERVER UNAVAILABLE // CACHED DATA ONLY',
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.warning,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          'Cloud API unreachable. Operating in local-only cache mode.',
+                          style: AppTypography.caption.copyWith(
+                            fontSize: 10.0,
+                            color: AppColors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   InkWell(
+                    key: const Key('retry_connection_button'),
                     onTap: () {
-                      ref.read(chatControllerProvider.notifier).toggleOfflineMode();
+                      ref.read(connectivityControllerProvider.notifier).checkReachability(manual: true);
                     },
-                    child: Text(
-                      'GO ONLINE',
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w700,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                      child: Text(
+                        'RECONNECT',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else if (networkState.isDeadZone || chatState.isOfflineMode) ...[
+            Container(
+              key: const Key('offline_mode_banner'),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              color: AppColors.warning.withValues(alpha: 0.12),
+              child: Row(
+                children: [
+                  const StatusDot(color: AppColors.warning, size: 8.0),
+                  const SizedBox(width: 8.0),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'DEAD-ZONE MODE ACTIVE // LOCAL PROCEDURES ONLY',
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.warning,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          'No network connection. Using stored facility data & local AI procedures.',
+                          style: AppTypography.caption.copyWith(
+                            fontSize: 10.0,
+                            color: AppColors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  InkWell(
+                    key: const Key('retry_connection_button'),
+                    onTap: () {
+                      if (networkState.isDeadZone) {
+                        ref.read(connectivityControllerProvider.notifier).checkReachability(manual: true);
+                      } else {
+                        ref.read(chatControllerProvider.notifier).toggleOfflineMode();
+                      }
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                      child: Text(
+                        networkState.isDeadZone ? 'RETRY' : 'GO ONLINE',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ),

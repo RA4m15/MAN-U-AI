@@ -3,15 +3,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/controllers/auth_controller.dart';
 import '../models/diagram_annotation_model.dart';
 
+import '../../../core/storage/local_cache_service.dart';
+
 final diagramRepositoryProvider = Provider<DiagramRepository>((ref) {
   final dio = ref.watch(dioProvider);
-  return DiagramRepository(dio);
+  final cache = ref.watch(localCacheServiceProvider);
+  return DiagramRepository(dio, cache: cache);
 });
 
 class DiagramRepository {
   final Dio _dio;
+  final LocalCacheService? _cache;
 
-  DiagramRepository(this._dio);
+  DiagramRepository(this._dio, {LocalCacheService? cache}) : _cache = cache;
 
   /// Default high-fidelity exploded pump fixture for offline & immediate demonstration
   static final DiagramAnnotationModel demoExplodedPumpDiagram = DiagramAnnotationModel(
@@ -282,8 +286,16 @@ class DiagramRepository {
     try {
       final response = await _dio.get('/diagrams/$figureId');
       final data = response.data['data'] as Map<String, dynamic>;
-      return DiagramAnnotationModel.fromJson(data);
+      final model = DiagramAnnotationModel.fromJson(data);
+      if (_cache != null) {
+        await _cache.cacheDiagramAnnotation(figureId, model);
+      }
+      return model;
     } catch (_) {
+      if (_cache != null) {
+        final cached = await _cache.getCachedDiagramAnnotation(figureId);
+        if (cached != null) return cached;
+      }
       if (figureId.toUpperCase().contains('DRYPIX') || figureId.toUpperCase().contains('6000')) {
         return drypixSmartDiagram;
       }

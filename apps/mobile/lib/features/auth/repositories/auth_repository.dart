@@ -43,6 +43,9 @@ class AuthRepository {
     try {
       await storage.saveToken(token);
       await storage.saveUser(user);
+      try {
+        await storage.saveLastAuthTime(DateTime.now());
+      } catch (_) {}
     } catch (e) {
       await storage.clearAll();
       throw Exception('Failed to securely store authentication session. Please retry.');
@@ -85,6 +88,9 @@ class AuthRepository {
     try {
       await storage.saveToken(token);
       await storage.saveUser(user);
+      try {
+        await storage.saveLastAuthTime(DateTime.now());
+      } catch (_) {}
     } catch (e) {
       await storage.clearAll();
       throw Exception('Failed to securely store authentication session. Please retry.');
@@ -104,6 +110,9 @@ class AuthRepository {
     final userData = body['data'] as Map<String, dynamic>;
     final user = UserModel.fromJson(userData);
     await storage.saveUser(user);
+    try {
+      await storage.saveLastAuthTime(DateTime.now());
+    } catch (_) {}
 
     return user;
   }
@@ -118,5 +127,13 @@ class AuthRepository {
 
   Future<UserModel?> getStoredUser() async {
     return await storage.getUser();
+  }
+
+  Future<DateTime?> getLastAuthTime() async {
+    try {
+      return await storage.getLastAuthTime();
+    } catch (_) {
+      return null;
+    }
   }
 }

@@ -1,5 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/network/connectivity_controller.dart';
+import '../../../core/storage/local_cache_service.dart';
 import '../../equipment/controllers/equipment_controller.dart';
 import '../../equipment/models/equipment_model.dart';
 import '../../offline/services/offline_area_storage.service.dart';
@@ -60,12 +62,13 @@ final chatControllerProvider =
     NotifierProvider<ChatController, ChatState>(ChatController.new);
 
 class ChatController extends Notifier<ChatState> {
-  late final ChatRepository _chatRepository;
+  late ChatRepository _chatRepository;
 
   @override
   ChatState build() {
     _chatRepository = ref.watch(chatRepositoryProvider);
-    return const ChatState();
+    final isDeadZone = ref.watch(isDeadZoneProvider);
+    return ChatState(isOfflineMode: isDeadZone);
   }
 
   /// Toggles Dead-Zone Offline Mode explicitly
@@ -87,11 +90,13 @@ class ChatController extends Notifier<ChatState> {
 
   /// Sets up an empty consultation, optionally bound to a piece of plant equipment.
   void startNewConsultation({EquipmentModel? equipment}) {
-    state = ChatState(selectedEquipment: equipment);
+    final isDeadZone = ref.read(isDeadZoneProvider);
+    state = ChatState(selectedEquipment: equipment, isOfflineMode: isDeadZone);
   }
 
   /// Selects an existing conversation and loads its historical messages.
   Future<void> selectConversation(ConversationModel conv) async {
+    final isDeadZone = ref.read(isDeadZoneProvider);
     state = state.copyWith(
       activeConversation: () => conv,
       selectedEquipment: () => null,
@@ -99,6 +104,7 @@ class ChatController extends Notifier<ChatState> {
       isLoadingHistory: true,
       historyError: () => null,
       sendingError: () => null,
+      isOfflineMode: isDeadZone,
     );
 
     try {
@@ -138,8 +144,8 @@ class ChatController extends Notifier<ChatState> {
     ConversationModel? currentConv = state.activeConversation;
     final targetEquipmentId = currentConv?.equipmentId ?? state.selectedEquipment?.id;
 
-    // 1. If Dead-Zone offline mode is forced, run local retrieval immediately
-    if (state.isOfflineMode && targetEquipmentId != null) {
+    // 1. If Dead-Zone offline mode is active, run local retrieval immediately and queue pending
+    if (state.isOfflineMode) {
       final userMsg = ChatMessageModel(
         role: 'user',
         content: trimmed,
@@ -151,10 +157,21 @@ class ChatController extends Notifier<ChatState> {
         isSending: true,
       );
 
+      // Save user message in local cache pending queue for automatic sync
+      await ref.read(localCacheServiceProvider).addPendingMessage(
+            PendingMessage(
+              id: 'pending_msg_${DateTime.now().microsecondsSinceEpoch}',
+              conversationId: currentConv?.id,
+              message: trimmed,
+              equipmentId: targetEquipmentId,
+              createdAt: DateTime.now(),
+            ),
+          );
+
       final offlineResp = await ref.read(offlineAreaStorageServiceProvider).searchOfflinePassages(
-            targetEquipmentId,
+            targetEquipmentId ?? 'equip-drypix-6000',
             trimmed,
-            equipmentName: state.selectedEquipment?.name,
+            equipmentName: state.selectedEquipment?.name ?? 'Plant Equipment',
           );
 
       final assistantMsg = ChatMessageModel(
@@ -171,10 +188,18 @@ class ChatController extends Notifier<ChatState> {
         isOfflineFallback: true,
       );
 
+      final newMessages = List<ChatMessageModel>.from(state.messages)..add(assistantMsg);
       state = state.copyWith(
-        messages: List<ChatMessageModel>.from(state.messages)..add(assistantMsg),
+        messages: newMessages,
         isSending: false,
       );
+
+      if (currentConv != null) {
+        await ref.read(localCacheServiceProvider).cacheMessages(
+              currentConv.id,
+              newMessages,
+            );
+      }
       return;
     }
 
@@ -231,10 +256,17 @@ class ChatController extends Notifier<ChatState> {
         conversationId: currentConv.id,
       );
 
+      final finalMessages = List<ChatMessageModel>.from(state.messages)..add(assistantMsg);
       state = state.copyWith(
-        messages: List<ChatMessageModel>.from(state.messages)..add(assistantMsg),
+        messages: finalMessages,
         isSending: false,
       );
+
+      // Persist conversation messages to local cache
+      await ref.read(localCacheServiceProvider).cacheMessages(
+            currentConv.id,
+            finalMessages,
+          );
 
       ref.read(conversationListProvider.notifier).refresh();
     } catch (err) {
@@ -244,12 +276,26 @@ class ChatController extends Notifier<ChatState> {
               err.type == DioExceptionType.connectionError ||
               err.response == null);
 
-      if (isConnectionIssue && targetEquipmentId != null) {
+      if (isConnectionIssue) {
+        // Trigger connectivity reachability re-check
+        ref.read(connectivityControllerProvider.notifier).checkReachability();
+
+        // Queue in pending messages
+        await ref.read(localCacheServiceProvider).addPendingMessage(
+              PendingMessage(
+                id: 'pending_msg_${DateTime.now().microsecondsSinceEpoch}',
+                conversationId: currentConv.id,
+                message: trimmed,
+                equipmentId: targetEquipmentId,
+                createdAt: DateTime.now(),
+              ),
+            );
+
         try {
           final offlineResp = await ref.read(offlineAreaStorageServiceProvider).searchOfflinePassages(
-                targetEquipmentId,
+                targetEquipmentId ?? 'equip-drypix-6000',
                 trimmed,
-                equipmentName: state.selectedEquipment?.name,
+                equipmentName: state.selectedEquipment?.name ?? 'Plant Equipment',
               );
 
           final offlineMsg = ChatMessageModel(
@@ -266,11 +312,18 @@ class ChatController extends Notifier<ChatState> {
             isOfflineFallback: true,
           );
 
+          final newMessages = List<ChatMessageModel>.from(state.messages)..add(offlineMsg);
           state = state.copyWith(
-            messages: List<ChatMessageModel>.from(state.messages)..add(offlineMsg),
+            messages: newMessages,
             isSending: false,
             sendingError: () => null,
+            isOfflineMode: true,
           );
+
+          await ref.read(localCacheServiceProvider).cacheMessages(
+                currentConv.id,
+                newMessages,
+              );
           return;
         } catch (_) {}
       }

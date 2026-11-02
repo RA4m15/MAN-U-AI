@@ -21,6 +21,8 @@ dependencies:
   file_picker: any
   camera: ^0.12.2
   image_picker: ^1.2.4
+  connectivity_plus: ^7.3.2
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:
