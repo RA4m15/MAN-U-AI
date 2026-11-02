@@ -101,7 +101,7 @@ export function SopFlowchartPage() {
     const loadInitial = async () => {
       try {
         const res = await flowchartsApi.list();
-        if (res.data && "data" in res.data && res.data.data.length > 0) {
+        if (res.data?.success && res.data.data.length > 0) {
           const first = res.data.data[0];
           setActiveFlowchart(first);
           setSelectedNodeId(first.nodes[0]?.id || null);
@@ -126,7 +126,7 @@ export function SopFlowchartPage() {
         text: procedureText,
         title: procedureTitle || "Standard Operating Procedure Flowchart",
       });
-      if (res.data && "data" in res.data) {
+      if (res.data?.success) {
         setActiveFlowchart(res.data.data);
         setSelectedNodeId(res.data.data.nodes[0]?.id || null);
       }
@@ -145,7 +145,7 @@ export function SopFlowchartPage() {
         approvedByRole: approverRole,
         comments: approvalComments,
       });
-      if (res.data && "data" in res.data) {
+      if (res.data?.success) {
         setActiveFlowchart(res.data.data);
         setShowApprovalModal(false);
       }
