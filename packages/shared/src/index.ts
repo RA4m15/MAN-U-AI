@@ -856,3 +856,114 @@ export function matchStepToSourceSentence(
 
   return bestId;
 }
+
+
+// ─── SOP to Auto-Flowchart ───────────────────────────────────────────────────
+
+export type FlowchartNodeType = "start" | "step" | "decision" | "warning" | "end";
+
+export const FlowchartNodeSchema = z.object({
+  id: z.string(),
+  type: z.enum(["start", "step", "decision", "warning", "end"]),
+  label: z.string(),
+  description: z.string().optional(),
+  citedPassage: z.string(),
+  sourceId: z.string().optional(),
+  page: z.number().optional(),
+  section: z.string().optional(),
+  ppeRequired: z.array(z.string()).optional(),
+  numericalValue: z.string().optional(),
+});
+export type FlowchartNodeDTO = z.infer<typeof FlowchartNodeSchema>;
+
+export const FlowchartEdgeSchema = z.object({
+  id: z.string(),
+  from: z.string(),
+  to: z.string(),
+  label: z.string().optional(),
+});
+export type FlowchartEdgeDTO = z.infer<typeof FlowchartEdgeSchema>;
+
+export const SOPFlowchartSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  sopTitle: z.string(),
+  equipmentId: z.string().optional(),
+  equipmentName: z.string().optional(),
+  status: z.enum(["draft", "approved", "rejected"]).default("draft"),
+  summary: z.string(),
+  nodes: z.array(FlowchartNodeSchema),
+  edges: z.array(FlowchartEdgeSchema),
+  mermaidDefinition: z.string(),
+  approval: z
+    .object({
+      approvedBy: z.string(),
+      approvedByRole: z.string(),
+      approvedAt: z.string(),
+      comments: z.string().optional(),
+      certificateHash: z.string().optional(),
+    })
+    .optional(),
+  totalSteps: z.number().default(0),
+  warningCount: z.number().default(0),
+  decisionCount: z.number().default(0),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type SOPFlowchartDTO = z.infer<typeof SOPFlowchartSchema>;
+
+export const GenerateFlowchartSchema = z.object({
+  text: z.string().min(20, "Procedure text must be at least 20 characters"),
+  title: z.string().optional().default("Standard Operating Procedure Flowchart"),
+  documentId: z.string().optional(),
+  equipmentId: z.string().optional(),
+  equipmentName: z.string().optional(),
+});
+export type GenerateFlowchartInput = z.infer<typeof GenerateFlowchartSchema>;
+
+export const ApproveFlowchartSchema = z.object({
+  approvedBy: z.string().min(2, "Approver name required"),
+  approvedByRole: z.string().min(2, "Approver role required"),
+  comments: z.string().optional(),
+});
+export type ApproveFlowchartInput = z.infer<typeof ApproveFlowchartSchema>;
+
+/**
+ * Converts structured flowchart nodes and edges into valid Mermaid flowchart TD definition.
+ */
+export function generateMermaidFromFlowchart(nodes: FlowchartNodeDTO[], edges: FlowchartEdgeDTO[]): string {
+  const lines: string[] = ["flowchart TD"];
+
+  lines.push("  classDef startEnd fill:#10B981,stroke:#059669,stroke-width:2px,color:#FFFFFF,font-weight:bold;");
+  lines.push("  classDef stepNode fill:#0057FF,stroke:#003BB3,stroke-width:2px,color:#FFFFFF,font-weight:bold;");
+  lines.push("  classDef decisionNode fill:#F59E0B,stroke:#D97706,stroke-width:2px,color:#FFFFFF,font-weight:bold;");
+  lines.push("  classDef warningNode fill:#EF4444,stroke:#B91C1C,stroke-width:3px,color:#FFFFFF,font-weight:bold;");
+
+  for (const node of nodes) {
+    const cleanLabel = node.label.replace(/["\n\r]/g, " ").trim();
+    if (node.type === "start" || node.type === "end") {
+      lines.push(`  ${node.id}(["${cleanLabel}"])`);
+      lines.push(`  class ${node.id} startEnd;`);
+    } else if (node.type === "decision") {
+      lines.push(`  ${node.id}{"${cleanLabel}"}`);
+      lines.push(`  class ${node.id} decisionNode;`);
+    } else if (node.type === "warning") {
+      lines.push(`  ${node.id}[/"⚠️ WARNING: ${cleanLabel}"/]`);
+      lines.push(`  class ${node.id} warningNode;`);
+    } else {
+      lines.push(`  ${node.id}["${cleanLabel}"]`);
+      lines.push(`  class ${node.id} stepNode;`);
+    }
+  }
+
+  for (const edge of edges) {
+    if (edge.label) {
+      const cleanEdge = edge.label.replace(/["\n\r]/g, " ").trim();
+      lines.push(`  ${edge.from} -->|"${cleanEdge}"| ${edge.to}`);
+    } else {
+      lines.push(`  ${edge.from} --> ${edge.to}`);
+    }
+  }
+
+  return lines.join("\n");
+}

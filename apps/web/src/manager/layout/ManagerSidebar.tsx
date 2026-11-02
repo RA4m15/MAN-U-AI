@@ -16,6 +16,7 @@ import {
   Layers,
   Wrench,
   ClipboardList,
+  Workflow,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { conversationsApi } from "@/lib/api";
@@ -44,6 +45,7 @@ const MANAGER_NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Knowledge Library", path: "knowledge", icon: <Library size={15} /> },
       { label: "SOPs & Manuals", path: "knowledge?tab=sops", icon: <BookOpen size={15} /> },
+      { label: "SOP Flowcharts", path: "flowcharts", icon: <Workflow size={15} /> },
       { label: "Equipment Registry", path: "equipment", icon: <Cpu size={15} /> },
     ],
   },

@@ -3,10 +3,11 @@ import { isConnectedToMongo } from "../config/database";
 import { env } from "../config/env";
 
 export const SUPPORTED_MODELS = [
-  "gemini-3-flash-preview",
-  "gemini-3.8-flash",
-  "gemini-3.6-flash",
   "gemini-3.5-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-3.6-flash",
+  "gemini-3.8-flash",
+  "gemini-3-flash-preview",
   "gemini-4-argon",
 ] as const;
 
@@ -30,6 +31,11 @@ export const MODEL_CAPABILITIES: Record<string, ModelCapabilities> = {
     supportsGenerationTopK: false,
   },
   "gemini-3-flash-preview": {
+    supportsTemperature: false,
+    supportsTopP: false,
+    supportsGenerationTopK: false,
+  },
+  "gemini-3.5-flash": {
     supportsTemperature: false,
     supportsTopP: false,
     supportsGenerationTopK: false,
@@ -83,7 +89,7 @@ export const DEFAULT_SETTINGS: FacilitySettingsData = {
   timezone: "UTC",
   selectedModel: (SUPPORTED_MODELS.includes(env.GEMINI_MODEL as any)
     ? env.GEMINI_MODEL
-    : "gemini-3-flash-preview") as SupportedModel,
+    : "gemini-3.5-flash-lite") as SupportedModel,
   temperature: 0.2,
   topK: 5,
   similarityThreshold: 0.5,

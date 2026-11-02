@@ -20,6 +20,7 @@ import { glossaryRouter } from "./routes/glossary.routes";
 import { ticketRouter } from "./routes/tickets.routes";
 import { diagramRouter } from "./routes/diagrams.routes";
 import { taskRouter } from "./routes/tasks.routes";
+import { flowchartsRouter } from "./routes/flowcharts.routes";
 import { mediaRouter } from "./routes/media.routes";
 
 export const app = express();
@@ -216,6 +217,7 @@ apiV1.use("/glossary", glossaryRouter);
 apiV1.use("/tickets", ticketRouter);
 apiV1.use("/diagrams", diagramRouter);
 apiV1.use("/tasks", taskRouter);
+apiV1.use("/flowcharts", flowchartsRouter);
 apiV1.use("/media", mediaRouter);
 
 app.use("/api/v1", apiV1);

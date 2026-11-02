@@ -1,6 +1,6 @@
 import axios from "axios";
 import { io, Socket } from "socket.io-client";
-import type { TaskDTO, CreateTaskInput, UpdateTaskInput, ApiResponse } from "@man-u-ai/shared";
+import type { TaskDTO, CreateTaskInput, UpdateTaskInput, ApiResponse, SOPFlowchartDTO } from "@man-u-ai/shared";
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? "/api/v1";
 
@@ -232,4 +232,18 @@ export const tasksApi = {
     apiClient.patch<ApiResponse<TaskDTO>>(`/tasks/${id}`, data),
   delete: (id: string) =>
     apiClient.delete<ApiResponse<{ id: string; deleted: boolean }>>(`/tasks/${id}`),
+};
+
+// ── SOP Flowcharts ────────────────────────────────────────────────────────
+export const flowchartsApi = {
+  generate: (data: { text: string; title?: string; documentId?: string; equipmentName?: string }) =>
+    apiClient.post<ApiResponse<SOPFlowchartDTO>>("/flowcharts/generate", data),
+  list: () =>
+    apiClient.get<ApiResponse<SOPFlowchartDTO[]>>("/flowcharts"),
+  get: (id: string) =>
+    apiClient.get<ApiResponse<SOPFlowchartDTO>>(`/flowcharts/${id}`),
+  approve: (id: string, data?: { approvedBy?: string; approvedByRole?: string; comments?: string }) =>
+    apiClient.post<ApiResponse<SOPFlowchartDTO>>(`/flowcharts/${id}/approve`, data || {}),
+  delete: (id: string) =>
+    apiClient.delete<ApiResponse<{ deleted: boolean }>>(`/flowcharts/${id}`),
 };

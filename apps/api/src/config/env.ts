@@ -118,8 +118,8 @@ export function buildEnvSchema(envSource: Record<string, any> = process.env) {
       .string()
       .optional()
       .default(currentEnv === "test" ? "test-placeholder-gemini-key" : ""),
-    GEMINI_MODEL: z.string().default("gemini-3.8-flash"),
-    GEMINI_FALLBACK_MODELS: z.string().default("gemini-3.6-flash,gemini-3.8-flash"),
+    GEMINI_MODEL: z.string().default("gemini-3.5-flash-lite"),
+    GEMINI_FALLBACK_MODELS: z.string().default("gemini-3.5-flash,gemini-3.6-flash,gemini-3.8-flash"),
     GEMINI_EMBEDDING_MODEL: z.string().default("gemini-embedding-001"),
     RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
     RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),
