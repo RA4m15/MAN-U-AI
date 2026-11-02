@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { StepToSourceViewer } from "./StepToSourceViewer";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -11,6 +12,7 @@ import {
   ThumbsUp,
   ThumbsDown,
   CheckCircle,
+  GitCommit,
 } from "lucide-react";
 import type { WorkerResponseDTO, CitationDTO } from "@man-u-ai/shared";
 
@@ -29,6 +31,7 @@ export function WorkerAnswerCard({
 }: WorkerAnswerCardProps) {
   const [showAllSteps, setShowAllSteps] = useState(false);
   const [showManualText, setShowManualText] = useState(false);
+  const [showStepToSource, setShowStepToSource] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [feedbackGiven, setFeedbackGiven] = useState<"up" | "down" | null>(null);
 
@@ -176,6 +179,40 @@ export function WorkerAnswerCard({
           {showAllSteps ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
       )}
+
+      {/* 6. Step-to-Source Fidelity Verification & SVG Connecting Lines */}
+      <div className="pt-2">
+        <button
+          onClick={() => setShowStepToSource(!showStepToSource)}
+          className={`w-full flex items-center justify-between p-3 rounded-xl border text-xs font-semibold transition-all ${
+            showStepToSource
+              ? "bg-primary/15 border-primary text-primary shadow-sm"
+              : "bg-surface-2 border-hairline text-ink hover:border-hairline-strong hover:bg-surface-3/50"
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="w-6 h-6 rounded-lg bg-primary/20 text-primary flex items-center justify-center">
+              <GitCommit size={15} />
+            </div>
+            <span className="font-bold text-sm tracking-tight text-white">Step-to-Source Fidelity Lines</span>
+            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-3xs font-extrabold uppercase tracking-wider border border-emerald-500/30">
+              Fidelity Guaranteed
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 text-ink-muted">
+            <span className="text-2xs font-medium">
+              {showStepToSource ? "Hide Lines" : "View Step-to-Source"}
+            </span>
+            {showStepToSource ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </div>
+        </button>
+
+        {showStepToSource && (
+          <div className="mt-3 animate-fade-in">
+            <StepToSourceViewer answer={answer} citations={citations} />
+          </div>
+        )}
+      </div>
 
       {/* 6b. Show manual text Expander */}
       {citations.length > 0 && (

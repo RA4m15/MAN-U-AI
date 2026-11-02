@@ -10,6 +10,7 @@ import { pdfService, isValidPdfSignature } from "../services/pdf.service";
 import { geminiService } from "../services/gemini.service";
 import { vectorService } from "../services/vector.service";
 import { visualService } from "../services/visual.service";
+import { offlineService } from "../services/offline.service";
 import { isConnectedToMongo } from "../config/database";
 import { requireAuth, requireRole, AuthenticatedRequest } from "../middlewares/auth";
 import { uploadLimiter } from "../middlewares/rateLimiters";
@@ -359,7 +360,7 @@ documentsRouter.get("/:id/chunks", requireAuth, async (req: AuthenticatedRequest
       if (areaPack && areaPack.chunks) {
         return res.json({
           success: true,
-          data: areaPack.chunks.map((c) => ({
+          data: areaPack.chunks.map((c: any) => ({
             id: c.id,
             page: c.page,
             section: c.section,
@@ -601,7 +602,7 @@ documentsRouter.post(
   "/upload",
   uploadLimiter,
   requireAuth,
-  requireRole(["admin", "engineer", "manager", "operator", "technician", "viewer"]),
+  requireRole(["admin", "engineer", "manager", "viewer"]),
   uploadMiddleware,
   async (req: AuthenticatedRequest, res: Response) => {
     if (!req.file) {
@@ -832,7 +833,7 @@ documentsRouter.post(
 documentsRouter.delete(
   "/:id",
   requireAuth,
-  requireRole(["admin", "engineer", "manager", "operator", "technician", "viewer"]),
+  requireRole(["admin", "engineer", "manager", "viewer"]),
   async (req: AuthenticatedRequest, res: Response) => {
     const id = String(req.params.id);
     if (isConnectedToMongo) {

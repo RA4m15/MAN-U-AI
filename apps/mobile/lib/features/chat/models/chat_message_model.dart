@@ -15,6 +15,7 @@ class ChatMessageModel {
   final SuggestedTicketModel? suggestedTicket;
   final List<String> expandedTerms;
   final bool isOfflineFallback;
+  final Map<String, dynamic>? workerAnswer;
 
   const ChatMessageModel({
     this.id,
@@ -30,6 +31,7 @@ class ChatMessageModel {
     this.suggestedTicket,
     this.expandedTerms = const [],
     this.isOfflineFallback = false,
+    this.workerAnswer,
   });
 
   bool get isUser => role == 'user';
@@ -87,6 +89,7 @@ class ChatMessageModel {
       suggestedTicket: ticket,
       expandedTerms: terms,
       isOfflineFallback: json['isOfflineFallback'] == true,
+      workerAnswer: json['workerAnswer'] is Map ? Map<String, dynamic>.from(json['workerAnswer'] as Map) : null,
     );
   }
 
@@ -105,6 +108,7 @@ class ChatMessageModel {
       if (suggestedTicket != null) 'suggestedTicket': suggestedTicket!.toJson(),
       'expandedTerms': expandedTerms,
       'isOfflineFallback': isOfflineFallback,
+      if (workerAnswer != null) 'workerAnswer': workerAnswer,
     };
   }
 }

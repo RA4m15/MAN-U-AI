@@ -88,7 +88,7 @@ taskRouter.get("/", requireAuth, async (req: Request, res: Response) => {
  */
 taskRouter.get("/:id", requireAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const task = await taskService.getTaskById(id);
 
     if (!task) {
@@ -117,7 +117,7 @@ taskRouter.get("/:id", requireAuth, async (req: Request, res: Response) => {
  */
 taskRouter.patch("/:id", requireAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
     const parseResult = UpdateTaskSchema.safeParse(req.body);
     if (!parseResult.success) {
       return res.status(400).json({
@@ -160,7 +160,7 @@ taskRouter.delete(
   requireRole(["manager", "admin"]),
   async (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
+      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
       const deleted = await taskService.deleteTask(id);
 
       if (!deleted) {

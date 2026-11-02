@@ -4,6 +4,9 @@ import {
   WorkerResponseDTO,
   WorkerLanguage,
   WorkerAnswerSchema,
+  ManualSentenceDTO,
+  splitTextIntoManualSentences,
+  matchStepToSourceSentence,
   WorkerCannotVerifySchema,
 } from "@man-u-ai/shared";
 import { ANSWER_LIMITS } from "../config/limits";
@@ -202,6 +205,50 @@ export class AnswerValidatorService {
       console.warn(
         `[AnswerValidator] [Req: ${requestId}] Soft jargon violations detected: ${softViolations.join(", ")}`
       );
+    }
+
+    // 8. Step-to-Source Sentence Mapping & Fidelity Linker
+    if (!answer.manual_sentences || answer.manual_sentences.length === 0) {
+      let sentCount = 1;
+      const generatedSentences: ManualSentenceDTO[] = [];
+      for (const r of retrievedChunks) {
+        const chunkSentences = splitTextIntoManualSentences(r.chunk.text, {
+          source_id: r.chunk.id,
+          documentTitle: r.chunk.documentTitle,
+          page: r.chunk.page,
+          startIdIndex: sentCount,
+        });
+        sentCount += chunkSentences.length;
+        generatedSentences.push(...chunkSentences);
+      }
+      answer.manual_sentences = generatedSentences;
+      if (!answer.manual_text && generatedSentences.length > 0) {
+        answer.manual_text = generatedSentences.map((s) => s.text).join(" ");
+      }
+    }
+
+    if (answer.manual_sentences && answer.manual_sentences.length > 0) {
+      const validSentenceIds = new Set(answer.manual_sentences.map((s) => s.id));
+      for (const step of answer.steps) {
+        if (!step.source_sentence_id || !validSentenceIds.has(step.source_sentence_id)) {
+          step.source_sentence_id = matchStepToSourceSentence(
+            step.text,
+            answer.manual_sentences,
+            step.source_id
+          );
+        }
+      }
+      if (answer.all_steps) {
+        for (const step of answer.all_steps) {
+          if (!step.source_sentence_id || !validSentenceIds.has(step.source_sentence_id)) {
+            step.source_sentence_id = matchStepToSourceSentence(
+              step.text,
+              answer.manual_sentences,
+              step.source_id
+            );
+          }
+        }
+      }
     }
 
     return {

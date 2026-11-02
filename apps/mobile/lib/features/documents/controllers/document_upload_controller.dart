@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/controllers/auth_controller.dart';
+import '../../auth/models/auth_state.dart';
 import '../models/picked_document.dart';
 import '../models/upload_document_response.dart';
 import '../repositories/document_repository.dart';
@@ -63,14 +64,10 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
 
   /// Sets or selects a verified PDF document for upload.
   void selectDocument(PickedDocument document) {
-    final validExts = [
-      '.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp',
-      '.txt', '.md', '.doc', '.docx'
-    ];
-    final hasValidExt = validExts.any((ext) => document.name.toLowerCase().endsWith(ext));
-    if (!hasValidExt) {
+    if (!document.name.toLowerCase().endsWith('.pdf') &&
+        !['.png', '.jpg', '.jpeg', '.webp'].any((ext) => document.name.toLowerCase().endsWith(ext))) {
       state = state.copyWith(
-        errorMessage: () => 'Unsupported file format. Please select a PDF, image, or document.',
+        errorMessage: () => 'Only PDF documents are supported for ingestion.',
         selectedDocument: () => null,
       );
       return;
@@ -141,6 +138,17 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
       return;
     }
 
+    final authState = ref.read(authControllerProvider);
+    final userRole = authState is Authenticated ? authState.user.role : null;
+    final isImage = ['.png', '.jpg', '.jpeg', '.webp'].any((ext) => doc.name.toLowerCase().endsWith(ext));
+    if (userRole == 'viewer' && !isImage) {
+      state = state.copyWith(
+        isUploading: false,
+        errorMessage: () => 'Access denied: Only administrators and engineers can upload facility documents.',
+      );
+      return;
+    }
+
 
 
     _cancelToken = CancelToken();
@@ -190,17 +198,9 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
         return;
       }
 
-      final fallbackDoc = UploadDocumentResponse(
-        id: 'doc-${DateTime.now().millisecondsSinceEpoch}',
-        title: title ?? doc.name,
-        revision: revision ?? 'Rev 1.0',
-        status: 'indexed',
-        message: 'Document uploaded and queued for indexing successfully.',
-      );
       state = state.copyWith(
         isUploading: false,
-        uploadProgress: 1.0,
-        successResult: () => fallbackDoc,
+        errorMessage: () => _parseUploadError(err),
       );
     } finally {
       _cancelToken = null;
