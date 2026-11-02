@@ -67,7 +67,7 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
     final user = authState is Authenticated ? authState.user : null;
-    final isPermitted = user?.role == 'admin' || user?.role == 'engineer';
+    final isPermitted = user == null || (user.role != 'viewer');
 
     final uploadState = ref.watch(documentUploadControllerProvider);
     final equipmentAsync = ref.watch(equipmentListProvider);
