@@ -152,7 +152,7 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
                       ),
                       const SizedBox(height: 8.0),
                       Text(
-                        'Your account has ${user?.role.toUpperCase() ?? 'VIEWER'} permissions. Ingestion of facility SOPs and equipment manuals is restricted to Engineers and Administrators.',
+                        'Your account has ${user.role.toUpperCase()} permissions. Ingestion of facility SOPs and equipment manuals is restricted to Engineers and Administrators.',
                         style: const TextStyle(
                           color: AppColors.inkMuted,
                           fontSize: 12.0,
@@ -255,22 +255,44 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
                 ] else ...[
                   // File Selection Area
                   if (uploadState.selectedDocument == null) ...[
-                    OutlinedButton.icon(
-                      key: const Key('pick_pdf_button'),
-                      icon: const Icon(Icons.picture_as_pdf_outlined, color: AppColors.primaryHover),
-                      label: const Text('Select PDF Document'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16.0),
-                        side: const BorderSide(color: AppColors.hairlineStrong),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                      ),
-                      onPressed: uploadState.isUploading
-                          ? null
-                          : () {
-                              ref
-                                  .read(documentUploadControllerProvider.notifier)
-                                  .pickPdfFile();
-                            },
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            key: const Key('pick_pdf_button'),
+                            icon: const Icon(Icons.picture_as_pdf_outlined, color: AppColors.primaryHover),
+                            label: const Text('Select PDF Document'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14.0),
+                              side: const BorderSide(color: AppColors.hairlineStrong),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            ),
+                            onPressed: uploadState.isUploading
+                                ? null
+                                : () => ref
+                                    .read(documentUploadControllerProvider.notifier)
+                                    .pickPdfFile(),
+                          ),
+                        ),
+                        const SizedBox(width: 8.0),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            key: const Key('pick_photo_button'),
+                            icon: const Icon(Icons.add_a_photo_outlined, color: AppColors.primary),
+                            label: const Text('Upload Photo'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14.0),
+                              side: const BorderSide(color: AppColors.hairlineStrong),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                            ),
+                            onPressed: uploadState.isUploading
+                                ? null
+                                : () => ref
+                                    .read(documentUploadControllerProvider.notifier)
+                                    .pickDocumentOrPhoto(isPhoto: true),
+                          ),
+                        ),
+                      ],
                     ),
                   ] else ...[
                     // File Preview Card

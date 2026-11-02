@@ -143,7 +143,16 @@ class _ChatComposerState extends State<ChatComposer> {
                   ButtonIconTile(
                     key: const Key('attach_document_button'),
                     icon: Icons.attach_file_rounded,
-                    tooltip: 'Upload technical document (PDF)',
+                    tooltip: 'Upload technical document / manual',
+                    size: 44.0,
+                    iconColor: AppColors.onSurfaceVariant,
+                    onPressed: widget.isSending ? null : widget.onUploadDocument,
+                  ),
+                  const SizedBox(width: 8.0),
+                  ButtonIconTile(
+                    key: const Key('attach_photo_button'),
+                    icon: Icons.add_a_photo_outlined,
+                    tooltip: 'Upload inspection photo / diagram',
                     size: 44.0,
                     iconColor: AppColors.onSurfaceVariant,
                     onPressed: widget.isSending ? null : widget.onUploadDocument,

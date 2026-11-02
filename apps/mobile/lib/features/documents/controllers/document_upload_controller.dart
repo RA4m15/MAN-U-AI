@@ -63,9 +63,14 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
 
   /// Sets or selects a verified PDF document for upload.
   void selectDocument(PickedDocument document) {
-    if (!document.name.toLowerCase().endsWith('.pdf')) {
+    final validExts = [
+      '.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp',
+      '.txt', '.md', '.doc', '.docx'
+    ];
+    final hasValidExt = validExts.any((ext) => document.name.toLowerCase().endsWith(ext));
+    if (!hasValidExt) {
       state = state.copyWith(
-        errorMessage: () => 'Only PDF documents are supported for ingestion.',
+        errorMessage: () => 'Unsupported file format. Please select a PDF, image, or document.',
         selectedDocument: () => null,
       );
       return;
@@ -87,16 +92,15 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
     );
   }
 
-  /// Native document picker for PDF files.
-  Future<void> pickPdfFile() async {
+  /// Universal file & photo picker (supports PDF, images, blueprints, and manuals on Web & Mobile)
+  Future<void> pickDocumentOrPhoto({bool isPhoto = false}) async {
     try {
-      final result = await FilePicker.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
+      final files = await FilePicker.pickFiles(
+        type: isPhoto ? FileType.image : FileType.any,
       );
 
-      if (result.isNotEmpty) {
-        final f = result.first;
+      if (files.isNotEmpty) {
+        final f = files.first;
         final size = f.lengthSync() ?? (await f.length()) ?? 0;
         selectDocument(
           PickedDocument(
@@ -108,10 +112,13 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
       }
     } catch (err) {
       state = state.copyWith(
-        errorMessage: () => 'Failed to access document picker: $err',
+        errorMessage: () => 'Failed to access file/photo picker: $err',
       );
     }
   }
+
+  /// Backward-compatible alias for PDF files
+  Future<void> pickPdfFile() => pickDocumentOrPhoto(isPhoto: false);
 
   void clearSelection() {
     state = const DocumentUploadState();
