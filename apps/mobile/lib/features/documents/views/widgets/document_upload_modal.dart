@@ -9,10 +9,12 @@ import '../../controllers/document_upload_controller.dart';
 
 class DocumentUploadModal extends ConsumerStatefulWidget {
   final EquipmentModel? defaultEquipment;
+  final bool initialPickPhoto;
 
   const DocumentUploadModal({
     super.key,
     this.defaultEquipment,
+    this.initialPickPhoto = false,
   });
 
   @override
@@ -28,6 +30,11 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
   void initState() {
     super.initState();
     _selectedEquipment = widget.defaultEquipment;
+    if (widget.initialPickPhoto) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(documentUploadControllerProvider.notifier).pickDocumentOrPhoto(isPhoto: true);
+      });
+    }
   }
 
   @override
@@ -124,8 +131,8 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
               ),
               const SizedBox(height: 12.0),
 
-              // Non-permitted role banner (Viewer role)
-              if (!isPermitted) ...[
+              // Non-permitted role banner (Viewer role) when no photo/document selected
+              if (!isPermitted && uploadState.selectedDocument == null) ...[
                 Container(
                   padding: const EdgeInsets.all(14.0),
                   decoration: BoxDecoration(
@@ -159,10 +166,64 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
                           height: 1.4,
                         ),
                       ),
-                      const SizedBox(height: 14.0),
-                      ElevatedButton(
+                      const SizedBox(height: 12.0),
+                      Container(
+                        padding: const EdgeInsets.all(10.0),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface1,
+                          borderRadius: BorderRadius.circular(6.0),
+                          border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Visual Machine and Part Retrieval Enabled',
+                              style: TextStyle(
+                                color: AppColors.ink,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12.0,
+                              ),
+                            ),
+                            const SizedBox(height: 4.0),
+                            const Text(
+                              'Operators and field personnel can upload photos of equipment nameplates, error panels, or physical parts for instant visual AI retrieval and manual cross-referencing.',
+                              style: TextStyle(
+                                color: AppColors.inkSubtle,
+                                fontSize: 11.0,
+                                height: 1.35,
+                              ),
+                            ),
+                            const SizedBox(height: 10.0),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                key: const Key('upload_part_image_button'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 10.0),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(6.0),
+                                  ),
+                                ),
+                                icon: const Icon(Icons.add_a_photo_outlined, size: 16.0),
+                                label: const Text(
+                                  'Upload Machine / Part Photo for AI Retrieval',
+                                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                                ),
+                                onPressed: () => ref
+                                    .read(documentUploadControllerProvider.notifier)
+                                    .pickDocumentOrPhoto(isPhoto: true),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12.0),
+                      TextButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Close'),
+                        child: const Text('Close', style: TextStyle(color: AppColors.inkSubtle)),
                       ),
                     ],
                   ),

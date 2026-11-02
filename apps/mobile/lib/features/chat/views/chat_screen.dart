@@ -63,7 +63,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  void _showUploadModal(BuildContext context) {
+  void _showUploadModal(BuildContext context, {bool isPhoto = false}) {
     final currentEq = ref.read(chatControllerProvider).selectedEquipment;
     showModalBottomSheet(
       context: context,
@@ -71,6 +71,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       isScrollControlled: true,
       builder: (ctx) => DocumentUploadModal(
         defaultEquipment: currentEq,
+        initialPickPhoto: isPhoto,
       ),
     );
   }
@@ -554,6 +555,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ref.read(chatControllerProvider.notifier).setSelectedEquipment(null);
             },
             onUploadDocument: () => _showUploadModal(context),
+            onUploadPhoto: () => _showUploadModal(context, isPhoto: true),
           ),
         ],
       ),

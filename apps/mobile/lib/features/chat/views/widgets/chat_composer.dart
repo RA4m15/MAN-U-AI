@@ -14,6 +14,7 @@ class ChatComposer extends StatefulWidget {
   final VoidCallback? onPickEquipment;
   final VoidCallback? onClearEquipment;
   final VoidCallback? onUploadDocument;
+  final VoidCallback? onUploadPhoto;
 
   const ChatComposer({
     super.key,
@@ -24,6 +25,7 @@ class ChatComposer extends StatefulWidget {
     this.onPickEquipment,
     this.onClearEquipment,
     this.onUploadDocument,
+    this.onUploadPhoto,
   });
 
   @override
@@ -155,7 +157,7 @@ class _ChatComposerState extends State<ChatComposer> {
                     tooltip: 'Upload inspection photo / diagram',
                     size: 44.0,
                     iconColor: AppColors.onSurfaceVariant,
-                    onPressed: widget.isSending ? null : widget.onUploadDocument,
+                    onPressed: widget.isSending ? null : (widget.onUploadPhoto ?? widget.onUploadDocument),
                   ),
                   const SizedBox(width: 8.0),
                 ],

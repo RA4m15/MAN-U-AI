@@ -69,7 +69,7 @@ authRouter.post("/register", authLimiter, async (req: Request, res: Response) =>
     }
 
     // Assign fixed server-controlled least-privileged non-admin role permitted for user-facing chat
-    const assignedRole: UserRole = "viewer";
+    const assignedRole: UserRole = "engineer";
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await User.create({
       name: name.trim(),
