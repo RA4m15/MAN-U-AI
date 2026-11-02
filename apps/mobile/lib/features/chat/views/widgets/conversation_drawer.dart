@@ -195,6 +195,69 @@ class ConversationDrawer extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(height: 10.0),
+                  // Dedicated Exploded View Explorer Button
+                  InkWell(
+                    key: const Key('drawer_exploded_view_button'),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      context.push('/exploded-view');
+                    },
+                    borderRadius: BorderRadius.circular(16.0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(16.0),
+                        border: Border.all(color: AppColors.primary.withValues(alpha: 0.35), width: 1.0),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 32.0,
+                            height: 32.0,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              borderRadius: BorderRadius.circular(8.0),
+                            ),
+                            child: const Icon(
+                              Icons.hub_outlined,
+                              size: 18.0,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(width: 10.0),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'EXPLODED VIEW',
+                                  style: AppTypography.labelMd.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 12.0,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                Text(
+                                  'Direct 3D Machine Exploration',
+                                  style: AppTypography.caption.copyWith(
+                                    fontSize: 10.5,
+                                    color: AppColors.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            size: 12.0,
+                            color: AppColors.primary,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10.0),
                   // Today's Shift Tasks Card
                   InkWell(
                     key: const Key('drawer_shift_tasks_button'),

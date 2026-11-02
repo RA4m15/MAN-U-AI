@@ -6,7 +6,10 @@ import '../../features/auth/models/auth_state.dart';
 import '../../features/auth/views/login_screen.dart';
 import '../../features/auth/views/register_screen.dart';
 import '../../features/chat/views/chat_screen.dart';
+import '../../features/equipment/models/equipment_model.dart';
 import '../../features/equipment/views/machine_catalog_screen.dart';
+import '../../features/exploded_view/views/exploded_view_explorer_screen.dart';
+import '../../features/exploded_view/views/exploded_view_screen.dart';
 import '../../features/media/views/media_capture_screen.dart';
 import '../../features/settings/views/settings_screen.dart';
 
@@ -50,6 +53,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/catalog',
         builder: (context, state) => const MachineCatalogScreen(),
+      ),
+      GoRoute(
+        path: '/exploded-view',
+        builder: (context, state) => const ExplodedViewExplorerScreen(),
+      ),
+      GoRoute(
+        path: '/exploded-view/viewer',
+        builder: (context, state) {
+          final machine = state.extra as EquipmentModel?;
+          if (machine == null) {
+            return const ExplodedViewExplorerScreen();
+          }
+          return ExplodedViewScreen(machine: machine);
+        },
       ),
       GoRoute(
         path: '/camera',

@@ -9,6 +9,7 @@ enum TerminalTab {
   diagram,
   glossary,
   tasks,
+  explodedView,
 }
 
 /// MAN-U-AI Modern Light Bottom Navigation Bar

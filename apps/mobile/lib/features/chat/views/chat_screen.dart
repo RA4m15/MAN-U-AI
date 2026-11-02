@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/network/connectivity_controller.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_typography.dart';
@@ -216,6 +217,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case TerminalTab.tasks:
         _openTasksScreen(context);
         break;
+      case TerminalTab.explodedView:
+        context.push('/exploded-view');
+        break;
       case TerminalTab.fabAction:
         _openGuidedDiagnostics(context);
         break;
@@ -357,6 +361,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             constraints: const BoxConstraints(minWidth: 32.0, minHeight: 36.0),
             visualDensity: VisualDensity.compact,
             onPressed: () => _showExplodedDiagram(context),
+          ),
+          // Exploded View Explorer Direct Navigation
+          IconButton(
+            key: const Key('appbar_exploded_view_explorer_button'),
+            icon: const Icon(Icons.view_in_ar_rounded, size: 19.0, color: AppColors.primary),
+            tooltip: 'Exploded View Explorer',
+            padding: const EdgeInsets.symmetric(horizontal: 2.0),
+            constraints: const BoxConstraints(minWidth: 32.0, minHeight: 36.0),
+            visualDensity: VisualDensity.compact,
+            onPressed: () => context.push('/exploded-view'),
           ),
           // Equipment picker (when no active conversation lock)
           if (activeConv == null) ...[
