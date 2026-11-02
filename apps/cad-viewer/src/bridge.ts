@@ -38,6 +38,7 @@ export interface CadBridgeEventMessage {
     event: string;
     requestId: string;
     machineId: string;
+    viewerInstanceId?: string;
     payload: Record<string, unknown> | unknown;
     data?: unknown;
     timestamp?: number;
@@ -50,6 +51,7 @@ export interface CadBridgeResponseMessage {
     command: string;
     requestId: string;
     machineId: string;
+    viewerInstanceId?: string;
     payload: {
         success: boolean;
         command: string;
@@ -65,6 +67,7 @@ export interface CadBridgeCommandMessage {
     command: string;
     requestId?: string;
     machineId?: string;
+    viewerInstanceId?: string;
     payload?: Record<string, any>;
 }
 
@@ -243,6 +246,16 @@ export function sendRawToHost(data: object, eventName?: string, payloadData?: un
     }
 }
 
+let activeViewerInstanceId: string | undefined = undefined;
+
+export function setActiveViewerInstanceId(id: string | undefined): void {
+    activeViewerInstanceId = id;
+}
+
+export function getActiveViewerInstanceId(): string | undefined {
+    return activeViewerInstanceId;
+}
+
 /**
  * Dispatch structured versioned events to host.
  */
@@ -250,7 +263,8 @@ export function sendBridgeEvent(
     event: string,
     payload: unknown,
     machineId = 'machine_001',
-    requestId?: string
+    requestId?: string,
+    viewerInstanceId?: string
 ): void {
     const msg: CadBridgeEventMessage = {
         version: 1,
@@ -258,6 +272,7 @@ export function sendBridgeEvent(
         event,
         requestId: requestId || `evt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         machineId,
+        viewerInstanceId: viewerInstanceId || activeViewerInstanceId,
         payload: payload ?? {},
         data: payload,
         timestamp: Date.now(),
@@ -605,6 +620,10 @@ export function initCadBridge(options: CadViewerBridgeOptions): CadViewerBridge 
             const command = (cmd.command || '').toUpperCase();
             const requestId = cmd.requestId || `cmd_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
             const machineId = cmd.machineId || bridge.getMachineId();
+            if (cmd.viewerInstanceId) {
+                activeViewerInstanceId = cmd.viewerInstanceId;
+            }
+            const instanceId = cmd.viewerInstanceId || activeViewerInstanceId;
 
             if (cmd.version !== undefined && cmd.version !== 1) {
                 const errResp: CadBridgeResponseMessage = {

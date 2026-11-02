@@ -32,6 +32,7 @@ class CadBridgeMessage {
   final String? command;
   final String requestId;
   final String machineId;
+  final String? viewerInstanceId;
   final Map<String, dynamic> payload;
 
   const CadBridgeMessage({
@@ -41,6 +42,7 @@ class CadBridgeMessage {
     this.command,
     required this.requestId,
     required this.machineId,
+    this.viewerInstanceId,
     this.payload = const {},
   });
 
@@ -49,6 +51,7 @@ class CadBridgeMessage {
     required String command,
     required String machineId,
     String? requestId,
+    String? viewerInstanceId,
     Map<String, dynamic>? payload,
   }) {
     final sanitizedCommand = command.toUpperCase().trim();
@@ -58,6 +61,7 @@ class CadBridgeMessage {
       command: sanitizedCommand,
       requestId: requestId ?? 'req_${DateTime.now().millisecondsSinceEpoch}_${(1000 + (DateTime.now().microsecond % 9000))}',
       machineId: machineId,
+      viewerInstanceId: viewerInstanceId,
       payload: payload ?? const {},
     );
   }
@@ -103,6 +107,7 @@ class CadBridgeMessage {
     final command = map['command']?.toString().toUpperCase();
     final requestId = map['requestId']?.toString() ?? '';
     final machineId = map['machineId']?.toString() ?? 'machine_001';
+    final viewerInstanceId = map['viewerInstanceId']?.toString();
 
     // Validate event name whitelist
     if (type == 'event' && (event == null || !allowedEvents.contains(event))) {
@@ -128,6 +133,7 @@ class CadBridgeMessage {
       command: command,
       requestId: requestId,
       machineId: machineId,
+      viewerInstanceId: viewerInstanceId,
       payload: payload,
     );
   }
@@ -140,6 +146,7 @@ class CadBridgeMessage {
       if (command != null) 'command': command,
       'requestId': requestId,
       'machineId': machineId,
+      if (viewerInstanceId != null) 'viewerInstanceId': viewerInstanceId,
       'payload': payload,
     };
   }
@@ -151,5 +158,5 @@ class CadBridgeMessage {
   bool get isResponse => type == 'response';
 
   @override
-  String toString() => 'CadBridgeMessage(ver: $version, type: $type, event: $event, cmd: $command, req: $requestId, machine: $machineId)';
+  String toString() => 'CadBridgeMessage(ver: $version, type: $type, event: $event, cmd: $command, req: $requestId, machine: $machineId, inst: $viewerInstanceId)';
 }

@@ -1,3 +1,6 @@
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import { Router, Request, Response } from "express";
 import mongoose from "mongoose";
 import { Equipment } from "../models";
@@ -16,6 +19,46 @@ equipmentRouter.get("/", requireAuth, async (req: Request, res: Response) => {
       process.env.ALLOW_OFFLINE_AUTH === "true";
     if (isOfflineAuthPermitted) {
       const offlineEquipment = [
+        {
+          id: "machine_001",
+          name: "Industrial Turbomachinery Assembly",
+          type: "Industrial rotating equipment",
+          category: "Industrial rotating equipment",
+          referenceImage: "assets/images/machines/machine_turbomachinery.jpg",
+          cadModel: { available: false, format: null, storageReference: null, version: null },
+          documentIds: ["doc-01", "doc-slurry-pump"],
+          status: "operational",
+        },
+        {
+          id: "machine_002",
+          name: "CAT Generator Set",
+          type: "Power generation equipment",
+          category: "Power generation equipment",
+          referenceImage: "assets/images/machines/machine_cat_generator.jpg",
+          cadModel: { available: false, format: null, storageReference: null, version: null },
+          documentIds: [],
+          status: "operational",
+        },
+        {
+          id: "machine_003",
+          name: "Industrial Process Equipment Skid",
+          type: "Industrial process equipment",
+          category: "Industrial process equipment",
+          referenceImage: "assets/images/machines/machine_process_skid.jpg",
+          cadModel: { available: false, format: null, storageReference: null, version: null },
+          documentIds: [],
+          status: "operational",
+        },
+        {
+          id: "machine_004",
+          name: "CNC Machining Center",
+          type: "Manufacturing equipment",
+          category: "Manufacturing equipment",
+          referenceImage: "assets/images/machines/machine_cnc_center.jpg",
+          cadModel: { available: false, format: null, storageReference: null, version: null },
+          documentIds: [],
+          status: "operational",
+        },
         {
           id: "equip-drypix-6000",
           name: "Fuji Medical Dry Laser Imager DRYPIX Smart",
@@ -332,6 +375,212 @@ equipmentRouter.delete(
       return res.status(500).json({
         success: false,
         error: { code: "SERVER_ERROR", message: "Failed to delete equipment record" },
+      });
+    }
+  }
+);
+
+// ─── CAD Model Storage & Upload Endpoints (Part 5) ──────────────────────────
+
+const ALLOWED_CAD_EXTENSIONS = new Set([".step", ".stp", ".iges", ".igs", ".brep"]);
+const MAX_CAD_FILE_SIZE = 100 * 1024 * 1024; // 100 MB max
+
+const inMemoryCadStorage = new Map<string, any>();
+
+const cadUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_CAD_FILE_SIZE },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ALLOWED_CAD_EXTENSIONS.has(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported CAD format '${ext}'. Allowed formats: .step, .stp, .iges, .igs, .brep`));
+    }
+  },
+});
+
+// POST /:id/cad - Upload CAD model for machine (Admin or Manager only)
+equipmentRouter.post(
+  "/:id/cad",
+  requireAuth,
+  requireRole(["admin", "manager"]),
+  (req, res, next) => {
+    cadUpload.single("file")(req, res, (err: any) => {
+      if (err) {
+        if (err.message && err.message.includes("Unsupported CAD format")) {
+          return res.status(400).json({
+            success: false,
+            error: { code: "INVALID_CAD_FORMAT", message: err.message },
+          });
+        }
+        return res.status(400).json({
+          success: false,
+          error: { code: "INVALID_FILE_UPLOAD", message: err.message || "File upload failed" },
+        });
+      }
+      next();
+    });
+  },
+  async (req: AuthenticatedRequest, res: Response) => {
+    const id = String(req.params.id);
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "FILE_REQUIRED", message: "A CAD model file (.step, .stp, .iges, .igs, .brep) is required." },
+      });
+    }
+
+    const ext = path.extname(req.file.originalname).toLowerCase().replace(".", "");
+    const version = (req.body.version as string) || "v1.0";
+
+    const cadUploadDir = path.resolve(process.cwd(), "uploads", "cad");
+    if (!fs.existsSync(cadUploadDir)) {
+      fs.mkdirSync(cadUploadDir, { recursive: true });
+    }
+
+    const safeFilename = `${id}_${Date.now()}_${path.basename(req.file.originalname).replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const targetFilePath = path.join(cadUploadDir, safeFilename);
+
+    try {
+      fs.writeFileSync(targetFilePath, req.file.buffer);
+
+      const cadModelData = {
+        available: true,
+        format: ext,
+        storageReference: safeFilename,
+        version,
+        fileSizeBytes: req.file.size,
+        uploadedAt: new Date().toISOString(),
+      };
+
+      inMemoryCadStorage.set(id.toLowerCase(), cadModelData);
+
+      if (isConnectedToMongo) {
+        const query = mongoose.Types.ObjectId.isValid(id)
+          ? { _id: id }
+          : { $or: [{ serialNumber: id }, { model: id }] };
+        await Equipment.findOneAndUpdate(query, { $set: { cadModel: cadModelData } });
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          machineId: id,
+          cadModel: cadModelData,
+          message: "CAD assembly uploaded and associated successfully.",
+        },
+      });
+    } catch (err: any) {
+      console.error("[Equipment CAD Upload] Failed to write CAD file:", err);
+      return res.status(500).json({
+        success: false,
+        error: { code: "UPLOAD_FAILED", message: "Failed to persist CAD file to storage." },
+      });
+    }
+  }
+);
+
+// GET /:id/cad - Download or stream machine CAD model (Authenticated users)
+equipmentRouter.get("/:id/cad", requireAuth, async (req: Request, res: Response) => {
+  const id = String(req.params.id);
+
+  let cadInfo = inMemoryCadStorage.get(id.toLowerCase());
+
+  if (!cadInfo && isConnectedToMongo) {
+    const query = mongoose.Types.ObjectId.isValid(id)
+      ? { _id: id }
+      : { $or: [{ serialNumber: id }, { model: id }] };
+    const eq = await Equipment.findOne(query);
+    if (eq && (eq as any).cadModel?.available) {
+      cadInfo = (eq as any).cadModel;
+    }
+  }
+
+  if (!cadInfo || !cadInfo.available) {
+    return res.status(404).json({
+      success: false,
+      error: {
+        code: "CAD_MODEL_PENDING",
+        message: "A CAD 3D assembly has not yet been uploaded for this machine. Visual reference and documentation remain accessible.",
+      },
+    });
+  }
+
+  // If client accepts JSON or requests metadata explicitly, return CAD metadata object
+  const acceptsJson = req.headers.accept?.includes("application/json") || req.query.metadata === "true";
+  if (acceptsJson && !req.query.download) {
+    return res.json({
+      success: true,
+      data: cadInfo,
+    });
+  }
+
+  const storageRef = cadInfo.storageReference;
+  const cadUploadDir = path.resolve(process.cwd(), "uploads", "cad");
+  const fullPath = path.join(cadUploadDir, storageRef);
+
+  if (!fs.existsSync(fullPath)) {
+    return res.status(404).json({
+      success: false,
+      error: { code: "FILE_NOT_FOUND", message: "Referenced CAD asset is unavailable in storage." },
+    });
+  }
+
+  const mimeMap: Record<string, string> = {
+    step: "application/octet-stream",
+    stp: "application/octet-stream",
+    iges: "application/octet-stream",
+    igs: "application/octet-stream",
+    brep: "application/octet-stream",
+  };
+
+  const modelFormat = cadInfo.format || "step";
+  res.setHeader("Content-Type", mimeMap[modelFormat] || "application/octet-stream");
+  res.setHeader("Content-Disposition", `inline; filename="${storageRef}"`);
+  const stream = fs.createReadStream(fullPath);
+  return stream.pipe(res);
+});
+
+// DELETE /:id/cad - Remove CAD model association (Admin or Manager only)
+equipmentRouter.delete(
+  "/:id/cad",
+  requireAuth,
+  requireRole(["admin", "manager"]),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const id = String(req.params.id);
+    try {
+      inMemoryCadStorage.delete(id.toLowerCase());
+
+      if (isConnectedToMongo) {
+        const query = mongoose.Types.ObjectId.isValid(id)
+          ? { _id: id }
+          : { $or: [{ serialNumber: id }, { model: id }] };
+        await Equipment.findOneAndUpdate(query, {
+          $set: {
+            cadModel: {
+              available: false,
+              format: null,
+              storageReference: null,
+              version: null,
+              fileSizeBytes: null,
+              uploadedAt: null,
+            },
+          },
+        });
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          message: "CAD model association removed.",
+          cadModel: { available: false },
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        success: false,
+        error: { code: "DELETE_FAILED", message: err.message },
       });
     }
   }

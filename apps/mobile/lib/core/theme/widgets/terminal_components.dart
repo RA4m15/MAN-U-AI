@@ -178,21 +178,25 @@ class SecondaryButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(22.0),
           onTap: onPressed,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18.0),
+            padding: const EdgeInsets.symmetric(horizontal: 10.0),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (icon != null) ...[
                   Icon(icon, size: 16.0, color: AppColors.onSurface),
-                  const SizedBox(width: 8.0),
+                  const SizedBox(width: 6.0),
                 ],
-                Text(
-                  label,
-                  style: AppTypography.bodyMd.copyWith(
-                    fontSize: 13.0,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.onSurface,
+                Flexible(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: AppTypography.bodyMd.copyWith(
+                      fontSize: 12.0,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.onSurface,
+                    ),
                   ),
                 ),
               ],

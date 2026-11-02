@@ -208,16 +208,31 @@ export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 
 // ─── Equipment ───────────────────────────────────────────────────────────────
 
+export interface CadModelMetadataDTO {
+  available: boolean;
+  format?: string | null;
+  storageReference?: string | null;
+  version?: string | null;
+  fileSizeBytes?: number | null;
+  uploadedAt?: string | null;
+}
+
 export interface EquipmentDTO {
   id: string;
   name: string;
   type: string;
+  category?: string;
   model?: string;
   manufacturer?: string;
   serialNumber?: string;
   location?: string;
+  referenceImage?: string | null;
+  cadModel?: CadModelMetadataDTO;
   documentIds: string[];
+  components?: ComponentMetadataDTO[];
+  explosionConfiguration?: Record<string, any> | null;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export const CreateEquipmentSchema = z.object({

@@ -1,3 +1,4 @@
+import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -256,6 +257,17 @@ class EquipmentPickerModal extends ConsumerWidget {
                   );
                 },
               ),
+            ),
+            const SizedBox(height: 14.0),
+            SecondaryButton(
+              key: const Key('picker_browse_catalog_button'),
+              label: 'BROWSE FULL MACHINE CATALOG',
+              icon: Icons.view_in_ar_rounded,
+              height: 42.0,
+              onPressed: () {
+                Navigator.of(context).pop();
+                context.push('/catalog');
+              },
             ),
           ],
         ),

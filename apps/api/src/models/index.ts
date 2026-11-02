@@ -56,16 +56,29 @@ export interface IComponentMetadata {
   maintenanceInstructions?: string[];
 }
 
+export interface ICadModelMetadata {
+  available: boolean;
+  format?: string | null;
+  storageReference?: string | null;
+  version?: string | null;
+  fileSizeBytes?: number | null;
+  uploadedAt?: Date | null;
+}
+
 export interface IEquipment {
   name: string;
   type: string;
+  category?: string;
   model?: string;
   manufacturer?: string;
   serialNumber?: string;
   location?: string;
+  referenceImage?: string | null;
+  cadModel?: ICadModelMetadata;
   documentIds: string[];
   telemetryConfig?: Record<string, any>;
   components?: IComponentMetadata[];
+  explosionConfiguration?: Record<string, any> | null;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -74,12 +87,23 @@ const EquipmentSchema = new Schema<IEquipment>(
   {
     name: { type: String, required: true, trim: true },
     type: { type: String, required: true },
+    category: { type: String },
     model: { type: String },
     manufacturer: { type: String },
     serialNumber: { type: String },
     location: { type: String },
+    referenceImage: { type: String },
+    cadModel: {
+      available: { type: Boolean, default: false },
+      format: { type: String, default: null },
+      storageReference: { type: String, default: null },
+      version: { type: String, default: null },
+      fileSizeBytes: { type: Number, default: null },
+      uploadedAt: { type: Date, default: null },
+    },
     documentIds: [{ type: Schema.Types.ObjectId, ref: "Document" }],
     telemetryConfig: { type: Schema.Types.Mixed },
+    explosionConfiguration: { type: Schema.Types.Mixed, default: null },
     components: [
       {
         partId: { type: String, required: true },

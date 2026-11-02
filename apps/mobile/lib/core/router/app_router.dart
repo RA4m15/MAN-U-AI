@@ -6,6 +6,7 @@ import '../../features/auth/models/auth_state.dart';
 import '../../features/auth/views/login_screen.dart';
 import '../../features/auth/views/register_screen.dart';
 import '../../features/chat/views/chat_screen.dart';
+import '../../features/equipment/views/machine_catalog_screen.dart';
 import '../../features/media/views/media_capture_screen.dart';
 import '../../features/settings/views/settings_screen.dart';
 
@@ -45,6 +46,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/home',
         builder: (context, state) => const ChatScreen(),
+      ),
+      GoRoute(
+        path: '/catalog',
+        builder: (context, state) => const MachineCatalogScreen(),
       ),
       GoRoute(
         path: '/camera',

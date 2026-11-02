@@ -9,6 +9,10 @@ class ExplodedViewModel {
   final int? initialStep;
   final int? totalSteps;
   final Map<String, dynamic>? sequenceConfig;
+  final String? viewerInstanceId;
+  final bool isCadPending;
+  final String? referenceImage;
+  final List<String> documentation;
 
   const ExplodedViewModel({
     required this.machineId,
@@ -20,19 +24,37 @@ class ExplodedViewModel {
     this.initialStep,
     this.totalSteps,
     this.sequenceConfig,
+    this.viewerInstanceId,
+    this.isCadPending = false,
+    this.referenceImage,
+    this.documentation = const [],
   });
 
   factory ExplodedViewModel.fromJson(Map<String, dynamic> json) {
+    List<String> docs = [];
+    if (json['documentation'] is List) {
+      docs = (json['documentation'] as List).map((e) => e.toString()).toList();
+    }
+
+    final rawModelUrl = json['modelUrl']?.toString() ?? '';
+    final pendingFlag = json['isCadPending'] == true ||
+        (json['cadModel'] is Map && json['cadModel']['available'] == false) ||
+        rawModelUrl.isEmpty;
+
     return ExplodedViewModel(
       machineId: json['machineId']?.toString() ?? 'machine_001',
       machineName: json['machineName']?.toString() ?? 'Industrial Equipment',
-      modelUrl: json['modelUrl']?.toString() ?? '',
+      modelUrl: rawModelUrl,
       title: json['title']?.toString() ?? 'Machine Structure Explanation',
       description: json['description']?.toString() ?? 'Explore the exploded machine assembly.',
       conversationId: json['conversationId']?.toString(),
       initialStep: (json['initialStep'] is num) ? (json['initialStep'] as num).toInt() : null,
       totalSteps: (json['totalSteps'] is num) ? (json['totalSteps'] as num).toInt() : null,
       sequenceConfig: json['sequenceConfig'] is Map ? Map<String, dynamic>.from(json['sequenceConfig'] as Map) : null,
+      viewerInstanceId: json['viewerInstanceId']?.toString(),
+      isCadPending: pendingFlag,
+      referenceImage: json['referenceImage']?.toString(),
+      documentation: docs,
     );
   }
 
@@ -47,6 +69,10 @@ class ExplodedViewModel {
       if (initialStep != null) 'initialStep': initialStep,
       if (totalSteps != null) 'totalSteps': totalSteps,
       if (sequenceConfig != null) 'sequenceConfig': sequenceConfig,
+      if (viewerInstanceId != null) 'viewerInstanceId': viewerInstanceId,
+      'isCadPending': isCadPending,
+      if (referenceImage != null) 'referenceImage': referenceImage,
+      if (documentation.isNotEmpty) 'documentation': documentation,
     };
   }
 
@@ -60,6 +86,10 @@ class ExplodedViewModel {
     int? initialStep,
     int? totalSteps,
     Map<String, dynamic>? sequenceConfig,
+    String? viewerInstanceId,
+    bool? isCadPending,
+    String? referenceImage,
+    List<String>? documentation,
   }) {
     return ExplodedViewModel(
       machineId: machineId ?? this.machineId,
@@ -71,7 +101,10 @@ class ExplodedViewModel {
       initialStep: initialStep ?? this.initialStep,
       totalSteps: totalSteps ?? this.totalSteps,
       sequenceConfig: sequenceConfig ?? this.sequenceConfig,
+      viewerInstanceId: viewerInstanceId ?? this.viewerInstanceId,
+      isCadPending: isCadPending ?? this.isCadPending,
+      referenceImage: referenceImage ?? this.referenceImage,
+      documentation: documentation ?? this.documentation,
     );
   }
 }
-

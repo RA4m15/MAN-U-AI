@@ -156,7 +156,8 @@ class EnvConfig {
   /// Desktop / Localhost loopback CAD viewer dev server.
   static const String localHostCadViewerUrl = 'http://localhost:5173';
 
-  /// Build-time configured CAD Viewer URL override.
+  /// Build-time configured CAD Viewer URL overrides (reconciles CAD_VIEWER_BASE_URL and CAD_VIEWER_URL).
+  static const String _definedCadViewerBaseUrl = String.fromEnvironment('CAD_VIEWER_BASE_URL');
   static const String _definedCadViewerUrl = String.fromEnvironment('CAD_VIEWER_URL');
 
   /// Optional runtime override for CAD Viewer URL.
@@ -183,7 +184,10 @@ class EnvConfig {
       return _cadViewerRuntimeOverride!;
     }
 
-    // 2. Build-time environment define (--dart-define=CAD_VIEWER_URL=...)
+    // 2. Build-time environment define (--dart-define=CAD_VIEWER_BASE_URL=... or CAD_VIEWER_URL=...)
+    if (_definedCadViewerBaseUrl.isNotEmpty) {
+      return _definedCadViewerBaseUrl.trim();
+    }
     if (_definedCadViewerUrl.isNotEmpty) {
       return _definedCadViewerUrl.trim();
     }
@@ -248,6 +252,9 @@ class EnvConfig {
 
     return true;
   }
+
+  /// Backward-compatible alias for CAD_VIEWER_BASE_URL
+  static String get cadViewerBaseUrl => cadViewerUrl;
 
   /// Constructs a safe, encoded CAD viewer URL with model parameter.
   static String buildCadViewerUrl(String modelUrl) {

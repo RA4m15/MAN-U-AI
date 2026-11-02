@@ -8,7 +8,11 @@ import '../models/cad_component_selection_state.dart';
 /// Service managing secure, bidirectional communication between Flutter
 /// and the embedded CAD 3D Viewer inside a chat message.
 class CadViewerBridgeService {
+  bool _isDispatchingCommand = false;
+  bool get isDispatchingCommand => _isDispatchingCommand;
+
   final String machineId;
+  final String viewerInstanceId;
   WebViewController? _controller;
   bool _isDisposed = false;
 
@@ -19,13 +23,14 @@ class CadViewerBridgeService {
   final Map<String, Completer<Map<String, dynamic>>> _pendingCommands = {};
 
   // Flag to avoid circular command firing when UI reflects back an event
-  bool _isDispatchingCommand = false;
-
+  
   CadViewerBridgeService({
     required this.machineId,
+    String? viewerInstanceId,
     int initialStep = 1,
     int totalSteps = 1,
-  }) {
+  }) : viewerInstanceId = viewerInstanceId ??
+            'vinst_${DateTime.now().microsecondsSinceEpoch}_${(1000 + (DateTime.now().microsecond % 9000))}' {
     stateNotifier = ValueNotifier<CadComponentSelectionState>(
       CadComponentSelectionState.initial(
         machineId,
@@ -65,7 +70,15 @@ class CadViewerBridgeService {
     if (message.machineId.isNotEmpty &&
         message.machineId != machineId &&
         message.machineId != 'machine_001') {
-      return; // Ignore messages for other instances
+      return; // Ignore messages for other machines
+    }
+
+    // Multiple viewer instance isolation check:
+    // If message specifies an instance ID and it does not match this instance, ignore it
+    if (message.viewerInstanceId != null &&
+        message.viewerInstanceId!.isNotEmpty &&
+        message.viewerInstanceId != viewerInstanceId) {
+      return; // Ignore messages for other viewer instances
     }
 
     _eventStreamController.add(message);
@@ -179,14 +192,13 @@ class CadViewerBridgeService {
       throw StateError('CAD Viewer is not ready. Wait for viewerReady event before sending commands.');
     }
 
+    // Fallback for headless widget testing where WebViewController cannot run native JS
     if (_controller == null) {
-      // In headless environments or widget tests without native WebView engine,
-      // simulate local state transitions for offline/mock test execution.
-      if (command == 'NEXT_STEP' && state.currentStep < state.totalSteps) {
+      if (command == 'NEXT_STEP') {
         stateNotifier.value = state.copyWith(currentStep: state.currentStep + 1);
         return {'success': true, 'command': command};
       }
-      if (command == 'PREVIOUS_STEP' && state.currentStep > 1) {
+      if (command == 'PREVIOUS_STEP') {
         stateNotifier.value = state.copyWith(currentStep: state.currentStep - 1);
         return {'success': true, 'command': command};
       }
@@ -218,153 +230,96 @@ class CadViewerBridgeService {
     final msg = CadBridgeMessage.command(
       command: command,
       machineId: machineId,
+      viewerInstanceId: viewerInstanceId,
       payload: payload,
     );
+    final reqId = msg.requestId;
+    final jsonPayload = msg.toJsonString();
 
     final completer = Completer<Map<String, dynamic>>();
-    _pendingCommands[msg.requestId] = completer;
-
-    final jsonStr = msg.toJsonString().replaceAll(r'\', r'\\').replaceAll("'", r"\'");
-    final script = """
-      (function() {
-        try {
-          if (window.cadViewer && typeof window.cadViewer.handleCommand === 'function') {
-            window.cadViewer.handleCommand('$jsonStr');
-          } else {
-            window.postMessage($jsonStr, '*');
-          }
-        } catch(e) {
-          console.error('[FlutterCADBridge] dispatch failed:', e);
-        }
-      })();
-    """;
+    _pendingCommands[reqId] = completer;
 
     try {
-      await _controller!.runJavaScript(script);
+      _isDispatchingCommand = true;
+      // Inject JS command safely
+      final jsCall = 'window.CADViewerBridge ? window.CADViewerBridge.handleCommand($jsonPayload) : null;';
+      await _controller!.runJavaScript(jsCall);
     } catch (e) {
-      _pendingCommands.remove(msg.requestId);
-      throw StateError('JavaScript execution failed: $e');
-    }
-
-    // Wait for correlated response or timeout
-    try {
-      return await completer.future.timeout(timeout, onTimeout: () {
-        _pendingCommands.remove(msg.requestId);
-        // Fallback simulated success if message was dispatched without explicit response
-        return {'success': true, 'command': command, 'timeout': true};
-      });
-    } catch (e) {
-      _pendingCommands.remove(msg.requestId);
+      _pendingCommands.remove(reqId);
       rethrow;
+    } finally {
+      _isDispatchingCommand = false;
     }
+
+    return completer.future.timeout(
+      timeout,
+      onTimeout: () {
+        _pendingCommands.remove(reqId);
+        throw TimeoutException('Timed out waiting for response to CAD command $command ($reqId)');
+      },
+    );
   }
 
-  /// Advances to next exploded assembly stage.
+  /// Advances to the next discrete exploded-view step.
   Future<bool> nextStep() async {
-    if (_isDispatchingCommand || state.currentStep >= state.totalSteps) return false;
-    _isDispatchingCommand = true;
-    try {
-      final res = await sendCommand('NEXT_STEP');
-      return res['success'] == true;
-    } finally {
-      _isDispatchingCommand = false;
-    }
+    await sendCommand('NEXT_STEP');
+    return true;
   }
 
-  /// Returns to previous exploded assembly stage.
+  /// Retreats to the previous discrete exploded-view step.
   Future<bool> previousStep() async {
-    if (_isDispatchingCommand || state.currentStep <= 1) return false;
-    _isDispatchingCommand = true;
-    try {
-      final res = await sendCommand('PREVIOUS_STEP');
-      return res['success'] == true;
-    } finally {
-      _isDispatchingCommand = false;
-    }
+    await sendCommand('PREVIOUS_STEP');
+    return true;
   }
 
-  /// Resets explosion back to base unexploded assembly (Stage 1).
+  /// Resets the assembly explosion to initial stage (collapsed / assembled).
   Future<bool> resetExplosion() async {
-    if (_isDispatchingCommand) return false;
-    _isDispatchingCommand = true;
-    try {
-      final res = await sendCommand('RESET_EXPLOSION');
-      return res['success'] == true;
-    } finally {
-      _isDispatchingCommand = false;
-    }
+    await sendCommand('RESET_EXPLOSION');
+    return true;
   }
 
-  /// Navigates directly to a target 1-based or 0-based step index.
-  Future<bool> goToStep(int index) async {
-    if (_isDispatchingCommand) return false;
-    _isDispatchingCommand = true;
-    try {
-      final res = await sendCommand('GO_TO_STEP', payload: {'stepIndex': index});
-      return res['success'] == true;
-    } finally {
-      _isDispatchingCommand = false;
-    }
+  /// Navigates to a specific stage index (0-based or 1-based handled by viewer).
+  Future<bool> goToStep(int stepIndex) async {
+    await sendCommand('GO_TO_STEP', payload: {'stepIndex': stepIndex});
+    return true;
   }
 
-  /// Programmatically selects a component by partId or name.
+  /// Selects a component by its unique node/part identifier.
   Future<bool> selectComponent(String partId) async {
-    if (_isDispatchingCommand) return false;
-    _isDispatchingCommand = true;
-    try {
-      final res = await sendCommand('SELECT_COMPONENT', payload: {'partId': partId});
-      return res['success'] == true;
-    } finally {
-      _isDispatchingCommand = false;
-    }
+    await sendCommand('SELECT_COMPONENT', payload: {'partId': partId});
+    return true;
   }
 
-  /// Clears active component selection.
+  /// Deselects any currently selected component.
   Future<bool> clearSelection() async {
-    if (_isDispatchingCommand) return false;
-    _isDispatchingCommand = true;
-    try {
-      final res = await sendCommand('CLEAR_SELECTION');
-      return res['success'] == true;
-    } finally {
-      _isDispatchingCommand = false;
-    }
+    await sendCommand('CLEAR_SELECTION');
+    return true;
   }
 
-  /// Requests complete state snapshot from the viewer.
-  Future<Map<String, dynamic>?> getViewerState() async {
-    try {
-      final res = await sendCommand('GET_VIEWER_STATE');
-      return (res['result'] is Map) ? Map<String, dynamic>.from(res['result'] as Map) : res;
-    } catch (_) {
-      return null;
-    }
+  /// Requests the full viewer state snapshot from the Web module.
+  Future<Map<String, dynamic>> getViewerState() async {
+    return await sendCommand('GET_VIEWER_STATE');
   }
 
-  /// Loads an assembly model from a secure URL.
-  Future<bool> loadAssembly(String url, {String? name}) async {
-    try {
-      final res = await sendCommand('LOAD_ASSEMBLY', payload: {'url': url, 'name': ?name});
-      return res['success'] == true;
-    } catch (_) {
-      return false;
-    }
+  /// Loads a new assembly model from URL.
+  Future<void> loadAssembly(String url, {String? name}) async {
+    final payload = <String, dynamic>{'url': url};
+    if (name != null) payload['name'] = name;
+    await sendCommand('LOAD_ASSEMBLY', payload: payload);
   }
 
-  /// Disposes the service and cancels all pending requests.
+  /// Disposes resources, closes streams, and clears listeners.
   void dispose() {
     if (_isDisposed) return;
     _isDisposed = true;
     _controller = null;
-
     for (final completer in _pendingCommands.values) {
       if (!completer.isCompleted) {
-        completer.completeError(StateError('CadViewerBridgeService disposed during pending command.'));
+        completer.completeError(StateError('CadViewerBridgeService was disposed.'));
       }
     }
     _pendingCommands.clear();
-
-    _eventStreamController.close();
     stateNotifier.dispose();
+    _eventStreamController.close();
   }
 }

@@ -6,19 +6,180 @@ import type { ComponentMetadataDTO } from "@man-u-ai/shared";
 export interface ResolvedMachine {
   id: string;
   name: string;
+  category?: string;
   model?: string;
   manufacturer?: string;
+  referenceImage?: string | null;
+  cadModel?: {
+    available: boolean;
+    format?: string | null;
+    storageReference?: string | null;
+    version?: string | null;
+    fileSizeBytes?: number | null;
+    uploadedAt?: string | null;
+  };
   documentIds: string[];
   components: ComponentMetadataDTO[];
+  explosionConfiguration?: Record<string, any> | null;
 }
 
 /**
  * Built-in verified industrial machine manifests for standard equipment.
  * Used for dynamic CAD assembly mapping and offline/hybrid fallback.
  */
-const DEFAULT_VERIFIED_MANIFESTS: Record<string, { name: string; model?: string; documentIds?: string[]; components: ComponentMetadataDTO[] }> = {
-  // Centrifugal Slurry Pump / Industrial Pump
+export interface MachineManifestEntry {
+  name: string;
+  category?: string;
+  model?: string;
+  manufacturer?: string;
+  referenceImage?: string;
+  cadModel?: {
+    available: boolean;
+    format: string | null;
+    storageReference: string | null;
+    version: string | null;
+    fileSizeBytes?: number | null;
+    uploadedAt?: string | null;
+  };
+  documentIds?: string[];
+  components: ComponentMetadataDTO[];
+  explosionConfiguration?: Record<string, any> | null;
+}
+
+const DEFAULT_VERIFIED_MANIFESTS: Record<string, MachineManifestEntry> = {
+  // MACHINE 01: Industrial Turbomachinery Assembly
   machine_001: {
+    name: "Industrial Slurry Pump P-102",
+    model: "SP-400 Heavy Duty",
+    category: "Industrial rotating equipment",
+    cadModel: {
+      available: true,
+      format: "STEP",
+      storageReference: "/cad/models/slurry_pump_p102.step",
+      version: "1.0",
+    },
+    documentIds: ["doc-01", "doc-slurry-pump"],
+    components: [
+      {
+        partId: "bearing_assembly_01",
+        name: "Bearing Assembly",
+        description: "Heavy-duty double row spherical roller bearing supporting rotor shaft.",
+        parentAssemblyId: "rotor_assembly",
+        aliases: ["shaft bearing", "motor bearing", "roller bearing", "pump bearing"],
+        documentReferences: ["doc-01", "doc-slurry-pump"],
+        technicalSpecifications: {
+          bearingType: "Spherical Roller 22216",
+          maxTempC: 85,
+          lubrication: "ISO VG 220 Synthetic Gear/Bearing Oil",
+          vibrationLimitRms: 2.8,
+        },
+        maintenanceInstructions: [
+          "Check operating temperature with infrared thermometer. Overheating (>80°C) indicates lubrication starvation or misalignment.",
+          "Inspect radial clearance every 2,000 operating hours. Max allowable wear clearance: 0.12 mm.",
+        ],
+      },
+      {
+        partId: "mechanical_seal_02",
+        name: "Mechanical Seal Cartridge",
+        description: "Dual cartridge mechanical seal preventing fluid leakage across housing.",
+        parentAssemblyId: "casing_assembly",
+        aliases: ["seal", "shaft seal", "mechanical seal", "cartridge seal"],
+        documentReferences: ["doc-01", "doc-slurry-pump"],
+        technicalSpecifications: {
+          sealFaces: "Silicon Carbide vs Tungsten Carbide",
+          flushPressureBar: 4.5,
+          torqueNm: 45,
+        },
+        maintenanceInstructions: [
+          "Tighten four M12 gland retaining nuts in cross-diagonal sequence to 45 N·m.",
+          "Verify barrier fluid pressure is maintained at 1.5 bar above stuffing box pressure.",
+        ],
+      },
+      {
+        partId: "impeller_01",
+        name: "Slurry Impeller",
+        description: "Closed multi-vane high-chrome abrasive slurry impeller.",
+        parentAssemblyId: "rotor_assembly",
+        aliases: ["impeller", "slurry impeller", "runner"],
+        documentReferences: ["doc-01", "doc-slurry-pump"],
+      },
+      {
+        partId: "suction_casing_01",
+        name: "Suction Casing Liner",
+        description: "Cast high-chrome alloy wear liner protecting outer casing from abrasion.",
+        parentAssemblyId: "casing_assembly",
+        aliases: ["casing", "liner", "casing liner"],
+        documentReferences: ["doc-01", "doc-slurry-pump"],
+      },
+    ],
+  },
+
+  // MACHINE 01: Industrial Turbomachinery Assembly
+  machine_turbomachinery: {
+    name: "Industrial Turbomachinery Assembly",
+    category: "Industrial rotating equipment",
+    referenceImage: "assets/images/machines/machine_turbomachinery.jpg",
+    cadModel: {
+      available: false,
+      format: null,
+      storageReference: null,
+      version: null,
+    },
+    documentIds: ["doc-turbomachinery-01"],
+    components: [],
+    explosionConfiguration: null,
+  },
+
+  // MACHINE 02: CAT Generator Set
+  machine_002: {
+    name: "CAT Generator Set",
+    category: "Power generation equipment",
+    referenceImage: "assets/images/machines/machine_cat_generator.jpg",
+    cadModel: {
+      available: false,
+      format: null,
+      storageReference: null,
+      version: null,
+    },
+    documentIds: [],
+    components: [],
+    explosionConfiguration: null,
+  },
+
+  // MACHINE 03: Industrial Process Equipment Skid
+  machine_003: {
+    name: "Industrial Process Equipment Skid",
+    category: "Industrial process equipment",
+    referenceImage: "assets/images/machines/machine_process_skid.jpg",
+    cadModel: {
+      available: false,
+      format: null,
+      storageReference: null,
+      version: null,
+    },
+    documentIds: [],
+    components: [],
+    explosionConfiguration: null,
+  },
+
+  // MACHINE 04: CNC Machining Center
+  machine_004: {
+    name: "CNC Machining Center",
+    category: "Manufacturing equipment",
+    referenceImage: "assets/images/machines/machine_cnc_center.jpg",
+    cadModel: {
+      available: false,
+      format: null,
+      storageReference: null,
+      version: null,
+    },
+    documentIds: [],
+    components: [],
+    explosionConfiguration: null,
+  },
+
+  // Legacy Centrifugal Slurry Pump alias
+  slurry_pump_legacy: {
     name: "Industrial Slurry Pump P-102",
     model: "SP-400 Heavy Duty",
     documentIds: ["doc-01", "doc-slurry-pump"],
@@ -183,7 +344,7 @@ const DEFAULT_VERIFIED_MANIFESTS: Record<string, { name: string; model?: string;
 };
 
 export class MachineComponentService {
-  private dynamicManifests = new Map<string, { name: string; model?: string; documentIds?: string[]; components: ComponentMetadataDTO[] }>();
+  private dynamicManifests = new Map<string, MachineManifestEntry>();
 
   constructor() {
     // Populate default manifests
@@ -197,7 +358,7 @@ export class MachineComponentService {
    */
   public registerMachineManifest(
     machineId: string,
-    manifest: { name: string; model?: string; documentIds?: string[]; components: ComponentMetadataDTO[] }
+    manifest: MachineManifestEntry
   ): void {
     if (!machineId) return;
     this.dynamicManifests.set(machineId.toLowerCase().trim(), manifest);
@@ -245,10 +406,14 @@ export class MachineComponentService {
           return {
             id: eq._id.toString(),
             name: eq.name,
-            model: eq.model,
-            manufacturer: eq.manufacturer,
+            category: eq.category || eq.type || manifestMatch?.category,
+            model: eq.model || manifestMatch?.model,
+            manufacturer: eq.manufacturer || manifestMatch?.manufacturer,
+            referenceImage: eq.referenceImage || manifestMatch?.referenceImage,
+            cadModel: eq.cadModel || manifestMatch?.cadModel || { available: false },
             documentIds: Array.from(new Set([...docIds, ...(manifestMatch?.documentIds || [])])),
             components: mergedComponents,
+            explosionConfiguration: eq.explosionConfiguration || manifestMatch?.explosionConfiguration,
           };
         }
       } catch (err) {
@@ -262,9 +427,14 @@ export class MachineComponentService {
       return {
         id: cleanId,
         name: manifest.name,
+        category: manifest.category,
         model: manifest.model,
+        manufacturer: manifest.manufacturer,
+        referenceImage: manifest.referenceImage,
+        cadModel: manifest.cadModel || { available: false },
         documentIds: manifest.documentIds || [],
         components: manifest.components,
+        explosionConfiguration: manifest.explosionConfiguration,
       };
     }
 

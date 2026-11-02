@@ -59,6 +59,7 @@ class _ExplodedViewChatMessageState extends State<ExplodedViewChatMessage>
         machineId: widget.payload.machineId,
         initialStep: widget.payload.initialStep ?? 1,
         totalSteps: widget.payload.totalSteps ?? 4,
+        viewerInstanceId: widget.payload.viewerInstanceId,
       );
       _ownsBridgeService = true;
     }
@@ -90,7 +91,7 @@ class _ExplodedViewChatMessageState extends State<ExplodedViewChatMessage>
   }
 
   void _initWebViewController() {
-    if (!_isPlatformSupported) {
+    if (widget.payload.isCadPending || !_isPlatformSupported) {
       _isLoading = false;
       _controller = null;
       return;
@@ -261,7 +262,78 @@ class _ExplodedViewChatMessageState extends State<ExplodedViewChatMessage>
     );
   }
 
+  Widget _buildCadPendingCard(BuildContext context) {
+    return Container(
+      key: const Key('cad_pending_card'),
+      color: AppColors.surfaceAlt,
+      padding: const EdgeInsets.all(12.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (widget.payload.referenceImage != null && widget.payload.referenceImage!.isNotEmpty)
+            Expanded(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10.0),
+                child: Image.asset(
+                  widget.payload.referenceImage!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => Container(
+                    color: AppColors.surfaceCard,
+                    child: const Icon(Icons.precision_manufacturing_rounded, size: 36.0, color: AppColors.onSurfaceVariant),
+                  ),
+                ),
+              ),
+            ),
+          const SizedBox(height: 8.0),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 3.0),
+                decoration: BoxDecoration(
+                  color: AppColors.accentCategorical5.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6.0),
+                  border: Border.all(color: AppColors.accentCategorical5, width: 0.8),
+                ),
+                child: Text(
+                  'CAD MODEL PENDING',
+                  key: const Key('cad_pending_badge'),
+                  style: AppTypography.caption.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.accentCategorical5,
+                    fontSize: 9.5,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8.0),
+              Expanded(
+                child: Text(
+                  'Visual Model Pending Upload',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.onSurfaceVariant,
+                    fontSize: 10.5,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4.0),
+          Text(
+            '3D CAD geometry is awaiting administrative upload. Grounded SOPs and technical manuals remain fully searchable.',
+            style: AppTypography.bodySm.copyWith(
+              color: AppColors.onSurfaceVariant,
+              fontSize: 10.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildViewport(BuildContext context, {bool isFullscreen = false}) {
+    if (widget.payload.isCadPending) {
+      return _buildCadPendingCard(context);
+    }
     if (_hasError) {
       return Container(
         key: const Key('cad_viewer_error_container'),

@@ -41,6 +41,7 @@ flutter:
   generate: true
   assets:
     - assets/images/
+    - assets/images/machines/
     - assets/images/conveyor_belt_a61.png
     - assets/images/conveyor_belt_a61_dark.png
     - assets/images/turbocompressor_b01.png
