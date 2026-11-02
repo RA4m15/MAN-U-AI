@@ -13,6 +13,7 @@ enum TerminalTab {
 
 /// Terminal Cobalt Mobile 5-Slot Bottom Navigation Bar
 /// With signature center floating FAB inside a bordered socket.
+/// Uses responsive Expanded tab layout to prevent overflow on narrow screens.
 class TerminalBottomNavBar extends StatelessWidget {
   final TerminalTab activeTab;
   final ValueChanged<TerminalTab> onTabSelected;
@@ -44,36 +45,43 @@ class TerminalBottomNavBar extends StatelessWidget {
           alignment: Alignment.center,
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              padding: const EdgeInsets.symmetric(horizontal: 8.0),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   // Tab 1: Chat / Consult
-                  _buildTabItem(
-                    tab: TerminalTab.chat,
-                    icon: Icons.chat_bubble_rounded,
-                    label: 'CONSULT',
+                  Expanded(
+                    child: _buildTabItem(
+                      tab: TerminalTab.chat,
+                      icon: Icons.chat_bubble_rounded,
+                      label: 'CONSULT',
+                    ),
                   ),
                   // Tab 2: Equipment / Area
-                  _buildTabItem(
-                    tab: TerminalTab.equipment,
-                    icon: Icons.precision_manufacturing_rounded,
-                    label: 'EQUIP',
+                  Expanded(
+                    child: _buildTabItem(
+                      tab: TerminalTab.equipment,
+                      icon: Icons.precision_manufacturing_rounded,
+                      label: 'EQUIP',
+                    ),
                   ),
-                  // Center Gap for FAB (56px)
-                  const SizedBox(width: 56.0),
+                  // Center Gap for FAB
+                  const SizedBox(width: 48.0),
                   // Tab 4: Diagram / Hotspots
-                  _buildTabItem(
-                    tab: TerminalTab.diagram,
-                    icon: Icons.schema_rounded,
-                    label: 'DIAGRAM',
+                  Expanded(
+                    child: _buildTabItem(
+                      tab: TerminalTab.diagram,
+                      icon: Icons.schema_rounded,
+                      label: 'DIAGRAM',
+                    ),
                   ),
                   // Tab 5: Shift Tasks
-                  _buildTabItem(
-                    tab: TerminalTab.tasks,
-                    icon: Icons.assignment_outlined,
-                    label: 'TASKS',
-                    badgeCount: tasksBadgeCount,
+                  Expanded(
+                    child: _buildTabItem(
+                      tab: TerminalTab.tasks,
+                      icon: Icons.assignment_outlined,
+                      label: 'TASKS',
+                      badgeCount: tasksBadgeCount,
+                    ),
                   ),
                 ],
               ),
@@ -139,7 +147,6 @@ class TerminalBottomNavBar extends StatelessWidget {
       onTap: () => onTabSelected(tab),
       borderRadius: BorderRadius.circular(8.0),
       child: Container(
-        width: 64.0,
         padding: const EdgeInsets.symmetric(vertical: 4.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -175,6 +182,8 @@ class TerminalBottomNavBar extends StatelessWidget {
             const SizedBox(height: 3.0),
             Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: AppTypography.caption.copyWith(
                 color: color,
                 fontSize: 9.5,
@@ -187,4 +196,3 @@ class TerminalBottomNavBar extends StatelessWidget {
     );
   }
 }
-

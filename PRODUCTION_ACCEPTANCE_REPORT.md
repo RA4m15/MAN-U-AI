@@ -292,3 +292,37 @@ Release Recommendation: GO
      - `SERVER UNAVAILABLE // CACHED DATA ONLY`
      - `CONNECTION RESTORED // SYNCHRONIZING DATA`
    - Retains optional `RETRY` / `RECONNECT` diagnostic manual action.
+
+
+---
+
+## 12. Chat Composer UI Cleanup, Media Upload Integration & RenderFlex Pixel Overflow Resolution
+
+### 12.1 Overview & Requirements
+- **Congestion Removal**: Eliminated duplicate/redundant actions from the chat composer:
+  - Removed robotic-arm button (`pick_equipment_button`). Equipment picker remains accessible via AppBar (`appbar_pick_equipment_button`) and bottom navigation bar (`TerminalTab.equipment`).
+  - Removed old paperclip attachment button (`attach_document_button`). Replaced with a dedicated **Media Upload** action.
+- **Canonical 4-Element Layout**:
+  - `[ Camera ] [ Media Upload ] [ Message Input ........ ] [ Send ]`
+  - Compact industrial action buttons (40x40dp) with blue highlights and dark surface styling.
+  - Text input receives the largest available flexible width via `Expanded`.
+- **Top Navigation Pixel Overflow Fix**:
+  - Root cause: Standard Flutter `AppBar` actions with 6 icon buttons (48dp each = 288dp) + leading (56dp) + title spacing (32dp) required 380dp minimum width. On Android screens $\le 360\text{dp}$, `NavigationToolbar` assigned negative width to `title`, causing `RenderFlex overflowed by 38 pixels on the right` directly adjacent to the network status icon.
+  - Solution: Standardized action buttons with `constraints: BoxConstraints(minWidth: 32, minHeight: 36)`, `visualDensity: VisualDensity.compact`, `padding: EdgeInsets.symmetric(horizontal: 2)`, `leadingWidth: 38`, `titleSpacing: 4`, and wrapped `title` in a responsive `LayoutBuilder` that cleanly truncates without overflow.
+  - Also resolved 24px overflow in `TerminalBottomNavBar` on ultra-narrow 320dp screens by replacing fixed 64dp containers with responsive `Expanded` flex tabs.
+
+### 12.2 Media Upload Modal (`MediaUploadModal`)
+- **Location**: `apps/mobile/lib/features/media/views/widgets/media_upload_modal.dart`
+- **Capabilities**:
+  - **Multi-Photo Selection**: Gallery image picking via `ImagePicker.pickMultiImage()`.
+  - **Video Selection**: Diagnostic video picking via `ImagePicker.pickVideo()`.
+  - **Format Validation**: Validates extensions and MIME types (`image/jpeg`, `image/png`, `video/mp4`, `video/quicktime`). Rejects unsupported formats with an industrial error banner.
+  - **Size Guardrails**: Enforces $\le 15\text{ MB}$ image ceiling and $\le 100\text{ MB}$ video ceiling.
+  - **Preview & Removal**: Displays selected item cards with media icon, filename, formatted size (e.g. `2.4 MB`), detected MIME type, and per-item remove buttons.
+  - **Metadata Assignment**: Dedicated fields for Evidence Title (pre-populated with machine context), Observations/Notes, and Equipment Association dropdown.
+  - **Ingestion Pipeline**: Ingests each selected item via `MediaRepository.ingestMedia` targeting `POST /api/v1/media/ingest`. If Dead-Zone mode is active, automatically enqueues items into `LocalCacheService.addPendingMedia` for background sync.
+
+### 12.3 Verification Results
+- **Static Analysis**: `flutter analyze --no-fatal-infos` reported **0 issues**.
+- **Test Suite**: **183 / 183 tests passed** (including 11 new tests in `composer_cleanup_and_media_upload_test.dart`).
+- **APK Packaging**: `flutter build apk --debug` succeeded (`build\app\outputs\flutter-apk\app-debug.apk`).

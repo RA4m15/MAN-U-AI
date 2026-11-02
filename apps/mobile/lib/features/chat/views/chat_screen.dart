@@ -15,8 +15,8 @@ import 'widgets/equipment_picker_modal.dart';
 import 'widgets/plant_glossary_modal.dart';
 import '../../diagram/views/interactive_diagram_viewer_screen.dart';
 // document upload accessed via media screen
-import '../../documents/views/widgets/document_upload_modal.dart';
 import '../../media/views/media_capture_screen.dart';
+import '../../media/views/widgets/media_upload_modal.dart';
 import '../../tasks/controllers/task_controller.dart';
 import '../../tasks/views/tasks_screen.dart';
 
@@ -66,26 +66,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  void _showUploadModal(BuildContext context, {bool isPhoto = false}) {
+  void _openCamera(BuildContext context) {
     final currentEq = ref.read(chatControllerProvider).selectedEquipment;
-    if (isPhoto) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => MediaCaptureScreen(
-            initialEquipment: currentEq,
-          ),
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MediaCaptureScreen(
+          initialEquipment: currentEq,
         ),
-      );
-    } else {
-      showModalBottomSheet(
-        context: context,
-        backgroundColor: Colors.transparent,
-        isScrollControlled: true,
-        builder: (ctx) => DocumentUploadModal(
-          defaultEquipment: currentEq,
-        ),
-      );
-    }
+      ),
+    );
+  }
+
+  void _showMediaUploadModal(BuildContext context) {
+    final currentEq = ref.read(chatControllerProvider).selectedEquipment;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => MediaUploadModal(
+        initialEquipment: currentEq,
+      ),
+    );
   }
 
   void _showGlossaryModal(BuildContext context) {
@@ -229,34 +230,49 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         backgroundColor: AppColors.surface,
         elevation: 0,
         scrolledUnderElevation: 0,
+        leadingWidth: 38.0,
         leading: Builder(
           builder: (drawerCtx) => IconButton(
             key: const Key('open_drawer_button'),
             icon: const Icon(Icons.menu_rounded, size: 20.0, color: AppColors.onSurface),
             tooltip: 'Consultation History',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36.0, minHeight: 36.0),
+            visualDensity: VisualDensity.compact,
             onPressed: () => Scaffold.of(drawerCtx).openDrawer(),
           ),
         ),
-        title: Row(
-          children: [
-            StatusDot(
-              color: networkState.isReconnecting
-                  ? AppColors.primary
-                  : (networkState.isDeadZone || chatState.isOfflineMode)
-                      ? AppColors.warning
-                      : AppColors.success,
-              size: 10.0,
-            ),
-            const SizedBox(width: 8.0),
-            Expanded(
-              child: Text(
-                titleText,
-                style: AppTypography.headlineMd.copyWith(fontSize: 14.0),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
+        titleSpacing: 4.0,
+        title: LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth < 18.0) {
+              return const SizedBox.shrink();
+            }
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                StatusDot(
+                  color: networkState.isReconnecting
+                      ? AppColors.primary
+                      : (networkState.isDeadZone || chatState.isOfflineMode)
+                          ? AppColors.warning
+                          : AppColors.success,
+                  size: 8.0,
+                ),
+                if (constraints.maxWidth > 30.0) ...[
+                  const SizedBox(width: 6.0),
+                  Expanded(
+                    child: Text(
+                      titleText,
+                      style: AppTypography.headlineMd.copyWith(fontSize: 13.0),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
         ),
         actions: [
           // Automatic Dead Zone / Connectivity Telemetry Icon
@@ -275,7 +291,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   : (networkState.isDeadZone || chatState.isOfflineMode)
                       ? AppColors.warning
                       : AppColors.success,
-              size: 20.0,
+              size: 19.0,
             ),
             tooltip: networkState.status == NetworkStatus.reconnecting
                 ? 'Connection Restored // Synchronizing Data'
@@ -284,6 +300,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     : (networkState.isDeadZone || chatState.isOfflineMode)
                         ? 'Dead-Zone Mode Active // Tap to Probe Connection'
                         : 'Online // Connected to MAN-U-AI Cloud',
+            padding: const EdgeInsets.symmetric(horizontal: 2.0),
+            constraints: const BoxConstraints(minWidth: 32.0, minHeight: 36.0),
+            visualDensity: VisualDensity.compact,
             onPressed: () {
               if (networkState.isDeadZone) {
                 ref.read(connectivityControllerProvider.notifier).checkReachability(manual: true);
@@ -295,15 +314,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // Plant Glossary
           IconButton(
             key: const Key('open_glossary_button'),
-            icon: const Icon(Icons.menu_book_rounded, size: 20.0, color: AppColors.onSurfaceVariant),
+            icon: const Icon(Icons.menu_book_rounded, size: 19.0, color: AppColors.onSurfaceVariant),
             tooltip: 'Plant Glossary & Slang',
+            padding: const EdgeInsets.symmetric(horizontal: 2.0),
+            constraints: const BoxConstraints(minWidth: 32.0, minHeight: 36.0),
+            visualDensity: VisualDensity.compact,
             onPressed: () => _showGlossaryModal(context),
           ),
           // Exploded Diagram
           IconButton(
             key: const Key('open_diagram_button'),
-            icon: const Icon(Icons.schema_rounded, size: 20.0, color: AppColors.onSurfaceVariant),
+            icon: const Icon(Icons.schema_rounded, size: 19.0, color: AppColors.onSurfaceVariant),
             tooltip: 'Interactive Exploded Diagram',
+            padding: const EdgeInsets.symmetric(horizontal: 2.0),
+            constraints: const BoxConstraints(minWidth: 32.0, minHeight: 36.0),
+            visualDensity: VisualDensity.compact,
             onPressed: () => _showExplodedDiagram(context),
           ),
           // Equipment picker (when no active conversation lock)
@@ -315,9 +340,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ? Icons.precision_manufacturing_rounded
                     : Icons.precision_manufacturing_outlined,
                 color: selectedEq != null ? AppColors.primary : AppColors.onSurfaceVariant,
-                size: 20.0,
+                size: 19.0,
               ),
               tooltip: 'Choose plant equipment',
+              padding: const EdgeInsets.symmetric(horizontal: 2.0),
+              constraints: const BoxConstraints(minWidth: 32.0, minHeight: 36.0),
+              visualDensity: VisualDensity.compact,
               onPressed: () => _showEquipmentPicker(context),
             ),
           ],
@@ -330,8 +358,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 children: [
                   IconButton(
                     key: const Key('appbar_shift_tasks_button'),
-                    icon: const Icon(Icons.assignment_outlined, size: 20.0, color: AppColors.onSurfaceVariant),
+                    icon: const Icon(Icons.assignment_outlined, size: 19.0, color: AppColors.onSurfaceVariant),
                     tooltip: "Today's Shift Tasks",
+                    padding: const EdgeInsets.symmetric(horizontal: 2.0),
+                    constraints: const BoxConstraints(minWidth: 32.0, minHeight: 36.0),
+                    visualDensity: VisualDensity.compact,
                     onPressed: () {
                       Navigator.push(
                         ctx,
@@ -347,8 +378,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                   if (activeCount > 0)
                     Positioned(
-                      top: 8,
-                      right: 8,
+                      top: 4,
+                      right: 2,
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                         decoration: BoxDecoration(
@@ -356,12 +387,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: AppColors.surface, width: 1.5),
                         ),
-                        constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                        constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
                         child: Text(
                           '$activeCount',
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 9,
+                            fontSize: 8.5,
                             fontWeight: FontWeight.bold,
                           ),
                           textAlign: TextAlign.center,
@@ -375,8 +406,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // Start New Consultation
           IconButton(
             key: const Key('appbar_new_consultation_button'),
-            icon: const Icon(Icons.add_comment_outlined, size: 20.0, color: AppColors.onSurfaceVariant),
+            icon: const Icon(Icons.add_comment_outlined, size: 19.0, color: AppColors.onSurfaceVariant),
             tooltip: 'New consultation',
+            padding: const EdgeInsets.symmetric(horizontal: 2.0),
+            constraints: const BoxConstraints(minWidth: 32.0, minHeight: 36.0),
+            visualDensity: VisualDensity.compact,
             onPressed: () {
               ref.read(chatControllerProvider.notifier).startNewConsultation();
             },
@@ -674,7 +708,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ],
 
-          // Multiline Message Composer
+          // Multiline Message Composer: Exactly 4 elements
           ChatComposer(
             isSending: chatState.isSending,
             selectedEquipment: selectedEq,
@@ -682,12 +716,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             onSend: (message) {
               ref.read(chatControllerProvider.notifier).sendMessage(message);
             },
-            onPickEquipment: () => _showEquipmentPicker(context),
+            onOpenCamera: () => _openCamera(context),
+            onUploadMedia: () => _showMediaUploadModal(context),
             onClearEquipment: () {
               ref.read(chatControllerProvider.notifier).setSelectedEquipment(null);
             },
-            onUploadDocument: () => _showUploadModal(context),
-            onUploadPhoto: () => _showUploadModal(context, isPhoto: true),
           ),
         ],
       ),
