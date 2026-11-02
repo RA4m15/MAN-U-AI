@@ -45,6 +45,17 @@ class _InteractiveDiagramViewerScreenState
 
   static const List<Map<String, dynamic>> _diagramsCatalog = [
     {
+      'id': 'FIG-DRYPIX-6000',
+      'title': 'Fuji DRYPIX Smart',
+      'subtitle': 'Laser Imager & Thermal Development Unit',
+      'badge': '3D SCHEMATIC',
+      'pins': '8 HOTSPOTS',
+      'icon': Icons.print_rounded,
+      'image': 'assets/images/drypix_6000.png',
+      'staticUrl': 'http://localhost:4000/static/diagrams/drypix_6000.png',
+      'apiUrl': 'http://localhost:4000/api/v1/diagrams/FIG-DRYPIX-6000/image',
+    },
+    {
       'id': 'FIG-CONVEYOR-BELT-A61',
       'title': 'Conveyor Belt A61',
       'subtitle': 'Bulk Material Transport & Optical Inspection',
@@ -93,6 +104,8 @@ class _InteractiveDiagramViewerScreenState
     final isAnimated = _activeFigureId.toUpperCase().contains('CONVEYOR') ||
         _activeFigureId.toUpperCase().contains('A61') ||
         _activeFigureId.toUpperCase().contains('TURBO') ||
+        _activeFigureId.toUpperCase().contains('DRYPIX') ||
+        _activeFigureId.toUpperCase().contains('6000') ||
         _activeFigureId.toUpperCase().contains('COMPRESSOR');
 
     if (isAnimated) {
@@ -105,6 +118,9 @@ class _InteractiveDiagramViewerScreenState
   }
 
   String _resolveDefaultTitle(String fid) {
+    if (fid.toUpperCase().contains('DRYPIX') || fid.toUpperCase().contains('6000')) {
+      return 'Fuji DRYPIX Smart (DRYPIX 6000) Component Schematic';
+    }
     if (fid.toUpperCase().contains('TURBO') || fid.toUpperCase().contains('COMPRESSOR')) {
       return 'Turbocompressor B01 Exploded Assembly';
     }
@@ -147,6 +163,8 @@ class _InteractiveDiagramViewerScreenState
       final isAnimated = newId.toUpperCase().contains('CONVEYOR') ||
           newId.toUpperCase().contains('A61') ||
           newId.toUpperCase().contains('TURBO') ||
+          newId.toUpperCase().contains('DRYPIX') ||
+          newId.toUpperCase().contains('6000') ||
           newId.toUpperCase().contains('COMPRESSOR');
 
       if (isAnimated) {
@@ -611,6 +629,33 @@ class _InteractiveDiagramViewerScreenState
                                   color: _isSimRunning ? AppColors.success : AppColors.onSurfaceVariant,
                                 ),
                               ]
+                            : isDrypix
+                                ? [
+                                    _buildTelemetryItem(
+                                      label: 'LASER OPTICS',
+                                      value: '130 mW (659nm)',
+                                      color: AppColors.primary,
+                                    ),
+                                    _buildTelemetryItem(
+                                      label: 'THERMAL DRUM',
+                                      value: '42.5 °C',
+                                      color: AppColors.onSurface,
+                                    ),
+                                    _buildTelemetryItem(
+                                      label: 'FILM TRAY 1',
+                                      value: 'DI-HL 14x17"',
+                                      color: AppColors.accentCategorical5,
+                                    ),
+                                    _buildTelemetryItem(
+                                      label: 'STATUS',
+                                      value: _isEStopTriggered
+                                          ? 'ERR 221 JAM'
+                                          : (_isSimRunning ? 'PRO (PRINT)' : 'STANDBY'),
+                                      color: _isEStopTriggered
+                                          ? AppColors.error
+                                          : (_isSimRunning ? AppColors.success : AppColors.onSurfaceVariant),
+                                    ),
+                                  ]
                             : [
                                 _buildTelemetryItem(
                                   label: 'FLOW RATE',
@@ -676,7 +721,51 @@ class _InteractiveDiagramViewerScreenState
                                       transform: Matrix4.identity()
                                         ..setEntry(3, 2, 0.001)
                                         ..rotateY(_rotationAngle * 0.4),
-                                      child: isTurbocompressor
+                                      child: isDrypix
+                                          ? Stack(
+                                              alignment: Alignment.center,
+                                              children: [
+                                                Image.asset(
+                                                  'assets/images/drypix_6000.png',
+                                                  width: canvasWidth * 0.95,
+                                                  height: canvasHeight * 0.85,
+                                                  fit: BoxFit.contain,
+                                                  errorBuilder: (context, error, stackTrace) => Image.network(
+                                                    'http://localhost:4000/static/diagrams/drypix_6000.png',
+                                                    width: canvasWidth * 0.95,
+                                                    height: canvasHeight * 0.85,
+                                                    fit: BoxFit.contain,
+                                                    errorBuilder: (context, error2, stackTrace2) => Image.network(
+                                                      'http://localhost:4000/api/v1/diagrams/FIG-DRYPIX-6000/image',
+                                                      width: canvasWidth * 0.95,
+                                                      height: canvasHeight * 0.85,
+                                                      fit: BoxFit.contain,
+                                                      errorBuilder: (context, error3, stackTrace3) => const Icon(
+                                                        Icons.print_rounded,
+                                                        color: AppColors.primary,
+                                                        size: 64.0,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                                // Live simulation overlay for DRYPIX Smart
+                                                if (_isSimRunning && !_isEStopTriggered)
+                                                  AnimatedBuilder(
+                                                    animation: _simController,
+                                                    builder: (context, child) {
+                                                      return CustomPaint(
+                                                        size: Size(canvasWidth * 0.9, canvasHeight * 0.8),
+                                                        painter: _DrypixSmartSimulationPainter(
+                                                          progress: _simController.value,
+                                                          speedMultiplier: _simSpeed,
+                                                          explodedSeparation: _explodedSeparation,
+                                                        ),
+                                                      );
+                                                    },
+                                                  ),
+                                              ],
+                                            )
+                                          : isTurbocompressor
                                           ? Stack(
                                               alignment: Alignment.center,
                                               children: [
@@ -1219,4 +1308,168 @@ class _PumpSchematicPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+
+/// Multi-layer custom painter rendering the dynamic simulation overlay for Fuji DRYPIX Smart (DRYPIX 6000)
+class _DrypixSmartSimulationPainter extends CustomPainter {
+  final double progress;
+  final double speedMultiplier;
+  final double explodedSeparation;
+
+  _DrypixSmartSimulationPainter({
+    required this.progress,
+    required this.speedMultiplier,
+    required this.explodedSeparation,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+
+    // 1. Exploded view vector callout guidelines when explodedSeparation > 0
+    if (explodedSeparation > 0.05) {
+      final guidePaint = Paint()
+        ..color = AppColors.primary.withValues(alpha: 0.35 * explodedSeparation)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2;
+
+      // Top output tray exploded lift
+      final topOffset = -45.0 * explodedSeparation;
+      canvas.drawLine(
+        Offset(cx - 80, cy - 90),
+        Offset(cx - 80, cy - 90 + topOffset),
+        guidePaint,
+      );
+      canvas.drawLine(
+        Offset(cx + 80, cy - 90),
+        Offset(cx + 80, cy - 90 + topOffset),
+        guidePaint,
+      );
+
+      // Film trays exploded pull forward
+      final drawerOffset = 40.0 * explodedSeparation;
+      canvas.drawLine(
+        Offset(cx - 70, cy + 90),
+        Offset(cx - 70 - drawerOffset * 0.4, cy + 90 + drawerOffset * 0.7),
+        guidePaint,
+      );
+    }
+
+    // 2. Class 3B 659nm Laser Exposure Scanning Beam
+    // The laser optical unit scans horizontally across the middle exposure chamber
+    final laserY = cy - 20 + math.sin(progress * math.pi * 4 * speedMultiplier) * 15;
+    final laserScanX = cx - 70 + ((progress * speedMultiplier * 3) % 1.0) * 140;
+
+    final laserLinePaint = Paint()
+      ..color = const Color(0xFFFF1744).withValues(alpha: 0.85)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    canvas.drawLine(
+      Offset(cx - 75, laserY),
+      Offset(cx + 75, laserY),
+      laserLinePaint,
+    );
+
+    // Laser focal spot glow
+    final laserGlowPaint = Paint()
+      ..color = const Color(0xFFFF5252).withValues(alpha: 0.9)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5.0);
+    canvas.drawCircle(Offset(laserScanX, laserY), 4.5, laserGlowPaint);
+
+    // 3. Thermal Development Heat Drum Glow
+    final drumCenter = Offset(cx + 10, cy + 25);
+    final heatPulse = 0.5 + 0.5 * math.sin(progress * math.pi * 2 * speedMultiplier);
+    final drumGlowPaint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          const Color(0xFFFF9100).withValues(alpha: 0.45 * heatPulse),
+          const Color(0xFFFF6D00).withValues(alpha: 0.15 * heatPulse),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.6, 1.0],
+      ).createShader(Rect.fromCircle(center: drumCenter, radius: 48.0));
+    canvas.drawCircle(drumCenter, 48.0, drumGlowPaint);
+
+    // 4. Moving Diagnostic Film Sheet Flow
+    // Sheet feeds from Film Tray 1 (cy + 100) -> Laser Scanning (cy - 20) -> Thermal Drum (cy + 25) -> Output Tray (cy - 110)
+    final feedCycle = (progress * speedMultiplier) % 1.0;
+    double filmY;
+    double filmX;
+    double filmWidth = 60.0;
+    double filmHeight = 45.0;
+
+    if (feedCycle < 0.4) {
+      // Ascending from Tray 1 to laser
+      final t = feedCycle / 0.4;
+      filmX = cx - 30;
+      filmY = (cy + 90) - t * 100;
+    } else if (feedCycle < 0.75) {
+      // Wrapping around thermal drum
+      final t = (feedCycle - 0.4) / 0.35;
+      final angle = math.pi * t;
+      filmX = drumCenter.dx + math.cos(angle) * 20;
+      filmY = drumCenter.dy - math.sin(angle) * 35;
+    } else {
+      // Ejecting to top output tray
+      final t = (feedCycle - 0.75) / 0.25;
+      filmX = cx - 20;
+      filmY = (cy - 10) - t * 95;
+    }
+
+    final filmPaint = Paint()
+      ..color = const Color(0x6600E5FF)
+      ..style = PaintingStyle.fill;
+    final filmBorder = Paint()
+      ..color = const Color(0xFF00E5FF).withValues(alpha: 0.8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+
+    final filmRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(filmX, filmY), width: filmWidth, height: filmHeight),
+      const Radius.circular(3.0),
+    );
+    canvas.drawRRect(filmRect, filmPaint);
+    canvas.drawRRect(filmRect, filmBorder);
+
+    // 5. Operation Panel 7-Segment LED Simulation Bezel
+    final panelRect = Rect.fromLTWH(cx + 42, cy - 100, 36, 16);
+    canvas.drawRect(
+      panelRect,
+      Paint()..color = const Color(0xFF11161B),
+    );
+    canvas.drawRect(
+      panelRect,
+      Paint()
+        ..color = const Color(0xFF263238)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0,
+    );
+
+    // Draw active 3-digit status
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: feedCycle > 0.85 ? '149' : 'Pro',
+        style: const TextStyle(
+          color: Color(0xFF00E676),
+          fontSize: 9.0,
+          fontWeight: FontWeight.bold,
+          fontFamily: 'monospace',
+          letterSpacing: 1.0,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+    textPainter.paint(canvas, Offset(panelRect.left + 5, panelRect.top + 2));
+  }
+
+  @override
+  bool shouldRepaint(covariant _DrypixSmartSimulationPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.speedMultiplier != speedMultiplier ||
+        oldDelegate.explodedSeparation != explodedSeparation;
+  }
 }

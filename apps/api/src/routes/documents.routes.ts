@@ -87,8 +87,47 @@ export async function isUserAuthorizedForDocument(
   role: string | undefined,
   docId: string
 ): Promise<{ authorized: boolean; doc?: any }> {
-  // Fail closed immediately if MongoDB is disconnected
+  // In offline dev/demo mode, allow access to seeded baseline documents
   if (!isConnectedToMongo) {
+    const isOfflineAuthPermitted =
+      process.env.NODE_ENV !== "production" &&
+      process.env.ALLOW_OFFLINE_AUTH === "true";
+    if (isOfflineAuthPermitted) {
+      if (docId === "doc-drypix-6000" || docId.toLowerCase().includes("drypix") || docId.includes("6000")) {
+        return {
+          authorized: true,
+          doc: {
+            _id: "doc-drypix-6000",
+            title: "Fuji Medical Dry Laser Imager DRYPIX Smart (DRYPIX 6000) Reference Guide",
+            revision: "8th Edition (897N102437G)",
+            filename: "drypix_smart_reference_guide.pdf",
+            storagePath: "drypix_smart_reference_guide.pdf",
+            sizeBytes: 6753751,
+            status: "indexed",
+            pageCount: 80,
+            tags: ["FujiFilm", "Dry Laser Imager", "DRYPIX 6000", "Thermal Development", "Error Codes", "DICOM", "Maintenance"],
+            equipmentId: "equip-drypix-6000",
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        };
+      }
+      return {
+        authorized: true,
+        doc: {
+          _id: docId,
+          title: "Industrial SOP & Equipment Manual",
+          revision: "Rev 1.0",
+          filename: "manual.pdf",
+          sizeBytes: 4500000,
+          status: "indexed",
+          pageCount: 40,
+          tags: ["Industrial", "Maintenance"],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      };
+    }
     return { authorized: false, doc: null };
   }
   if (!mongoose.Types.ObjectId.isValid(docId)) {
@@ -130,6 +169,87 @@ export async function isUserAuthorizedForDocument(
 // GET /documents - List all documents permitted for current user
 documentsRouter.get("/", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   if (!isConnectedToMongo) {
+    const isOfflineAuthPermitted =
+      process.env.NODE_ENV !== "production" &&
+      process.env.ALLOW_OFFLINE_AUTH === "true";
+    if (isOfflineAuthPermitted) {
+      const offlineDocs = [
+        {
+          id: "doc-drypix-6000",
+          title: "Fuji Medical Dry Laser Imager DRYPIX Smart (DRYPIX 6000) Reference Guide",
+          revision: "8th Edition : February 2017 (897N102437G)",
+          filename: "drypix_smart_reference_guide.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 6753751,
+          status: "indexed",
+          pageCount: 80,
+          equipment: "equip-drypix-6000",
+          tags: ["FujiFilm", "Dry Laser Imager", "DRYPIX 6000", "Thermal Development", "Error Codes", "DICOM", "Maintenance"],
+          category: "manual",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "doc-conveyor-a61",
+          title: "SimReady Conveyor Belt A61 Technical Operation & Disassembly Guide",
+          revision: "Rev 1.0-OEM",
+          filename: "conveyor_belt_a61_manual.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 4194304,
+          status: "indexed",
+          pageCount: 28,
+          equipment: "equip-cb-a61",
+          tags: ["Conveyor", "SimReady", "Drive Motor", "Optical Scanner"],
+          category: "manual",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "doc-slurry-pump",
+          title: "Centrifugal Slurry Pump Maintenance & Rebuild Manual",
+          revision: "Rev 4.1",
+          filename: "slurry_pump_manual_rev4.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 12450000,
+          status: "indexed",
+          pageCount: 148,
+          equipment: "equip-p102",
+          tags: ["Mechanical", "Hydraulics", "Shaft Seals", "Torque Specs"],
+          category: "manual",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "doc-sop-loto",
+          title: "Standard Operating Procedure: Hydraulic Lockout Tagout (LOTO)",
+          revision: "Rev 8.0",
+          filename: "sop_loto_hydraulic_press.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 3100000,
+          status: "indexed",
+          pageCount: 24,
+          tags: ["Safety", "LOTO", "High Pressure", "OSHA 1910.147"],
+          category: "sop",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "doc-rotary-compressor",
+          title: "Rotary Screw Air Compressor Operator Guide",
+          revision: "Rev 2.3",
+          filename: "rotary_compressor_manual.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 8750000,
+          status: "indexed",
+          pageCount: 86,
+          tags: ["Compressor", "Pneumatics", "Fault Codes"],
+          category: "manual",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+      return res.json({ success: true, data: offlineDocs });
+    }
     return res.status(503).json({
       success: false,
       error: { code: "SERVICE_UNAVAILABLE", message: "Database connection unavailable for document listing" },
@@ -239,6 +359,24 @@ documentsRouter.get("/:id/chunks", requireAuth, async (req: AuthenticatedRequest
     });
   }
 
+  if (!isConnectedToMongo) {
+    if (id === "doc-drypix-6000" || id.toLowerCase().includes("drypix") || id.includes("6000")) {
+      const areaPack = await offlineService.getAreaPack("equip-drypix-6000");
+      if (areaPack && areaPack.chunks) {
+        return res.json({
+          success: true,
+          data: areaPack.chunks.map((c) => ({
+            id: c.id,
+            page: c.page,
+            section: c.section,
+            text: c.text,
+            tokenCount: 150,
+            figureIds: ["FIG-DRYPIX-6000"],
+          })),
+        });
+      }
+    }
+  }
   const chunks = await DocumentChunk.find({ documentId: id }).sort({ page: 1 }).limit(500);
   return res.json({
     success: true,
@@ -276,6 +414,51 @@ documentsRouter.get("/:id/figures", requireAuth, async (req: AuthenticatedReques
     query.page = page;
   }
 
+  if (!isConnectedToMongo) {
+    if (id === "doc-drypix-6000" || id.toLowerCase().includes("drypix") || id.includes("6000")) {
+      return res.json({
+        success: true,
+        data: [
+          {
+            id: "fig-drypix-units",
+            documentId: "doc-drypix-6000",
+            documentTitle: "Fuji Medical Dry Laser Imager DRYPIX Smart Reference Guide",
+            revision: "8th Edition (897N102437G)",
+            page: 30,
+            figureId: "FIG-DRYPIX-6000",
+            title: "DRYPIX Smart Main Unit Names and Functions",
+            caption: "Isometric 3D schematic illustrating Operation Panel, Front Cover, Film Trays 1 & 2, Laser Recording Unit, Thermal Development Unit, Conveyance Assembly, and Output Tray.",
+            status: "extracted",
+            storagePath: "documents/drypix_schematic_units.png",
+          },
+          {
+            id: "fig-drypix-panel",
+            documentId: "doc-drypix-6000",
+            documentTitle: "Fuji Medical Dry Laser Imager DRYPIX Smart Reference Guide",
+            revision: "8th Edition (897N102437G)",
+            page: 32,
+            figureId: "FIG-DRYPIX-PANEL",
+            title: "DRYPIX Smart Operation Panel & 7-Segment LED Display",
+            caption: "Operation panel with 3-digit LED Display, Enter button, Utility button, and Stand-by switch.",
+            status: "extracted",
+            storagePath: "documents/drypix_operation_panel.png",
+          },
+          {
+            id: "fig-drypix-dims",
+            documentId: "doc-drypix-6000",
+            documentTitle: "Fuji Medical Dry Laser Imager DRYPIX Smart Reference Guide",
+            revision: "8th Edition (897N102437G)",
+            page: 78,
+            figureId: "FIG-DRYPIX-DIMENSIONS",
+            title: "External View & Dimensions (610 x 630 x 893 mm)",
+            caption: "Orthographic engineering dimensions: width 610mm, depth 630mm, height 893mm, weight 104kg.",
+            status: "extracted",
+            storagePath: "documents/drypix_dimensions.png",
+          },
+        ],
+      });
+    }
+  }
   const figures = await DocumentFigure.find(query).sort({ page: 1, figureId: 1 });
   return res.json({
     success: true,

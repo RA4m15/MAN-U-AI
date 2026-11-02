@@ -177,6 +177,10 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
       {'code': '05', 'name': 'E-Stop Console', 'query': 'Where is the emergency stop located and what are the recovery steps after E-Stop engagement?'},
       {'code': '06', 'name': 'Turbocompressor B01', 'query': 'What is the inspection procedure for the Turbocompressor B01 titanium impeller?'},
       {'code': '07', 'name': 'Auto Tensioner', 'query': 'What is the operating pressure range for the pneumatic belt tensioner?'},
+      {'code': '08', 'name': 'DRYPIX Jam 221', 'query': 'How do I clear error code 221 or 223 film jam in the sheet-feeder on the Fuji DRYPIX Smart?'},
+      {'code': '09', 'name': 'Thermal Jam 230', 'query': 'What is the procedure for clearing error 230 film jam in the thermal development unit of the DRYPIX 6000?'},
+      {'code': '10', 'name': 'Laser Life (213/214)', 'query': 'What does error code 213 and 214 mean on the Fuji DRYPIX Smart and how is the 659nm laser serviced?'},
+      {'code': '11', 'name': 'Density Calib (U-1)', 'query': 'How do I run automatic film density calibration U-1 on the Fuji DRYPIX Smart imager?'},
     ];
 
     return Container(
