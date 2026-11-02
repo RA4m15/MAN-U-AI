@@ -242,6 +242,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final authState = ref.watch(authControllerProvider);
     final isLoading = authState is AuthLoading || _isSubmitting;
     final errorMessage = authState is Unauthenticated ? authState.errorMessage : null;
@@ -357,12 +358,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           email: 'engineer@plant.io',
                           password: 'EngineerPassword123!',
                           dotColor: AppColors.accentCategorical2,
+                          colorScheme: colorScheme,
                         ),
                         _buildQuickRoleChip(
                           label: 'SHIFT OPERATOR',
                           email: 'operator@plant.io',
                           password: 'OperatorPassword123!',
                           dotColor: AppColors.accentCategorical1,
+                          colorScheme: colorScheme,
                         ),
                       ],
                     ),
@@ -610,15 +613,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     required String email,
     required String password,
     required Color dotColor,
+    ColorScheme? colorScheme,
   }) {
+    final scheme = colorScheme ?? Theme.of(context).colorScheme;
     final isSelected = _emailController.text == email;
 
     return Container(
       decoration: BoxDecoration(
-        color: isSelected ? AppColors.primaryAction : AppColors.surfaceAlt,
+        color: isSelected ? scheme.primary : scheme.surfaceContainer,
         borderRadius: BorderRadius.circular(20.0),
         border: Border.all(
-          color: isSelected ? AppColors.primaryAction : AppColors.border,
+          color: isSelected ? scheme.primary : scheme.outline,
           width: 1.0,
         ),
         boxShadow: [

@@ -1,3 +1,4 @@
+import 'exploded_view_chat_message.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -6,6 +7,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/widgets/terminal_components.dart';
 import '../../models/chat_message_model.dart';
+import '../../controllers/chat_controller.dart';
 import '../../../tickets/repositories/ticket_repository.dart';
 import '../../../diagram/views/interactive_diagram_viewer_screen.dart';
 import 'citation_card.dart';
@@ -513,6 +515,14 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
                         ? AppColors.warning
                         : AppColors.primary,
                   ),
+                if (widget.message.machineContext != null && widget.message.machineContext!['selectedPartName'] != null) ...[
+                  const SizedBox(width: 6.0),
+                  BadgePill(
+                    key: const Key('bubble_component_badge'),
+                    label: widget.message.machineContext!['selectedPartName'].toString().toUpperCase(),
+                    color: AppColors.accentCategorical2,
+                  ),
+                ],
                 const Spacer(),
                 ButtonIconTile(
                   key: const Key('copy_answer_button'),
@@ -585,9 +595,19 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
                   if (warningLevel != null && warningLevel != 'none')
                     _buildWarningLevelBanner(warningLevel),
 
-                  MarkdownBody(
-                    data: widget.message.content,
-                    selectable: true,
+                  if (widget.message.isExplodedView && widget.message.explodedView != null)
+                    ExplodedViewChatMessage(
+                      key: Key('exploded_view_message_${widget.message.id ?? widget.message.explodedView!.machineId}'),
+                      payload: widget.message.explodedView!,
+                      onComponentSelected: (compState) {
+                        ref.read(chatControllerProvider.notifier).setActiveComponentContext(compState);
+                      },
+                    ),
+
+                  if (widget.message.content.trim().isNotEmpty)
+                    MarkdownBody(
+                      data: widget.message.content,
+                      selectable: true,
                     styleSheet: MarkdownStyleSheet(
                       p: AppTypography.bodyMdRegular.copyWith(
                         color: AppColors.onSurface,

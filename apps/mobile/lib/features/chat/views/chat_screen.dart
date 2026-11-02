@@ -749,6 +749,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             isSending: chatState.isSending,
             selectedEquipment: selectedEq,
             boundEquipmentName: activeConv?.equipmentName,
+            activeComponentContext: chatState.activeComponentContext,
+            onClearComponentContext: () {
+              ref.read(chatControllerProvider.notifier).clearActiveComponentContext();
+            },
             onSend: (message) {
               ref.read(chatControllerProvider.notifier).sendMessage(message);
             },

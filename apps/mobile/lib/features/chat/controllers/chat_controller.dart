@@ -6,6 +6,7 @@ import '../../equipment/controllers/equipment_controller.dart';
 import '../../equipment/models/equipment_model.dart';
 import '../../offline/services/offline_area_storage.service.dart';
 import '../models/chat_message_model.dart';
+import '../models/cad_component_selection_state.dart';
 import '../models/conversation_model.dart';
 import '../repositories/chat_repository.dart';
 import 'conversation_controller.dart';
@@ -19,6 +20,7 @@ class ChatState {
   final String? historyError;
   final String? sendingError;
   final bool isOfflineMode;
+  final CadComponentSelectionState? activeComponentContext;
 
   const ChatState({
     this.activeConversation,
@@ -29,6 +31,7 @@ class ChatState {
     this.historyError,
     this.sendingError,
     this.isOfflineMode = false,
+    this.activeComponentContext,
   });
 
   ChatState copyWith({
@@ -40,6 +43,7 @@ class ChatState {
     String? Function()? historyError,
     String? Function()? sendingError,
     bool? isOfflineMode,
+    CadComponentSelectionState? Function()? activeComponentContext,
   }) {
     return ChatState(
       activeConversation: activeConversation != null
@@ -54,6 +58,9 @@ class ChatState {
       historyError: historyError != null ? historyError() : this.historyError,
       sendingError: sendingError != null ? sendingError() : this.sendingError,
       isOfflineMode: isOfflineMode ?? this.isOfflineMode,
+      activeComponentContext: activeComponentContext != null
+          ? activeComponentContext()
+          : this.activeComponentContext,
     );
   }
 }
@@ -91,7 +98,7 @@ class ChatController extends Notifier<ChatState> {
   /// Sets up an empty consultation, optionally bound to a piece of plant equipment.
   void startNewConsultation({EquipmentModel? equipment}) {
     final isDeadZone = ref.read(isDeadZoneProvider);
-    state = ChatState(selectedEquipment: equipment, isOfflineMode: isDeadZone);
+    state = ChatState(selectedEquipment: equipment, isOfflineMode: isDeadZone, activeComponentContext: null);
   }
 
   /// Selects an existing conversation and loads its historical messages.
@@ -127,6 +134,16 @@ class ChatController extends Notifier<ChatState> {
     state = state.copyWith(selectedEquipment: () => equipment);
   }
 
+  /// Updates active 3D CAD component selection context for component-aware RAG.
+  void setActiveComponentContext(CadComponentSelectionState? context) {
+    state = state.copyWith(activeComponentContext: () => context);
+  }
+
+  /// Clears the active component selection context, returning to machine-wide RAG.
+  void clearActiveComponentContext() {
+    state = state.copyWith(activeComponentContext: () => null);
+  }
+
   /// Clears the active sending error banner.
   void clearSendingError() {
     state = state.copyWith(sendingError: () => null);
@@ -143,6 +160,9 @@ class ChatController extends Notifier<ChatState> {
 
     ConversationModel? currentConv = state.activeConversation;
     final targetEquipmentId = currentConv?.equipmentId ?? state.selectedEquipment?.id;
+    final Map<String, dynamic>? machineCtx = state.activeComponentContext?.toMachineContext(
+      machineName: state.selectedEquipment?.name,
+    );
 
     // 1. If Dead-Zone offline mode is active, run local retrieval immediately and queue pending
     if (state.isOfflineMode) {
@@ -151,6 +171,7 @@ class ChatController extends Notifier<ChatState> {
         content: trimmed,
         createdAt: DateTime.now(),
         conversationId: currentConv?.id,
+        machineContext: machineCtx,
       );
       state = state.copyWith(
         messages: List<ChatMessageModel>.from(state.messages)..add(userMsg),
@@ -186,6 +207,7 @@ class ChatController extends Notifier<ChatState> {
         createdAt: DateTime.now(),
         conversationId: currentConv?.id,
         isOfflineFallback: true,
+        machineContext: machineCtx,
       );
 
       final newMessages = List<ChatMessageModel>.from(state.messages)..add(assistantMsg);
@@ -225,6 +247,7 @@ class ChatController extends Notifier<ChatState> {
       content: trimmed,
       createdAt: DateTime.now(),
       conversationId: currentConv.id,
+      machineContext: machineCtx,
     );
 
     final updatedMessages = List<ChatMessageModel>.from(state.messages)..add(userMsg);
@@ -240,6 +263,7 @@ class ChatController extends Notifier<ChatState> {
         message: trimmed,
         conversationId: currentConv.id,
         equipmentId: currentConv.equipmentId ?? state.selectedEquipment?.id,
+        machineContext: machineCtx,
       );
 
       final assistantMsg = ChatMessageModel(
@@ -254,6 +278,7 @@ class ChatController extends Notifier<ChatState> {
         expandedTerms: response.expandedTerms,
         createdAt: DateTime.now(),
         conversationId: currentConv.id,
+        machineContext: machineCtx,
       );
 
       final finalMessages = List<ChatMessageModel>.from(state.messages)..add(assistantMsg);

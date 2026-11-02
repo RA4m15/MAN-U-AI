@@ -170,11 +170,33 @@ export interface ConversationDTO {
   createdAt: string;
 }
 
+export const MachineContextSchema = z.object({
+  machineId: z.string().trim().min(1, "Machine ID is required").max(100),
+  machineName: z.string().trim().max(100).optional(),
+  selectedPartId: z.string().trim().max(100).optional(),
+  selectedPartName: z.string().trim().max(100).optional(),
+  parentAssemblyId: z.string().trim().max(100).optional(),
+  currentExplosionStep: z.number().int().min(0).max(100).optional(),
+});
+export type MachineContextDTO = z.infer<typeof MachineContextSchema>;
+
+export interface ComponentMetadataDTO {
+  partId: string;
+  name: string;
+  description?: string;
+  parentAssemblyId?: string;
+  aliases?: string[];
+  documentReferences?: string[];
+  technicalSpecifications?: Record<string, any>;
+  maintenanceInstructions?: string[];
+}
+
 export const SendMessageSchema = z.object({
   content: z.string().trim().min(1, "Message text is required").max(8000, "Message text too long").optional(),
   message: z.string().trim().min(1, "Message text is required").max(8000, "Message text too long").optional(),
   conversationId: z.string().trim().max(100).optional(),
   equipmentId: z.string().trim().max(100).optional(),
+  machineContext: MachineContextSchema.optional(),
   preferredLanguage: z.enum(["en", "hi", "hinglish"]).optional(),
   simpler: z.boolean().optional(),
   attachmentIds: z.array(z.string().trim().min(1, "Attachment ID cannot be empty").max(100, "Attachment ID too long")).max(20, "Cannot exceed 20 attachments").optional().default([]),

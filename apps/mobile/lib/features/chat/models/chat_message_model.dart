@@ -1,3 +1,4 @@
+import 'exploded_view_model.dart';
 import 'citation_model.dart';
 import 'safety_preconditions_model.dart';
 
@@ -15,6 +16,9 @@ class ChatMessageModel {
   final SuggestedTicketModel? suggestedTicket;
   final List<String> expandedTerms;
   final bool isOfflineFallback;
+  final String messageType;
+  final ExplodedViewModel? explodedView;
+  final Map<String, dynamic>? machineContext;
 
   const ChatMessageModel({
     this.id,
@@ -30,10 +34,14 @@ class ChatMessageModel {
     this.suggestedTicket,
     this.expandedTerms = const [],
     this.isOfflineFallback = false,
+    this.messageType = 'text',
+    this.explodedView,
+    this.machineContext,
   });
 
   bool get isUser => role == 'user';
   bool get isAssistant => role == 'assistant';
+  bool get isExplodedView => messageType == 'exploded_view' || explodedView != null;
 
   factory ChatMessageModel.fromJson(Map<String, dynamic> json) {
     List<CitationModel> parsedCitations = [];
@@ -71,6 +79,16 @@ class ChatMessageModel {
       terms = (json['expandedTerms'] as List).map((e) => e.toString()).toList();
     }
 
+    final msgType = json['messageType']?.toString() ?? json['type']?.toString() ?? 'text';
+    ExplodedViewModel? expView;
+    if (json['explodedView'] is Map) {
+      expView = ExplodedViewModel.fromJson(
+        Map<String, dynamic>.from(json['explodedView'] as Map),
+      );
+    } else if (msgType == 'exploded_view' && json.containsKey('modelUrl')) {
+      expView = ExplodedViewModel.fromJson(json);
+    }
+
     return ChatMessageModel(
       id: json['id']?.toString() ?? json['_id']?.toString(),
       conversationId: json['conversationId']?.toString(),
@@ -87,6 +105,9 @@ class ChatMessageModel {
       suggestedTicket: ticket,
       expandedTerms: terms,
       isOfflineFallback: json['isOfflineFallback'] == true,
+      messageType: msgType,
+      explodedView: expView,
+      machineContext: json['machineContext'] is Map ? Map<String, dynamic>.from(json['machineContext'] as Map) : null,
     );
   }
 
@@ -105,6 +126,9 @@ class ChatMessageModel {
       if (suggestedTicket != null) 'suggestedTicket': suggestedTicket!.toJson(),
       'expandedTerms': expandedTerms,
       'isOfflineFallback': isOfflineFallback,
+      'messageType': messageType,
+      if (explodedView != null) 'explodedView': explodedView!.toJson(),
+      if (machineContext != null) 'machineContext': machineContext,
     };
   }
 }

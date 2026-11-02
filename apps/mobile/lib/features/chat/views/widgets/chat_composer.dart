@@ -3,6 +3,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/widgets/terminal_components.dart';
 import '../../../equipment/models/equipment_model.dart';
+import '../../models/cad_component_selection_state.dart';
 
 /// MAN-U-AI Modern Light Chat Composer
 /// Sleek floating card on light canvas with crisp squircle actions.
@@ -14,6 +15,8 @@ class ChatComposer extends StatefulWidget {
   final ValueChanged<String> onSend;
   final VoidCallback? onOpenCamera;
   final VoidCallback? onUploadMedia;
+  final CadComponentSelectionState? activeComponentContext;
+  final VoidCallback? onClearComponentContext;
 
   // Deprecated/legacy parameters preserved for compatibility
   final VoidCallback? onPickEquipment;
@@ -29,6 +32,8 @@ class ChatComposer extends StatefulWidget {
     required this.onSend,
     this.onOpenCamera,
     this.onUploadMedia,
+    this.activeComponentContext,
+    this.onClearComponentContext,
     this.onPickEquipment,
     this.onClearEquipment,
     this.onUploadDocument,
@@ -77,6 +82,8 @@ class _ChatComposerState extends State<ChatComposer> {
     final activeEquipmentName = widget.boundEquipmentName ?? widget.selectedEquipment?.displayName;
     final cameraAction = widget.onOpenCamera ?? widget.onUploadPhoto;
     final mediaUploadAction = widget.onUploadMedia ?? widget.onUploadDocument;
+    final hasComponentContext = widget.activeComponentContext != null &&
+        widget.activeComponentContext!.hasSelection;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
@@ -97,44 +104,101 @@ class _ChatComposerState extends State<ChatComposer> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Active Equipment Context Tag
-            if (activeEquipmentName != null && activeEquipmentName.isNotEmpty) ...[
-              Container(
-                margin: const EdgeInsets.only(bottom: 8.0),
-                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.5),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceMuted,
-                  borderRadius: BorderRadius.circular(12.0),
-                  border: Border.all(color: AppColors.border, width: 1.0),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+            // Active Equipment & 3D Component Context Badges
+            if ((activeEquipmentName != null && activeEquipmentName.isNotEmpty) ||
+                hasComponentContext) ...[
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: Wrap(
+                  spacing: 8.0,
+                  runSpacing: 6.0,
                   children: [
-                    const StatusDot(color: AppColors.primary, size: 8.0),
-                    const SizedBox(width: 8.0),
-                    Flexible(
-                      child: Text(
-                        activeEquipmentName.toUpperCase(),
-                        style: AppTypography.caption.copyWith(
-                          color: AppColors.onSurface,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 10.5,
+                    if (activeEquipmentName != null && activeEquipmentName.isNotEmpty)
+                      Container(
+                        key: const Key('composer_active_equipment_badge'),
+                        padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.5),
+                        decoration: BoxDecoration(
+                          color: AppColors.surfaceMuted,
+                          borderRadius: BorderRadius.circular(12.0),
+                          border: Border.all(color: AppColors.border, width: 1.0),
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (widget.boundEquipmentName == null && widget.onClearEquipment != null) ...[
-                      const SizedBox(width: 6.0),
-                      InkWell(
-                        onTap: widget.onClearEquipment,
-                        child: const Icon(
-                          Icons.close_rounded,
-                          size: 14.0,
-                          color: AppColors.onSurfaceVariant,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const StatusDot(color: AppColors.primary, size: 8.0),
+                            const SizedBox(width: 8.0),
+                            Flexible(
+                              child: Text(
+                                activeEquipmentName.toUpperCase(),
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.onSurface,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 10.5,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (widget.boundEquipmentName == null && widget.onClearEquipment != null) ...[
+                              const SizedBox(width: 6.0),
+                              InkWell(
+                                onTap: widget.onClearEquipment,
+                                child: const Icon(
+                                  Icons.close_rounded,
+                                  size: 14.0,
+                                  color: AppColors.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
-                    ],
+                    if (hasComponentContext)
+                      Container(
+                        key: const Key('composer_active_component_badge'),
+                        padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.5),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(12.0),
+                          border: Border.all(color: AppColors.primary.withValues(alpha: 0.35), width: 1.0),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.precision_manufacturing_rounded,
+                              size: 13.0,
+                              color: AppColors.primary,
+                            ),
+                            const SizedBox(width: 6.0),
+                            Flexible(
+                              child: Text(
+                                '${widget.activeComponentContext!.displayName.toUpperCase()}${widget.activeComponentContext!.parentId != null && widget.activeComponentContext!.parentId!.isNotEmpty ? ' (${widget.activeComponentContext!.parentId})' : ''}',
+                                key: const Key('composer_component_name_text'),
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 10.5,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (widget.onClearComponentContext != null) ...[
+                              const SizedBox(width: 6.0),
+                              InkWell(
+                                key: const Key('composer_clear_component_button'),
+                                onTap: widget.onClearComponentContext,
+                                child: const Icon(
+                                  Icons.close_rounded,
+                                  size: 14.0,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),

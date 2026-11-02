@@ -124,6 +124,12 @@ class _TestChatController extends Notifier<ChatState> implements ChatController 
   Future<bool> downloadAreaPack(String equipmentId) async => true;
 
   @override
+  void setActiveComponentContext(dynamic context) {}
+
+  @override
+  void clearActiveComponentContext() {}
+
+  @override
   void clearSendingError() {
     state = state.copyWith(sendingError: () => null);
   }

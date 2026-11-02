@@ -14,6 +14,7 @@ import type {
   WorkerResponseDTO,
   WorkerLanguage,
   WorkerSourceDTO,
+  MachineContextDTO,
 } from "@man-u-ai/shared";
 import { answerValidator } from "./answer_validator.service";
 
@@ -157,6 +158,7 @@ export class RagService {
     options?: {
       preferredLanguage?: WorkerLanguage;
       simpler?: boolean;
+      machineContext?: MachineContextDTO;
     }
   ): Promise<RagResponse> {
     const reqId = requestId || `rag-${Date.now()}`;
@@ -167,7 +169,8 @@ export class RagService {
 
     // Fast-path in-memory response cache check (skips redundant processing for repeated queries)
     const isUnderVitest = Boolean(process.env.VITEST);
-    const cacheKey = `${targetLanguage}:${isSimpler}:${equipmentId || "all"}:${query.trim().toLowerCase()}`;
+    const compKey = options?.machineContext?.selectedPartId ? `:${options.machineContext.selectedPartId}` : "";
+    const cacheKey = `${targetLanguage}:${isSimpler}:${equipmentId || options?.machineContext?.machineId || "all"}${compKey}:${query.trim().toLowerCase()}`;
     if (!isUnderVitest) {
       const cached = this.responseCache.get(cacheKey);
       if (cached && Date.now() < cached.expiresAt) {
@@ -305,6 +308,13 @@ export class RagService {
       })(),
     ]);
 
+    const machineCtx = options?.machineContext;
+    let compMeta: import("@man-u-ai/shared").ComponentMetadataDTO | null = null;
+    if (machineCtx?.selectedPartId) {
+      const { machineComponentService } = await import("./component.service");
+      compMeta = await machineComponentService.resolveComponent(machineCtx.machineId, machineCtx.selectedPartId);
+    }
+
     const { expandedQuery, expandedTerms } = glossaryResult;
     let searchQuery = expandedQuery;
     if (equipmentContext) {
@@ -313,6 +323,14 @@ export class RagService {
       const hasModel = equipmentContext.model && lowerQuery.includes(equipmentContext.model.toLowerCase());
       if (!hasName && !hasModel) {
         searchQuery = `${equipmentContext.name} ${equipmentContext.model || ""} ${searchQuery}`.trim();
+      }
+    }
+    if (compMeta) {
+      const compTerms = [compMeta.name, ...(compMeta.aliases || [])].filter(Boolean);
+      const lowerQuery = searchQuery.toLowerCase();
+      const missingTerms = compTerms.filter((t) => !lowerQuery.includes(t.toLowerCase()));
+      if (missingTerms.length > 0) {
+        searchQuery = `${compMeta.name} ${missingTerms.slice(0, 3).join(" ")} ${searchQuery}`.trim();
       }
     }
 
@@ -341,6 +359,85 @@ export class RagService {
     } catch (retErr) {
       (retErr as any).stage = "vector_retrieval";
       throw retErr;
+    }
+
+    // 4b. Stage: Component-Aware Relevance Rescoring & Boosting
+    if (compMeta && retrieved.length > 0) {
+      const pIdLower = compMeta.partId.toLowerCase();
+      const nameLower = compMeta.name.toLowerCase();
+      const aliasesLower = (compMeta.aliases || []).map((a) => a.toLowerCase());
+      const parentLower = compMeta.parentAssemblyId?.toLowerCase();
+
+      const boostedRetrieved = retrieved.map((item) => {
+        const textLower = item.chunk.text.toLowerCase();
+        const sectionLower = (item.chunk.section || "").toLowerCase();
+        let boost = 0;
+
+        if (textLower.includes(pIdLower) || sectionLower.includes(pIdLower)) {
+          boost += 0.35;
+        }
+        if (textLower.includes(nameLower) || sectionLower.includes(nameLower)) {
+          boost += 0.25;
+        }
+        for (const alias of aliasesLower) {
+          if (textLower.includes(alias) || sectionLower.includes(alias)) {
+            boost += 0.20;
+            break;
+          }
+        }
+        if (parentLower && (textLower.includes(parentLower) || sectionLower.includes(parentLower))) {
+          boost += 0.10;
+        }
+        if (compMeta!.documentReferences && compMeta!.documentReferences.includes(item.chunk.documentId)) {
+          boost += 0.15;
+        }
+
+        return {
+          chunk: item.chunk,
+          score: Math.min(0.99, item.score + boost),
+        };
+      });
+
+      boostedRetrieved.sort((a, b) => b.score - a.score);
+      retrieved = boostedRetrieved;
+    }
+
+    // 4c. Stage: Check Component Documentation Availability (Scenario D)
+    const hasComponentMatch = !compMeta || retrieved.some((r) => {
+      const text = `${r.chunk.text} ${r.chunk.section || ""} ${r.chunk.documentTitle}`.toLowerCase();
+      return (
+        text.includes(compMeta!.partId.toLowerCase()) ||
+        text.includes(compMeta!.name.toLowerCase()) ||
+        (compMeta!.aliases && compMeta!.aliases.some((a) => text.includes(a.toLowerCase()))) ||
+        (compMeta!.documentReferences && compMeta!.documentReferences.includes(r.chunk.documentId))
+      );
+    });
+
+    if (compMeta && (!hasComponentMatch || retrieved.length === 0)) {
+      console.log(`[RAG Pipeline] [Request ID: ${reqId}] Component '${compMeta.name}' (${compMeta.partId}) has no matching documentation; returning cannot_verify.`);
+      const cannotVerifyAnswer: WorkerCannotVerifyDTO = {
+        status: "cannot_verify",
+        language: targetLanguage,
+        message: getCannotVerifyMessage(targetLanguage),
+        closest_sources: [],
+      };
+
+      const limitationMessage = `I could not locate sufficient verified documentation in your authorized knowledge index for **${compMeta.name}** (Part ID: ${compMeta.partId})${machineCtx?.machineName ? ` on **${machineCtx.machineName}**` : ""} regarding your reported symptom or inquiry. I can't confirm this from the approved documents. Please ask your supervisor or tap Request Documentation below.`;
+
+      return {
+        answer: limitationMessage,
+        workerAnswer: cannotVerifyAnswer,
+        citations: [],
+        warningLevel: "none",
+        confidenceScore: 0.1,
+        provider: geminiService.getLastProvider(),
+        suggestedTicket: {
+          query,
+          equipmentId,
+          reason: `No matching documentation found in authorized index for component ${compMeta.name} (${compMeta.partId}).`,
+        },
+        expandedTerms: expandedTerms.length > 0 ? expandedTerms : undefined,
+      };
     }
 
     // 5. Stage: Insufficient Evidence Check (Refusal-to-Fix & Suggestion Logging)
@@ -732,6 +829,19 @@ export class RagService {
       equipmentSection = `\nACTIVE EQUIPMENT IDENTITY & DIAGNOSTIC CONTEXT:\n- Equipment Name: ${equipmentContext.name}\n- Machine Type: ${equipmentContext.type}\n- Model: ${equipmentContext.model || "Not specified"}\n- Manufacturer: ${equipmentContext.manufacturer || "Not specified"}\n- Serial Number: ${equipmentContext.serialNumber || "Not recorded"}\n- Location: ${equipmentContext.location || "Not recorded"}\n`;
     }
 
+    let componentSection = "";
+    if (machineCtx) {
+      componentSection = `\nACTIVE 3D CAD MACHINE & COMPONENT CONTEXT:
+- Machine ID: ${machineCtx.machineId}
+- Machine Name: ${machineCtx.machineName || equipmentContext?.name || machineCtx.machineId}
+${compMeta ? `- Selected Component: ${compMeta.name} (Part ID: ${compMeta.partId})\n- Parent Assembly: ${compMeta.parentAssemblyId || machineCtx.parentAssemblyId || "Main Subassembly"}\n- Component Aliases: ${(compMeta.aliases || []).join(", ") || "None"}\n${compMeta.technicalSpecifications ? `- Verified Component Specifications: ${JSON.stringify(compMeta.technicalSpecifications)}\n` : ""}${compMeta.maintenanceInstructions && compMeta.maintenanceInstructions.length > 0 ? `- Verified Maintenance Directives: ${compMeta.maintenanceInstructions.join("; ")}\n` : ""}` : (machineCtx.selectedPartId ? `- Selected Component ID: ${machineCtx.selectedPartId}\n- Component Name: ${machineCtx.selectedPartName || machineCtx.selectedPartId}\n` : "- Component: None selected (Machine-wide context)\n")}- Current Explosion Stage: Stage ${machineCtx.currentExplosionStep ?? 1}
+
+INSTRUCTIONS FOR COMPONENT-AWARE QUESTIONS:
+- If the engineer asks "this component", "why is it failing", "how to inspect", or asks about maintenance without repeating the component name, they are referring specifically to ${compMeta ? compMeta.name : (machineCtx.selectedPartName || machineCtx.selectedPartId || "this machine")}.
+- Ground the answer in the retrieved passages for this component and its immediate subsystem.
+- Do NOT fabricate torque values, clearance limits, voltages, or inspection intervals. If the text does not contain it, state: "I can't confirm this from the approved documents. Please ask your supervisor."\n`;
+    }
+
     let historySection = "";
     if (sessionHistory.length > 0) {
       historySection =
@@ -825,7 +935,7 @@ When cannot verify:
   "closest_sources": []
 }
 
-${equipmentSection}${historySection}
+${equipmentSection}${componentSection}${historySection}
 RETRIEVED DOCUMENT EVIDENCE:
 ${evidenceBlocks}
 ${figureSection}

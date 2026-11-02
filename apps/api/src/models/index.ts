@@ -45,6 +45,17 @@ UserSchema.methods.comparePassword = async function (candidate: string): Promise
 export const User = mongoose.model<IUser>("User", UserSchema);
 
 // ── 2. Equipment Model ─────────────────────────────────────────────────────
+export interface IComponentMetadata {
+  partId: string;
+  name: string;
+  description?: string;
+  parentAssemblyId?: string;
+  aliases?: string[];
+  documentReferences?: string[];
+  technicalSpecifications?: Record<string, any>;
+  maintenanceInstructions?: string[];
+}
+
 export interface IEquipment {
   name: string;
   type: string;
@@ -54,6 +65,7 @@ export interface IEquipment {
   location?: string;
   documentIds: string[];
   telemetryConfig?: Record<string, any>;
+  components?: IComponentMetadata[];
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -68,6 +80,18 @@ const EquipmentSchema = new Schema<IEquipment>(
     location: { type: String },
     documentIds: [{ type: Schema.Types.ObjectId, ref: "Document" }],
     telemetryConfig: { type: Schema.Types.Mixed },
+    components: [
+      {
+        partId: { type: String, required: true },
+        name: { type: String, required: true },
+        description: { type: String },
+        parentAssemblyId: { type: String },
+        aliases: [{ type: String }],
+        documentReferences: [{ type: String }],
+        technicalSpecifications: { type: Schema.Types.Mixed },
+        maintenanceInstructions: [{ type: String }],
+      },
+    ],
   },
   { timestamps: true }
 );
@@ -321,6 +345,14 @@ export interface IMessage extends MongooseDocument {
     isOverdue?: boolean;
     reviewDate?: string;
   }>;
+  machineContext?: {
+    machineId: string;
+    machineName?: string;
+    selectedPartId?: string;
+    selectedPartName?: string;
+    parentAssemblyId?: string;
+    currentExplosionStep?: number;
+  };
   warningLevel?: "none" | "caution" | "critical";
   safetyPreconditions?: {
     warnings: string[];
@@ -350,6 +382,14 @@ const MessageSchema = new Schema<IMessage>(
         reviewDate: { type: String },
       },
     ],
+    machineContext: {
+      machineId: { type: String },
+      machineName: { type: String },
+      selectedPartId: { type: String },
+      selectedPartName: { type: String },
+      parentAssemblyId: { type: String },
+      currentExplosionStep: { type: Number },
+    },
     warningLevel: { type: String, enum: ["none", "caution", "critical"], default: "none" },
     safetyPreconditions: {
       warnings: [{ type: String }],

@@ -146,4 +146,115 @@ class EnvConfig {
   static const Duration connectTimeout = Duration(seconds: 30);
   static const Duration receiveTimeout = Duration(seconds: 45);
   static const Duration sendTimeout = Duration(seconds: 30);
+
+  /// Verified live production CAD Viewer URL.
+  static const String productionCadViewerUrl = 'https://man-u-ai.onrender.com/cad';
+
+  /// Standard Android emulator loopback alias to CAD viewer dev server.
+  static const String emulatorCadViewerUrl = 'http://10.0.2.2:5173';
+
+  /// Desktop / Localhost loopback CAD viewer dev server.
+  static const String localHostCadViewerUrl = 'http://localhost:5173';
+
+  /// Build-time configured CAD Viewer URL override.
+  static const String _definedCadViewerUrl = String.fromEnvironment('CAD_VIEWER_URL');
+
+  /// Optional runtime override for CAD Viewer URL.
+  static String? _cadViewerRuntimeOverride;
+
+  /// Sets a temporary CAD viewer runtime override in debug mode.
+  static void setCadViewerRuntimeOverride(String? url) {
+    if (url == null || url.trim().isEmpty) {
+      _cadViewerRuntimeOverride = null;
+    } else {
+      _cadViewerRuntimeOverride = url.trim();
+    }
+  }
+
+  /// Clears any active CAD viewer runtime override.
+  static void clearCadViewerRuntimeOverride() {
+    _cadViewerRuntimeOverride = null;
+  }
+
+  /// Active Base URL for the embedded CAD 3D Viewer.
+  static String get cadViewerUrl {
+    // 1. Runtime override
+    if (_cadViewerRuntimeOverride != null && _cadViewerRuntimeOverride!.isNotEmpty) {
+      return _cadViewerRuntimeOverride!;
+    }
+
+    // 2. Build-time environment define (--dart-define=CAD_VIEWER_URL=...)
+    if (_definedCadViewerUrl.isNotEmpty) {
+      return _definedCadViewerUrl.trim();
+    }
+
+    // 3. Android emulator flag
+    if (_useEmulator) {
+      return emulatorCadViewerUrl;
+    }
+
+    // 4. Web browser environment
+    if (kIsWeb) {
+      return '/cad';
+    }
+
+    // 5. Local development on simulator / desktop
+    if (!kReleaseMode) {
+      return localHostCadViewerUrl;
+    }
+
+    // 6. Production release
+    return productionCadViewerUrl;
+  }
+
+  /// Validates whether a viewer URL belongs to a configured, trusted origin.
+  static bool isAllowedViewerOrigin(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !uri.hasScheme) return false;
+
+    // Production requires secure TLS (HTTPS)
+    if (kReleaseMode && uri.scheme != 'https') return false;
+
+    final allowedHosts = <String>{
+      'localhost',
+      '127.0.0.1',
+      '10.0.2.2',
+      'man-u-ai.onrender.com',
+      'man-u-ai-cad-viewer.web.app',
+      if (Uri.tryParse(cadViewerUrl)?.host.isNotEmpty == true)
+        Uri.tryParse(cadViewerUrl)!.host.toLowerCase(),
+    };
+
+    return allowedHosts.contains(uri.host.toLowerCase());
+  }
+
+  /// Validates a CAD model URL for safety, preventing protocol injections.
+  static bool isValidModelUrl(String url) {
+    if (url.trim().isEmpty) return false;
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null) return false;
+
+    final scheme = uri.scheme.toLowerCase();
+    // Block dangerous schemes
+    if (scheme == 'javascript' || scheme == 'data' || scheme == 'file') {
+      return false;
+    }
+
+    // Relative model paths (e.g. /samples/motor-holder.step) are allowed
+    if (!uri.hasScheme) return true;
+
+    // Production requires HTTPS for remote models
+    if (kReleaseMode && scheme != 'https') return false;
+
+    return true;
+  }
+
+  /// Constructs a safe, encoded CAD viewer URL with model parameter.
+  static String buildCadViewerUrl(String modelUrl) {
+    final base = cadViewerUrl.replaceAll(RegExp(r'/+$'), '');
+    final separator = base.contains('?') ? '&' : '?';
+    final encodedModel = Uri.encodeComponent(modelUrl.trim());
+    return '$base$separator' 'model=$encodedModel';
+  }
+
 }

@@ -6,7 +6,8 @@ import { Message, Conversation, Equipment } from "../models";
 import { isConnectedToMongo } from "../config/database";
 import { extractStructuredErrorInfo, logStructuredError } from "../utils/errorReporting";
 import { toMongoObjectId } from "./documents.routes";
-import { SendMessageSchema } from "@man-u-ai/shared";
+import { SendMessageSchema, MachineContextDTO } from "@man-u-ai/shared";
+import { machineComponentService } from "../services/component.service";
 
 export const chatRouter: Router = Router();
 
@@ -53,6 +54,45 @@ chatRouter.post("/", requireAuth, async (req: AuthenticatedRequest, res: Respons
           });
         }
       }
+    }
+
+    // Validate machineContext if provided
+    let validatedMachineContext: MachineContextDTO | undefined = undefined;
+    if (parsed.data.machineContext) {
+      const mc = parsed.data.machineContext;
+      const ownership = await machineComponentService.validateComponentOwnership(
+        mc.machineId,
+        mc.selectedPartId
+      );
+
+      if (!ownership.valid) {
+        if (!ownership.machine) {
+          return res.status(404).json({
+            success: false,
+            error: {
+              code: "INVALID_MACHINE_ID",
+              message: ownership.error || `Referenced machine '${mc.machineId}' does not exist`,
+            },
+          });
+        }
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: "INVALID_COMPONENT_ID",
+            message: ownership.error || `Component '${mc.selectedPartId}' does not belong to machine '${mc.machineId}'`,
+          },
+        });
+      }
+
+      // Populate authoritative metadata
+      validatedMachineContext = {
+        machineId: mc.machineId,
+        machineName: ownership.machine?.name || mc.machineName || mc.machineId,
+        selectedPartId: mc.selectedPartId,
+        selectedPartName: ownership.component?.name || mc.selectedPartName,
+        parentAssemblyId: ownership.component?.parentAssemblyId || mc.parentAssemblyId,
+        currentExplosionStep: mc.currentExplosionStep,
+      };
     }
 
     if (isConnectedToMongo && conversationId) {
@@ -109,7 +149,7 @@ chatRouter.post("/", requireAuth, async (req: AuthenticatedRequest, res: Respons
       conversationId,
       resolvedEquipmentId,
       requestId,
-      { preferredLanguage, simpler }
+      { preferredLanguage, simpler, machineContext: validatedMachineContext }
     );
 
     if (isConnectedToMongo && conversationId) {
@@ -118,6 +158,7 @@ chatRouter.post("/", requireAuth, async (req: AuthenticatedRequest, res: Respons
           conversationId,
           role: "user",
           content: message,
+          machineContext: validatedMachineContext,
         });
         await Message.create({
           conversationId,
@@ -128,6 +169,7 @@ chatRouter.post("/", requireAuth, async (req: AuthenticatedRequest, res: Respons
           warningLevel: result.warningLevel,
           safetyPreconditions: result.safetyPreconditions,
           expandedTerms: result.expandedTerms,
+          machineContext: validatedMachineContext,
         });
         await Conversation.findByIdAndUpdate(conversationId, {
           lastMessageAt: new Date(),
@@ -150,6 +192,7 @@ chatRouter.post("/", requireAuth, async (req: AuthenticatedRequest, res: Respons
         safetyPreconditions: result.safetyPreconditions,
         suggestedTicket: result.suggestedTicket,
         expandedTerms: result.expandedTerms,
+        machineContext: validatedMachineContext,
       },
     });
   } catch (err: unknown) {

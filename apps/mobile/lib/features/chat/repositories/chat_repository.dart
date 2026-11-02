@@ -96,6 +96,7 @@ class ChatRepository {
     required String message,
     String? conversationId,
     String? equipmentId,
+    Map<String, dynamic>? machineContext,
   }) async {
     final payload = <String, dynamic>{
       'message': message.trim(),
@@ -103,6 +104,8 @@ class ChatRepository {
         'conversationId': conversationId.trim(),
       if (equipmentId != null && equipmentId.trim().isNotEmpty)
         'equipmentId': equipmentId.trim(),
+      if (machineContext != null && machineContext.isNotEmpty)
+        'machineContext': machineContext,
     };
 
     final response = await dio.post('/chat', data: payload);
