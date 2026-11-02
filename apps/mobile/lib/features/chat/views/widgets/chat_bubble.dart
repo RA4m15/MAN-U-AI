@@ -636,6 +636,7 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
                     ),
                   ),
 
+                  if (widget.message.workerAnswer != null) ...[
                   // Step-to-Source Fidelity Verification Button
                   const SizedBox(height: 10.0),
                   InkWell(
@@ -755,6 +756,8 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
                       ),
                     ),
                   ),
+                  ],
+
                   // Citations Drawer Section
                   if (citations.isNotEmpty) ...[
                     const SizedBox(height: 12.0),

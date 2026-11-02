@@ -19,6 +19,7 @@ class ChatMessageModel {
   final String messageType;
   final ExplodedViewModel? explodedView;
   final Map<String, dynamic>? machineContext;
+  final Map<String, dynamic>? workerAnswer;
 
   const ChatMessageModel({
     this.id,
@@ -37,6 +38,7 @@ class ChatMessageModel {
     this.messageType = 'text',
     this.explodedView,
     this.machineContext,
+    this.workerAnswer,
   });
 
   bool get isUser => role == 'user';
@@ -108,6 +110,7 @@ class ChatMessageModel {
       messageType: msgType,
       explodedView: expView,
       machineContext: json['machineContext'] is Map ? Map<String, dynamic>.from(json['machineContext'] as Map) : null,
+      workerAnswer: json['workerAnswer'] is Map ? Map<String, dynamic>.from(json['workerAnswer'] as Map) : null,
     );
   }
 
@@ -129,6 +132,7 @@ class ChatMessageModel {
       'messageType': messageType,
       if (explodedView != null) 'explodedView': explodedView!.toJson(),
       if (machineContext != null) 'machineContext': machineContext,
+      if (workerAnswer != null) 'workerAnswer': workerAnswer,
     };
   }
 }
