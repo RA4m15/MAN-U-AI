@@ -7,10 +7,7 @@ class AuthInterceptor extends Interceptor {
   final SecureStorageService storage;
   final void Function()? onUnauthorized;
 
-  AuthInterceptor({
-    required this.storage,
-    this.onUnauthorized,
-  });
+  AuthInterceptor({required this.storage, this.onUnauthorized});
 
   @override
   Future<void> onRequest(
@@ -23,8 +20,11 @@ class AuthInterceptor extends Interceptor {
       options.headers['Authorization'] = 'Bearer $token';
     }
 
-    options.headers['Content-Type'] = 'application/json';
-    options.headers['Accept'] = 'application/json';
+    // Preserve multipart/form-data boundary for FormData uploads
+    if (options.data is! FormData && options.headers['Content-Type'] == null) {
+      options.headers['Content-Type'] = 'application/json';
+    }
+    options.headers['Accept'] ??= 'application/json';
 
     return handler.next(options);
   }
@@ -33,7 +33,8 @@ class AuthInterceptor extends Interceptor {
   void onError(DioException err, ErrorInterceptorHandler handler) {
     if (err.response?.statusCode == 401) {
       // Do not treat a failed login or registration submission as a session expiry
-      final isAuthPath = err.requestOptions.path.contains('/auth/login') ||
+      final isAuthPath =
+          err.requestOptions.path.contains('/auth/login') ||
           err.requestOptions.path.contains('/auth/register');
       if (!isAuthPath) {
         // Clear token and user on 401 Unauthorized for protected resources

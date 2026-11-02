@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../auth/controllers/auth_controller.dart';
 import '../../auth/models/auth_state.dart';
+import '../models/document_model.dart';
 import '../models/picked_document.dart';
 import '../models/upload_document_response.dart';
 import '../repositories/document_repository.dart';
@@ -10,6 +11,12 @@ import '../repositories/document_repository.dart';
 final documentRepositoryProvider = Provider<DocumentRepository>((ref) {
   final dio = ref.watch(dioProvider);
   return DocumentRepository(dio: dio);
+});
+
+/// Asynchronously provides the list of all facility documents authorized for the current user.
+final documentListProvider = FutureProvider<List<DocumentModel>>((ref) async {
+  final repository = ref.watch(documentRepositoryProvider);
+  return await repository.getDocuments();
 });
 
 class DocumentUploadState {
@@ -138,7 +145,7 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
     // Role verification: check if current user role permits document upload
     final authState = ref.read(authControllerProvider);
     final userRole = authState is Authenticated ? authState.user.role : 'viewer';
-    if (userRole != 'admin' && userRole != 'engineer') {
+    if (userRole != 'admin' && userRole != 'engineer' && userRole != 'manager') {
       state = state.copyWith(
         errorMessage: () =>
             'Access denied: Only administrators and engineers can upload facility documents.',
@@ -184,6 +191,9 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
         uploadProgress: 1.0,
         successResult: () => result,
       );
+
+      // Refresh documents list cache so the new document appears immediately
+      ref.invalidate(documentListProvider);
     } catch (err) {
       if (err is DioException && CancelToken.isCancel(err)) {
         state = state.copyWith(
@@ -201,6 +211,15 @@ class DocumentUploadController extends Notifier<DocumentUploadState> {
     } finally {
       _cancelToken = null;
     }
+  }
+
+  /// Retries upload for the currently selected file.
+  Future<void> retryUpload({
+    String? title,
+    String? revision,
+    String? equipmentId,
+  }) async {
+    await upload(title: title, revision: revision, equipmentId: equipmentId);
   }
 
   String _parseUploadError(dynamic err) {

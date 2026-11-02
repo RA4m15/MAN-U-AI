@@ -63,11 +63,31 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
         );
   }
 
+  void _handleRetry() {
+    final uploadState = ref.read(documentUploadControllerProvider);
+    final doc = uploadState.selectedDocument;
+    if (doc == null || uploadState.isUploading) return;
+
+    final title = _titleController.text.trim().isNotEmpty
+        ? _titleController.text.trim()
+        : doc.name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
+
+    final revision = _revisionController.text.trim().isNotEmpty
+        ? _revisionController.text.trim()
+        : 'Rev 1.0';
+
+    ref.read(documentUploadControllerProvider.notifier).retryUpload(
+          title: title,
+          revision: revision,
+          equipmentId: _selectedEquipment?.id,
+        );
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
     final user = authState is Authenticated ? authState.user : null;
-    final isPermitted = user?.role == 'admin' || user?.role == 'engineer';
+    final isPermitted = user?.role == 'admin' || user?.role == 'engineer' || user?.role == 'manager';
 
     final uploadState = ref.watch(documentUploadControllerProvider);
     final equipmentAsync = ref.watch(equipmentListProvider);
@@ -112,6 +132,32 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
                     ),
                   ),
                   const Spacer(),
+                  if (user != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+                      margin: const EdgeInsets.only(right: 8.0),
+                      decoration: BoxDecoration(
+                        color: isPermitted
+                            ? AppColors.primary.withValues(alpha: 0.15)
+                            : AppColors.warning.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4.0),
+                        border: Border.all(
+                          color: isPermitted
+                              ? AppColors.primary.withValues(alpha: 0.4)
+                              : AppColors.warning.withValues(alpha: 0.4),
+                          width: 1.0,
+                        ),
+                      ),
+                      child: Text(
+                        user.role.toUpperCase(),
+                        style: TextStyle(
+                          color: isPermitted ? AppColors.primary : AppColors.warning,
+                          fontSize: 10.0,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
                   IconButton(
                     icon: const Icon(Icons.close_rounded, color: AppColors.inkSubtle),
                     onPressed: () {
@@ -175,7 +221,7 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
                 ),
                 const SizedBox(height: 16.0),
 
-                // Error Banner
+                // Error Banner with Retry Option
                 if (uploadState.errorMessage != null) ...[
                   Container(
                     key: const Key('upload_error_banner'),
@@ -186,28 +232,45 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
                       borderRadius: BorderRadius.circular(8.0),
                       border: Border.all(color: AppColors.danger.withValues(alpha: 0.6)),
                     ),
-                    child: Row(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.error_outline_rounded,
-                            color: AppColors.danger, size: 16.0),
-                        const SizedBox(width: 8.0),
-                        Expanded(
-                          child: Text(
-                            uploadState.errorMessage!,
-                            style: const TextStyle(
-                              color: AppColors.ink,
-                              fontSize: 12.0,
-                              fontWeight: FontWeight.w500,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.error_outline_rounded,
+                                color: AppColors.danger, size: 16.0),
+                            const SizedBox(width: 8.0),
+                            Expanded(
+                              child: Text(
+                                uploadState.errorMessage!,
+                                style: const TextStyle(
+                                  color: AppColors.ink,
+                                  fontSize: 12.0,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (uploadState.selectedDocument != null && !uploadState.isUploading) ...[
+                          const SizedBox(height: 8.0),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton.icon(
+                              key: const Key('retry_upload_button'),
+                              icon: const Icon(Icons.refresh_rounded, size: 14.0, color: AppColors.primary),
+                              label: const Text('RETRY UPLOAD', style: TextStyle(fontSize: 11.0, fontWeight: FontWeight.w700)),
+                              onPressed: _handleRetry,
                             ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ),
                 ],
 
-                // Success State
+                // Success State with Ingestion Progress
                 if (uploadState.successResult != null) ...[
                   Container(
                     key: const Key('upload_success_banner'),
@@ -221,11 +284,11 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
+                        const Row(
                           children: [
-                            const Icon(Icons.check_circle_rounded,
+                            Icon(Icons.check_circle_rounded,
                                 color: AppColors.brandSecure, size: 18.0),
-                            const SizedBox(width: 8.0),
+                            SizedBox(width: 8.0),
                             Text(
                               'Document Queued for Ingestion',
                               style: TextStyle(
@@ -238,10 +301,38 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
                         ),
                         const SizedBox(height: 8.0),
                         Text(
-                          '${uploadState.successResult!.title} (${uploadState.successResult!.revision}) was uploaded successfully. Background OCR and vector indexing have started.',
+                          '${uploadState.successResult!.title} (${uploadState.successResult!.revision}) was uploaded successfully. Background OCR, figure extraction, and vector indexing are active in the plant pipeline.',
                           style: const TextStyle(color: AppColors.ink, fontSize: 12.0, height: 1.4),
                         ),
-                        const SizedBox(height: 12.0),
+                        const SizedBox(height: 8.0),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
+                          decoration: BoxDecoration(
+                            color: AppColors.surface2,
+                            borderRadius: BorderRadius.circular(6.0),
+                            border: Border.all(color: AppColors.hairline),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(
+                                Icons.sync_rounded,
+                                size: 14.0,
+                                color: AppColors.primary,
+                              ),
+                              SizedBox(width: 8.0),
+                              Text(
+                                'INGESTION STATUS: PROCESSING IN BACKGROUND',
+                                style: TextStyle(
+                                  color: AppColors.primary,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14.0),
                         ElevatedButton(
                           onPressed: () {
                             ref.read(documentUploadControllerProvider.notifier).clearSelection();
@@ -271,6 +362,18 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
                                   .read(documentUploadControllerProvider.notifier)
                                   .pickPdfFile();
                             },
+                    ),
+                    const SizedBox(height: 8.0),
+                    const Center(
+                      child: Text(
+                        'SUPPORTED: PDF DOCUMENTS UP TO 50MB',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          color: AppColors.inkSubtle,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
                     ),
                   ] else ...[
                     // File Preview Card
@@ -307,6 +410,7 @@ class _DocumentUploadModalState extends ConsumerState<DocumentUploadModal> {
                                   style: const TextStyle(
                                     color: AppColors.inkSubtle,
                                     fontSize: 11.0,
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
                               ],

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
+import '../models/document_model.dart';
 import '../models/figure_model.dart';
 import '../models/upload_document_response.dart';
 
@@ -9,6 +10,38 @@ class DocumentRepository {
   static const int maxUploadSizeBytes = 50 * 1024 * 1024; // 50MB backend limit
 
   DocumentRepository({required this.dio});
+
+  /// Retrieves list of all authorized facility documents.
+  Future<List<DocumentModel>> getDocuments({String? equipmentId}) async {
+    final queryParams = <String, dynamic>{};
+    if (equipmentId != null && equipmentId.isNotEmpty) {
+      queryParams['equipmentId'] = equipmentId;
+    }
+
+    final response = await dio.get(
+      '/documents',
+      queryParameters: queryParams,
+    );
+
+    final data = response.data;
+    if (data is Map<String, dynamic> && data['data'] is List) {
+      return (data['data'] as List)
+          .whereType<Map<String, dynamic>>()
+          .map((item) => DocumentModel.fromJson(item))
+          .toList();
+    }
+    return [];
+  }
+
+  /// Retrieves metadata for a specific document by ID.
+  Future<DocumentModel?> getDocumentById(String documentId) async {
+    final response = await dio.get('/documents/$documentId');
+    final data = response.data;
+    if (data is Map<String, dynamic> && data['data'] is Map<String, dynamic>) {
+      return DocumentModel.fromJson(data['data'] as Map<String, dynamic>);
+    }
+    return null;
+  }
 
   /// Streams genuine figure image bytes using authenticated session.
   Future<Uint8List> getFigureImageBytes({

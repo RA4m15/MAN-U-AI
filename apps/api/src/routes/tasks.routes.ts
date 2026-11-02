@@ -11,6 +11,18 @@ import {
 export const taskRouter = Router();
 
 /**
+ * Validates and extracts a single, non-empty route parameter ID.
+ * Rejects non-string types (such as arrays), empty strings, and whitespace-only strings.
+ */
+export function parseRouteParamId(param: unknown): string | null {
+  if (typeof param !== "string") {
+    return null;
+  }
+  const trimmed = param.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
  * POST /api/v1/tasks
  * Manager and Admin can create and dispatch new shift tasks.
  */
@@ -88,7 +100,13 @@ taskRouter.get("/", requireAuth, async (req: Request, res: Response) => {
  */
 taskRouter.get("/:id", requireAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = parseRouteParamId(req.params.id);
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "INVALID_TASK_ID", message: "Invalid task ID parameter." },
+      });
+    }
     const task = await taskService.getTaskById(id);
 
     if (!task) {
@@ -117,7 +135,13 @@ taskRouter.get("/:id", requireAuth, async (req: Request, res: Response) => {
  */
 taskRouter.patch("/:id", requireAuth, async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = parseRouteParamId(req.params.id);
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "INVALID_TASK_ID", message: "Invalid task ID parameter." },
+      });
+    }
     const parseResult = UpdateTaskSchema.safeParse(req.body);
     if (!parseResult.success) {
       return res.status(400).json({
@@ -160,7 +184,13 @@ taskRouter.delete(
   requireRole(["manager", "admin"]),
   async (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
+      const id = parseRouteParamId(req.params.id);
+      if (!id) {
+        return res.status(400).json({
+          success: false,
+          error: { code: "INVALID_TASK_ID", message: "Invalid task ID parameter." },
+        });
+      }
       const deleted = await taskService.deleteTask(id);
 
       if (!deleted) {

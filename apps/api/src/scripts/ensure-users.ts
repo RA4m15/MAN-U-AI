@@ -101,6 +101,11 @@ export async function ensureUsers(options?: EnsureUsersOptions): Promise<{ creat
       role: "engineer",
     },
     {
+      name: "Alex Mercer (Dev Engineer Alias)",
+      email: "engineer@plant.io",
+      role: "engineer",
+    },
+    {
       name: "Sam Taylor (Dev Operator)",
       email: "operator@plant.io",
       role: "viewer",

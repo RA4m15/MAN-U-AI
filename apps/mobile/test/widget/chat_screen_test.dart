@@ -16,6 +16,7 @@ import 'package:manuai_mobile/features/chat/views/chat_screen.dart';
 import 'package:manuai_mobile/features/equipment/controllers/equipment_controller.dart';
 import 'package:manuai_mobile/features/equipment/models/equipment_model.dart';
 import 'package:manuai_mobile/features/equipment/repositories/equipment_repository.dart';
+import 'package:manuai_mobile/features/tasks/controllers/task_controller.dart';
 
 class MockChatRepository extends Mock implements ChatRepository {}
 class MockEquipmentRepository extends Mock implements EquipmentRepository {}
@@ -76,6 +77,7 @@ void main() {
         authControllerProvider.overrideWith(
           () => _TestAuthController(const Authenticated(user: testUser, token: 'fake-token')),
         ),
+        activeTasksCountProvider.overrideWithValue(0),
         if (initialChatState != null)
           chatControllerProvider.overrideWith(
             () => _TestChatController(initialChatState),

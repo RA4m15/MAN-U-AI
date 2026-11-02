@@ -20,6 +20,20 @@ export async function seedDatabase() {
 
     if (userCount > 0) {
       console.log(`[Seed] User accounts already exist (${userCount} users). Preserving existing credentials (idempotent; no password overwrite).`);
+      if (!isProduction && seedPassword) {
+        const existingEngineer = await User.findOne({ email: "engineer@plant.io" });
+        if (!existingEngineer) {
+          const passwordHash = await bcrypt.hash(seedPassword, 10);
+          await User.create({
+            name: "Alex Mercer (Engineer)",
+            email: "engineer@plant.io",
+            passwordHash,
+            role: "engineer",
+            orgId: "plant-alpha",
+          });
+          console.log("[Seed] Provisioned missing development demo engineer account: engineer@plant.io");
+        }
+      }
     } else if (!seedPassword) {
       console.log("[Seed] Skipping initial personnel creation: INITIAL_SEED_PASSWORD environment variable is not provided.");
     } else {
@@ -42,6 +56,14 @@ export async function seedDatabase() {
         orgId: "plant-alpha",
       });
 
+      await User.create({
+        name: "Alex Mercer (Engineer)",
+        email: "engineer@plant.io",
+        passwordHash,
+        role: "engineer",
+        orgId: "plant-alpha",
+      });
+
       const techUser = await User.create({
         name: "Marcus Vance",
         email: "marcus.v@plant.io",
@@ -50,7 +72,7 @@ export async function seedDatabase() {
         orgId: "plant-alpha",
       });
 
-      console.log(`[Seed] Created initial verified accounts: ${adminUser.email}, ${leadEngineer.email}, ${techUser.email}`);
+      console.log(`[Seed] Created initial verified accounts: ${adminUser.email}, ${leadEngineer.email}, engineer@plant.io, ${techUser.email}`);
     }
 
     // In production, skip automatic demo equipment and document creation unless explicitly allowed
