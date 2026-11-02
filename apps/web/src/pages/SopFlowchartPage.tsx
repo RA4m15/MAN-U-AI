@@ -171,14 +171,14 @@ export function SopFlowchartPage() {
               <Workflow size={22} />
             </span>
             <h1 className="text-2xl font-black text-white tracking-tight">
-              SOP to Auto-Flowchart Generator
+              SOP Flowcharts
             </h1>
-            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-2xs font-extrabold uppercase tracking-wider">
-              AI Vision Pipeline
+            <span className="text-2xs font-mono uppercase tracking-widest px-2 py-0.5 rounded-md bg-surface-2 border border-hairline text-ink-tertiary">
+              Workflow Intelligence
             </span>
           </div>
           <p className="text-xs md:text-sm text-ink-muted mt-1">
-            Converts dense multi-page standard operating procedures into one-screen execution flowcharts with decision branches, red warning nodes, and cited passage inspection.
+            Interactive visual execution paths with decision branching, operator safety gates, and source verification.
           </p>
         </div>
 
@@ -216,7 +216,7 @@ export function SopFlowchartPage() {
         <div className="flex items-center justify-between pb-2 border-b border-hairline/60">
           <span className="text-2xs font-extrabold uppercase tracking-wider text-ink-tertiary flex items-center gap-1.5">
             <FileText size={14} className="text-primary" />
-            Paste Procedure Text or Select Factory SOP Preset
+            Procedure Specification
           </span>
           <div className="flex items-center gap-1.5 text-2xs">
             <span className="text-ink-tertiary hidden sm:inline">Try preset:</span>
@@ -243,7 +243,7 @@ export function SopFlowchartPage() {
               className="w-full px-3 py-2 rounded-xl bg-surface-2 border border-hairline text-ink text-xs focus:outline-none focus:border-primary"
             />
             <p className="text-3xs text-ink-tertiary">
-              What judges see: a dense 6-page technical manual distilled into an instant, printable one-screen diagram.
+              Generates structured decision branches and cited source references.
             </p>
           </div>
 

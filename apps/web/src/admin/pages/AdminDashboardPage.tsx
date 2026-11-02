@@ -79,13 +79,13 @@ export function AdminDashboardPage() {
             <span className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">
               System Administration
             </span>
-            <span className="badge-primary text-2xs">Full Control</span>
+            <span className="badge-muted text-2xs font-mono">Administration</span>
           </div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink">
             Admin Dashboard
           </h1>
           <p className="text-sm text-ink-subtle mt-1 max-w-2xl">
-            Facility-wide system overview, personnel access management, industrial AI telemetry, and infrastructure controls.
+            Personnel governance, plant telemetry, and infrastructure controls.
           </p>
         </div>
 
@@ -108,7 +108,7 @@ export function AdminDashboardPage() {
       {isLoading && (
         <div className="card bg-surface-1 border border-hairline p-8 flex items-center justify-center gap-3 text-ink-subtle text-xs">
           <Loader2 size={18} className="animate-spin text-primary" />
-          <span>Aggregating authoritative plant metrics from MongoDB...</span>
+          <span>Loading plant metrics...</span>
         </div>
       )}
 
@@ -158,7 +158,7 @@ export function AdminDashboardPage() {
               {insights?.totalIndexedDocuments ?? documents.length}
             </div>
             <div className="text-2xs text-ink-tertiary mt-1">
-              <span>Vector searchable in MongoDB Atlas</span>
+              <span>Active in semantic knowledge index</span>
             </div>
           </div>
         </div>
@@ -313,7 +313,7 @@ export function AdminDashboardPage() {
         <ShieldCheck size={18} className="text-success mt-0.5 flex-shrink-0" />
         <div className="text-xs leading-relaxed text-ink-subtle">
           <span className="font-semibold text-ink">Administrative Policy Active: </span>
-          All administrative actions, personnel role promotions, and system configurations are recorded to MongoDB audit events. Direct access to `/admin/*` is strictly guarded by server-side authentication and role authorization.
+          Administrative operations and access modifications are recorded in the security audit log.
         </div>
       </section>
     </div>

@@ -558,7 +558,7 @@ export function AssistantPage() {
           </div>
 
           <p className="text-center text-2xs text-ink-tertiary mt-2">
-            MAN-U-AI grounds technical responses in authorized plant documentation. Always follow approved facility LOTO protocols before servicing machinery.
+            Responses are grounded in authorized facility documentation.
           </p>
         </div>
       </div>
@@ -577,8 +577,7 @@ function WelcomeScreen({ onPromptSelect }: { onPromptSelect: (p: string) => void
         Industrial Multimodal Copilot
       </h1>
       <p className="text-xs md:text-sm text-ink-subtle text-center max-w-md mb-8 leading-relaxed">
-        Ask technical troubleshooting questions regarding pumps, compressors, hydraulic presses, and automated cells.
-        Every procedural answer is grounded with verifiable page citations.
+        Procedural troubleshooting and safety isolation grounded in plant manuals.
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl">

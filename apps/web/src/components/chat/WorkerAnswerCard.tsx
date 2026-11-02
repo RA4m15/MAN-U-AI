@@ -259,7 +259,7 @@ export function WorkerAnswerCard({
         </div>
       )}
 
-      {/* Action Toolbar: Read Aloud, Simpler, Easy to understand? 👍 👎 */}
+      {/* Action Toolbar */}
       <div className="pt-3 border-t border-hairline/60 flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           {/* Read Aloud Button */}
@@ -305,9 +305,9 @@ export function WorkerAnswerCard({
           </Link>
         </div>
 
-        {/* Feedback Buttons: Easy to understand? 👍 👎 */}
+        {/* Feedback Buttons */}
         <div className="flex items-center gap-2 text-xs text-ink-subtle">
-          <span className="text-2xs font-medium uppercase tracking-wider">Easy to understand?</span>
+          <span className="text-2xs font-medium uppercase tracking-wider">Helpful?</span>
           <button
             onClick={() => handleFeedbackClick("up")}
             className={`p-1.5 rounded-md border transition-colors ${

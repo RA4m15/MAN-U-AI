@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ArrowRight,
   BookOpen,
+  Shield,
   ShieldAlert,
   Copy,
   Check,
@@ -125,12 +126,13 @@ export function FlowchartNodeInspector({
             {node.ppeRequired && node.ppeRequired.length > 0 && (
               <div className="flex flex-wrap gap-1.5 pt-1">
                 {node.ppeRequired.map((ppe, i) => (
-                  <span
-                    key={i}
-                    className="px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-200 border border-rose-500/30 text-3xs font-bold"
-                  >
-                    🛡️ {ppe}
-                  </span>
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-500/15 text-rose-200 border border-rose-500/25 text-3xs font-semibold"
+                    >
+                      <Shield size={10} className="text-rose-400" />
+                      {ppe}
+                    </span>
                 ))}
               </div>
             )}

@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Search,
   UserCheck,
+  X,
 } from "lucide-react";
 import { usersApi } from "@/lib/api";
 import type { UserRole } from "@man-u-ai/shared";
@@ -157,7 +158,7 @@ export function AdminUsersPage() {
             <span>{errorMessage}</span>
           </div>
           <button onClick={() => setErrorMessage(null)} className="text-danger font-bold text-xs">
-            ✕
+            <X size={14} />
           </button>
         </div>
       )}
