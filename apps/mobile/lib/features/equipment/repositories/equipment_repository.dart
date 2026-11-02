@@ -9,6 +9,15 @@ class EquipmentRepository {
 
   static const List<EquipmentModel> fallbackEquipment = [
     EquipmentModel(
+      id: 'equip-drypix-6000',
+      name: 'Fuji DRYPIX Smart (DRYPIX 6000)',
+      type: 'Dry Laser Imager',
+      model: 'DRYPIX Smart (DRYPIX 6000)',
+      manufacturer: 'FUJIFILM Corporation',
+      location: 'Imaging Suite 2 - Radiology',
+      serialNumber: 'FX-6000-897N',
+    ),
+    EquipmentModel(
       id: 'equip-cb-a61',
       name: 'Conveyor Belt A61',
       type: 'Modular Belt Conveyor',
@@ -57,9 +66,12 @@ class EquipmentRepository {
             .map((item) => EquipmentModel.fromJson(item))
             .toList();
         if (list.isNotEmpty) {
-          // Ensure Conveyor Belt A61 is present if not returned by server
-          if (!list.any((e) => e.id == 'equip-cb-a61')) {
+          // Ensure DRYPIX Smart and Conveyor Belt A61 are present
+          if (!list.any((e) => e.id == 'equip-drypix-6000')) {
             list.insert(0, fallbackEquipment[0]);
+          }
+          if (!list.any((e) => e.id == 'equip-cb-a61')) {
+            list.insert(1, fallbackEquipment[1]);
           }
           return list;
         }

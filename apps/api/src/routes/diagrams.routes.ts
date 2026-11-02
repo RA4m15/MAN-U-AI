@@ -24,11 +24,35 @@ diagramRouter.get("/:figureId/image", async (req: Request, res: Response) => {
       figureId.toUpperCase().includes("A61") ||
       figureId === "FIG-CONVEYOR-BELT-A61";
 
+    const isDrypix =
+      figureId.toUpperCase().includes("DRYPIX") ||
+      figureId.toUpperCase().includes("6000") ||
+      figureId === "FIG-DRYPIX-6000";
+
     const isTurbocompressor =
       figureId.toUpperCase().includes("TURBO") ||
       figureId.toUpperCase().includes("COMPRESSOR") ||
       figureId.toUpperCase().includes("B01") ||
       figureId === "FIG-TURBOCOMPRESSOR-B01";
+
+    if (isDrypix) {
+      const candidatePaths = [
+        path.join(__dirname, "..", "..", "public", "diagrams", "drypix_6000.png"),
+        path.join(process.cwd(), "public", "diagrams", "drypix_6000.png"),
+        path.join(process.cwd(), "apps", "web", "public", "documents", "drypix_6000.png"),
+        path.join(process.cwd(), "apps", "api", "public", "diagrams", "drypix_6000.png"),
+        "C:\\MAN-U-AI\\MAN-U-AI\\apps\\web\\public\\documents\\drypix_6000.png",
+      ];
+
+      const imagePath = candidatePaths.find((p) => {
+        try { return fs.existsSync(p); } catch { return false; }
+      });
+
+      if (imagePath) {
+        res.setHeader("Content-Type", "image/png");
+        return fs.createReadStream(imagePath).pipe(res);
+      }
+    }
 
     if (isConveyorA61) {
       // Primary: bundled alongside API in public/diagrams/

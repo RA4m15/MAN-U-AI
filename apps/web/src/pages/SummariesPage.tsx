@@ -1,3 +1,22 @@
+const DEFAULT_OPERATIONAL_SUMMARIES: SummaryItem[] = [
+  {
+    id: "summary-drypix-6000",
+    title: "Fuji Medical Dry Laser Imager DRYPIX Smart (DRYPIX 6000) Engineering Brief",
+    type: "root_cause",
+    date: new Date().toLocaleDateString(),
+    shift: "Full Engineering Reference",
+    author: "Senior Biomedical Engineer",
+    equipmentCovered: ["Fuji DRYPIX Smart (DRYPIX 6000)"],
+    keyHighlights: [
+      "Class 3B 659nm 130mW CW semiconductor laser optical exposure engine",
+      "Chemical-free thermal development drum (1300 kJ heat value)",
+      "Dual daylight film cassettes with light-tight shutter interlock mechanism",
+      "Master error code matrix (201, 221, 228, 230, 232) & weekly cleaning roller wash SOP",
+    ],
+    fullMarkdown: '# Fuji Medical Dry Laser Imager DRYPIX Smart (DRYPIX 6000)\n## Official Engineering Reference Guide Summary (Doc # 897N102437G)\n\n### 1. Equipment Architecture & Specifications\n- **Model**: DRYPIX Smart (DRYPIX 6000)\n- **Manufacturer**: FUJIFILM Corporation (8th Edition, February 2017)\n- **Dimensions**: 610 mm (W) × 630 mm (D) × 893 mm (H) | **Weight**: Approx. 104 kg (229.3 lb)\n- **Exposure Engine**: Class 3B Semiconductor Laser, 659 nm (TYP) wavelength, 130 mW CW output (IEC 60825-1 Class 1 Product).\n- **Development Section**: Dry thermal development drum (1300 kJ heat value). No liquid chemistry or replenishment required.\n- **Film Compatibility**: Fuji Medical Dry Laser Image Film **DI-HL** and **DI-ML** (Blue base).\n- **Film Sizes**: 35×43 cm (14×17\\"), 35×35 cm (14×14\\"), 26×36 cm (10×14\\"), 25×30 cm (10×12\\"), 20×25 cm (8×10\\").\n- **Output Capacity**: Top ejection receiver stacks up to 50 diagnostic films.\n\n---\n\n### 2. Operator Console & 7-Segment Status Indications\n| Display | Meaning | Action / Condition |\n| :--- | :--- | :--- |\n| `888` | System Boot Initializing | Stand-by power initiated |\n| `ooo` / `o x` | Self-diagnostics countdown | Optical and thermal self-tests running |\n| `Pro` | Print In Progress | Film exposure / thermal development active |\n| `oPn` | Film Tray Unlocked | Tray can be safely pulled out |\n| `PUL` | Film Tray Locked | Normal operational state |\n| `0~150` | Remaining Film Count | Tray 1 active; press Enter to display Tray 2 |\n| `EP1` / `EP2` | Film Exhausted | Tray 1 or Tray 2 out of film. Load new pack. |\n| `U-0` ~ `U-7`| User Utility Modes | Density calibration, QC test, date/time setup |\n| `End` | System Shutting Down | Do not turn off main switch until display clears |\n\n---\n\n### 3. Master Error Codes & Rapid Clearance Procedures\n- **`201` — Cover Open**: Verify right-side cover is latched, then close front door firmly.\n- **`203 / 207` — Load Tray**: Insert Tray into Slot 1 or Slot 2.\n- **`204 / 208` — Remove Shutter**: Remove protective metal shutter from Tray 1 or 2.\n- **`213 / 214` — Laser Diode Life**: Code 213 warns laser life is near expiration (~1 month remaining); code 214 indicates expired laser requiring dealer replacement.\n- **`221 / 223` — Sheet-Feeder Jam**: Open front cover, right-side cover, and conveyance unit cover. Gently pull jammed sheet out without tearing.\n- **`228` — Recording Unit Jam**: Open front cover and slowly rotate right-side green handle clockwise to advance jammed film.\n- **`230` — Thermal Drum Jam**: *Caution: High Temperature*. Rotate right handle clockwise and left handle counterclockwise until film emerges.\n- **`232` — Discharge Jam**: Turn left-side handle clockwise to eject film to output tray.\n\n---\n\n### 4. Preventive Maintenance Cycles\n- **Weekly**: Wash conveyance silicone cleaning roller with water and anhydrous ethanol gauze to prevent white blurred streaks.\n- **Every 3 Months**: Vacuum dust from air intake filter located at rear of right-side cover. Do not clean barcode filter with ethanol.\n- **Equipment Lifespan**: 6 years before authorized dealer overhaul.\n',
+  },
+];
+
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -56,7 +75,7 @@ export function SummariesPage() {
   });
 
   const rawSummaries = resp?.data?.data;
-  const summaries: SummaryItem[] = Array.isArray(rawSummaries)
+  const parsedSummaries: SummaryItem[] = Array.isArray(rawSummaries)
     ? rawSummaries.map((s: any) => ({
         id: String(s.id || s._id),
         title: s.title || "Not titled",
@@ -69,6 +88,12 @@ export function SummariesPage() {
         fullMarkdown: s.fullMarkdown || s.summary || "",
       }))
     : [];
+
+  const summaries: SummaryItem[] = parsedSummaries.length > 0
+    ? (parsedSummaries.some((s) => s.id === "summary-drypix-6000" || s.title.includes("DRYPIX"))
+        ? parsedSummaries
+        : [DEFAULT_OPERATIONAL_SUMMARIES[0], ...parsedSummaries])
+    : DEFAULT_OPERATIONAL_SUMMARIES;
 
   const activeSelected =
     summaries.find((s) => s.id === selectedSummaryId) || (summaries.length > 0 ? summaries[0] : null);

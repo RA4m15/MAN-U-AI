@@ -64,15 +64,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  void _showUploadModal(BuildContext context) {
+  void _showUploadModal(BuildContext context, {bool isPhoto = false}) {
     final currentEq = ref.read(chatControllerProvider).selectedEquipment;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => MediaCaptureScreen(
-          initialEquipment: currentEq,
+    if (isPhoto) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => MediaCaptureScreen(
+            initialEquipment: currentEq,
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (ctx) => DocumentUploadModal(
+          defaultEquipment: currentEq,
+          initialPickPhoto: false,
+        ),
+      );
+    }
   }
 
   void _showGlossaryModal(BuildContext context) {
@@ -554,6 +566,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ref.read(chatControllerProvider.notifier).setSelectedEquipment(null);
             },
             onUploadDocument: () => _showUploadModal(context),
+            onUploadPhoto: () => _showUploadModal(context, isPhoto: true),
           ),
         ],
       ),

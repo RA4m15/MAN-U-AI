@@ -174,6 +174,75 @@ const TURBOCOMPRESSOR_B01_ANNOTATIONS: DiagramHotspotDTO[] = [
   },
 ];
 
+
+// Fuji Medical Dry Laser Imager DRYPIX Smart (DRYPIX 6000) Component Annotations
+const DRYPIX_6000_ANNOTATIONS: DiagramHotspotDTO[] = [
+  {
+    id: "part-dp-1",
+    partNumber: "DP-6000-01",
+    partName: "Operation Panel & 3-Digit LED Display",
+    boundingBox: [180, 520, 280, 780],
+    manualPage: 32,
+    description: "Multi-function operator console with 3-digit LED indicator (888, Pro, oPn, PUL, U-0~U-7, 201-249 error codes), Enter button, Utility button, and Stand-by switch (Reference Guide Section 2.3.2).",
+  },
+  {
+    id: "part-dp-2",
+    partNumber: "DP-6000-02",
+    partName: "Class 3B Semiconductor Laser Exposure Unit (659nm)",
+    boundingBox: [260, 220, 420, 540],
+    manualPage: 13,
+    description: "659nm 130mW CW semiconductor laser recording optical unit scanning latent diagnostic images onto Fuji Medical Dry Laser Film DI-HL / DI-ML. Protected by safety interlocks (Reference Guide Section 1.2 & 5.5.3).",
+  },
+  {
+    id: "part-dp-3",
+    partNumber: "DP-6000-03",
+    partName: "Thermal Development Unit & Heated Processing Drum",
+    boundingBox: [340, 200, 520, 620],
+    manualPage: 66,
+    description: "Dry thermal processing section heating exposed film to develop high-contrast medical density without chemical wet baths (1300 kJ heat value). Caution: High Temperature Unit (Reference Guide Section 5.5.4).",
+  },
+  {
+    id: "part-dp-4",
+    partNumber: "DP-6000-04",
+    partName: "Film Tray 1 (Upper Slot 1) & Light-Tight Shutter",
+    boundingBox: [540, 240, 680, 720],
+    manualPage: 35,
+    description: "Interlocked upper film cassette accommodating 14x17\", 14x14\", 10x14\", 10x12\", or 8x10\" film packs. Requires shutter insertion to unlock for daylight exchange without fogging (Reference Guide Section 3.2).",
+  },
+  {
+    id: "part-dp-5",
+    partNumber: "DP-6000-05",
+    partName: "Film Tray 2 (Lower Slot 2) & Cassette Lock",
+    boundingBox: [680, 240, 820, 720],
+    manualPage: 38,
+    description: "Secondary film cassette slot for dual-size continuous printing. Independently monitored by tray interlock sensors and remaining film counter 0-150 sheets (Reference Guide Section 3.3).",
+  },
+  {
+    id: "part-dp-6",
+    partNumber: "DP-6000-06",
+    partName: "Sheet-Feeder Suction Cups & Conveyance Rollers",
+    boundingBox: [440, 180, 600, 500],
+    manualPage: 60,
+    description: "Precision sheet-feeder picking up individual dry film sheets using suction cups and feeding through sub-scanning rollers. Jam access through right-side conveyance cover (Error 221/223 clearance, Section 5.5.1).",
+  },
+  {
+    id: "part-dp-7",
+    partNumber: "DP-6000-07",
+    partName: "Top Output Film Stacking Tray",
+    boundingBox: [80, 220, 200, 640],
+    manualPage: 30,
+    description: "Curved top ejection receiver stacking up to 50 finished diagnostic dry laser films. Features auto-stop ejection sensor and discharge roller mechanism (Reference Guide Section 2.3.1 & 5.5.5).",
+  },
+  {
+    id: "part-dp-8",
+    partNumber: "DP-6000-08",
+    partName: "Washable Conveyance Cleaning Roller & Air Filter",
+    boundingBox: [420, 620, 580, 840],
+    manualPage: 72,
+    description: "Removable silicone cleaning roller washed weekly with tap water and ethanol gauze to eliminate lint and prevent white blurred streaks on film prints. 3-month washable air intake filter (Section 6.1.3).",
+  },
+];
+
 export class DiagramService {
   /**
    * Retrieves diagram annotations for a specific figure ID.
@@ -186,12 +255,28 @@ export class DiagramService {
       figureId.toUpperCase().includes("A61") ||
       figureId.toLowerCase().includes("belt");
 
+    const isDrypix =
+      figureId.toUpperCase().includes("DRYPIX") ||
+      figureId.toUpperCase().includes("6000");
+
     const isTurbocompressor =
       figureId.toUpperCase().includes("TURBO") ||
       figureId.toUpperCase().includes("COMPRESSOR") ||
       figureId.toUpperCase().includes("B01");
 
     if (!isConnectedToMongo) {
+      if (isDrypix) {
+        return {
+          id: "mock-diagram-anno-drypix",
+          figureId: "FIG-DRYPIX-6000",
+          documentId: "doc-drypix-6000",
+          documentTitle: "Fuji Medical Dry Laser Imager DRYPIX Smart (DRYPIX 6000) Reference Guide",
+          page: 30,
+          title: "Fuji DRYPIX Smart (DRYPIX 6000) Schematic & Functional Units",
+          hotspots: DRYPIX_6000_ANNOTATIONS,
+          createdAt: new Date().toISOString(),
+        };
+      }
       if (isConveyor) {
         return {
           id: "mock-diagram-anno-conveyor",

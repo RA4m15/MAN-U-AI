@@ -73,6 +73,82 @@ class DiagramRepository {
     ],
   );
 
+  /// Fuji DRYPIX Smart (DRYPIX 6000) component diagram fixture
+  static final DiagramAnnotationModel drypixSmartDiagram = DiagramAnnotationModel(
+    id: 'demo-drypix-6000',
+    figureId: 'FIG-DRYPIX-6000',
+    documentId: 'doc-drypix-6000',
+    documentTitle: 'Fuji Medical Dry Laser Imager DRYPIX Smart Reference Guide',
+    page: 30,
+    title: 'Fuji DRYPIX Smart (DRYPIX 6000) Component Schematic & Functional Units',
+    hotspots: const [
+      DiagramHotspotModel(
+        id: 'part-dp-1',
+        partNumber: 'DP-6000-01',
+        partName: 'Operation Panel & 3-Digit LED Display',
+        boundingBox: [180, 520, 280, 780],
+        manualPage: 32,
+        description: 'Multi-function operator console with 3-digit LED indicator (888, Pro, oPn, PUL, U-0~U-7, 201-249 error codes), Enter button, Utility button, and Stand-by switch (Section 2.3.2).',
+      ),
+      DiagramHotspotModel(
+        id: 'part-dp-2',
+        partNumber: 'DP-6000-02',
+        partName: 'Class 3B Semiconductor Laser Exposure Unit (659nm)',
+        boundingBox: [260, 220, 420, 540],
+        manualPage: 13,
+        description: '659nm 130mW CW semiconductor laser recording optical unit scanning latent diagnostic images onto Fuji Medical Dry Laser Film DI-HL / DI-ML (Section 1.2 & 5.5.3).',
+      ),
+      DiagramHotspotModel(
+        id: 'part-dp-3',
+        partNumber: 'DP-6000-03',
+        partName: 'Thermal Development Unit & Heated Processing Drum',
+        boundingBox: [340, 200, 520, 620],
+        manualPage: 66,
+        description: 'Dry thermal processing section heating exposed film to develop high-contrast medical density without chemical wet baths. Caution: High Temperature Unit (Section 5.5.4).',
+      ),
+      DiagramHotspotModel(
+        id: 'part-dp-4',
+        partNumber: 'DP-6000-04',
+        partName: 'Film Tray 1 (Upper Slot 1) & Light-Tight Shutter',
+        boundingBox: [540, 240, 680, 720],
+        manualPage: 35,
+        description: 'Interlocked upper film cassette accommodating 14x17", 14x14", 10x14", 10x12", or 8x10" film packs. Requires shutter insertion to unlock for daylight exchange (Section 3.2).',
+      ),
+      DiagramHotspotModel(
+        id: 'part-dp-5',
+        partNumber: 'DP-6000-05',
+        partName: 'Film Tray 2 (Lower Slot 2) & Cassette Lock',
+        boundingBox: [680, 240, 820, 720],
+        manualPage: 38,
+        description: 'Secondary film cassette slot for dual-size continuous printing. Independently monitored by tray interlock sensors and remaining film counter 0-150 sheets (Section 3.3).',
+      ),
+      DiagramHotspotModel(
+        id: 'part-dp-6',
+        partNumber: 'DP-6000-06',
+        partName: 'Sheet-Feeder Suction Cups & Conveyance Rollers',
+        boundingBox: [440, 180, 600, 500],
+        manualPage: 60,
+        description: 'Precision sheet-feeder picking up individual dry film sheets using suction cups and feeding through sub-scanning rollers. Jam access through right-side conveyance cover (Section 5.5.1).',
+      ),
+      DiagramHotspotModel(
+        id: 'part-dp-7',
+        partNumber: 'DP-6000-07',
+        partName: 'Top Output Film Stacking Tray',
+        boundingBox: [80, 220, 200, 640],
+        manualPage: 30,
+        description: 'Curved top ejection receiver stacking up to 50 finished diagnostic dry laser films. Features auto-stop ejection sensor and discharge roller mechanism (Section 2.3.1 & 5.5.5).',
+      ),
+      DiagramHotspotModel(
+        id: 'part-dp-8',
+        partNumber: 'DP-6000-08',
+        partName: 'Washable Conveyance Cleaning Roller & Air Filter',
+        boundingBox: [420, 620, 580, 840],
+        manualPage: 72,
+        description: 'Removable silicone cleaning roller washed weekly with tap water and ethanol gauze to eliminate lint and prevent white blurred streaks on prints. 3-month washable air filter (Section 6.1.3).',
+      ),
+    ],
+  );
+
   /// SimReady Conveyor Belt A61 component diagram fixture
   static final DiagramAnnotationModel conveyorBeltDiagram = DiagramAnnotationModel(
     id: 'demo-conveyor-belt-a61',
@@ -208,6 +284,9 @@ class DiagramRepository {
       final data = response.data['data'] as Map<String, dynamic>;
       return DiagramAnnotationModel.fromJson(data);
     } catch (_) {
+      if (figureId.toUpperCase().contains('DRYPIX') || figureId.toUpperCase().contains('6000')) {
+        return drypixSmartDiagram;
+      }
       if (figureId.toUpperCase().contains('CONVEYOR') || figureId.toUpperCase().contains('A61')) {
         return conveyorBeltDiagram;
       }
@@ -227,6 +306,9 @@ class DiagramRepository {
       final data = response.data['data'] as Map<String, dynamic>;
       return DiagramAnnotationModel.fromJson(data);
     } catch (_) {
+      if (figureId.toUpperCase().contains('DRYPIX') || figureId.toUpperCase().contains('6000')) {
+        return drypixSmartDiagram;
+      }
       if (figureId.toUpperCase().contains('CONVEYOR') || figureId.toUpperCase().contains('A61')) {
         return conveyorBeltDiagram;
       }

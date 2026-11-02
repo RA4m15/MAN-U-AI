@@ -11,6 +11,114 @@ export const equipmentRouter: Router = Router();
 // GET / - List all equipment records
 equipmentRouter.get("/", requireAuth, async (req: Request, res: Response) => {
   if (!isConnectedToMongo) {
+    const isOfflineAuthPermitted =
+      process.env.NODE_ENV !== "production" &&
+      process.env.ALLOW_OFFLINE_AUTH === "true";
+    if (isOfflineAuthPermitted) {
+      const offlineEquipment = [
+        {
+          id: "equip-drypix-6000",
+          name: "Fuji Medical Dry Laser Imager DRYPIX Smart",
+          type: "Dry Laser Imager",
+          model: "DRYPIX Smart (DRYPIX 6000)",
+          manufacturer: "FUJIFILM Corporation",
+          serialNumber: "FX-6000-897N",
+          location: "Imaging Suite 2 - Radiology",
+          documentIds: ["doc-drypix-6000"],
+          status: "operational",
+          telemetryConfig: {
+            connected: true,
+            temperature: 42.5,
+            vibrationRms: 0.18,
+            healthScore: 98,
+          },
+          runtimeHours: 1420,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "equip-cb-a61",
+          name: "Conveyor Belt A61",
+          type: "Modular Belt Conveyor",
+          model: "A61-SIMREADY-01",
+          manufacturer: "SimReady Systems",
+          serialNumber: "SR-CB-A61-2024",
+          location: "Packaging & Sortation Line 1",
+          documentIds: ["doc-conveyor-a61"],
+          status: "operational",
+          telemetryConfig: {
+            connected: true,
+            temperature: 58.2,
+            vibrationRms: 1.45,
+            healthScore: 94,
+          },
+          runtimeHours: 2850,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "equip-p102",
+          name: "Centrifugal Slurry Pump P-102",
+          type: "Centrifugal Pump",
+          model: "SP-400 Heavy Duty",
+          manufacturer: "Flowserve",
+          serialNumber: "FS-2023-9981",
+          location: "Line 1 - Slurry Preparation",
+          documentIds: ["doc-slurry-pump"],
+          status: "operational",
+          telemetryConfig: {
+            connected: true,
+            temperature: 64.0,
+            vibrationRms: 2.10,
+            healthScore: 89,
+          },
+          runtimeHours: 4120,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "equip-hp400",
+          name: "Hydraulic Stamping Press HP-400",
+          type: "Hydraulic Press",
+          model: "Schuler 400-T",
+          manufacturer: "Schuler Pressen",
+          serialNumber: "SC-400-091",
+          location: "Line 3 - Main Fabrication",
+          documentIds: ["doc-sop-loto"],
+          status: "warning",
+          telemetryConfig: {
+            connected: true,
+            temperature: 71.5,
+            vibrationRms: 3.25,
+            healthScore: 78,
+          },
+          runtimeHours: 6400,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "equip-ac300",
+          name: "Rotary Screw Air Compressor AC-300",
+          type: "Air Compressor",
+          model: "Atlas Copco GA-90+",
+          manufacturer: "Atlas Copco",
+          serialNumber: "AC-8812-B",
+          location: "Utility Room B",
+          documentIds: ["doc-rotary-compressor"],
+          status: "operational",
+          telemetryConfig: {
+            connected: true,
+            temperature: 52.0,
+            vibrationRms: 1.10,
+            healthScore: 96,
+          },
+          runtimeHours: 3200,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+      return res.json({ success: true, data: offlineEquipment });
+    }
     return res.status(503).json({
       success: false,
       error: { code: "SERVICE_UNAVAILABLE", message: "Database connection unavailable for equipment listing" },

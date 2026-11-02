@@ -107,6 +107,16 @@ export async function seedDatabase() {
         });
 
         await Equipment.create({
+          name: "Fuji Medical Dry Laser Imager DRYPIX Smart",
+          type: "Dry Laser Imager",
+          model: "DRYPIX Smart (DRYPIX 6000)",
+          manufacturer: "FUJIFILM Corporation",
+          serialNumber: "FX-6000-897N",
+          location: "Imaging Suite 2 - Radiology",
+          documentIds: [],
+        });
+
+        await Equipment.create({
           name: "Hydraulic Stamping Press HP-400",
           type: "Hydraulic Press",
           model: "Schuler 400-T",
@@ -122,6 +132,7 @@ export async function seedDatabase() {
         "slurry_pump_manual_rev4.pdf",
         "sop_loto_hydraulic_press.pdf",
         "rotary_compressor_manual.pdf",
+        "drypix_smart_reference_guide.pdf",
       ];
       const baselineDocCount = await DocumentModel.countDocuments({ filename: { $in: baselineFilenames } });
       if (baselineDocCount === 0) {
@@ -153,6 +164,19 @@ export async function seedDatabase() {
           status: "indexed",
           pageCount: 24,
           tags: ["Safety", "LOTO", "High Pressure", "OSHA 1910.147"],
+          uploadedById: uploaderId,
+        });
+
+        const docDrypix = await DocumentModel.create({
+          title: "Fuji Medical Dry Laser Imager DRYPIX Smart (DRYPIX 6000) Reference Guide",
+          revision: "8th Edition (897N102437G)",
+          filename: "drypix_smart_reference_guide.pdf",
+          storagePath: "drypix_smart_reference_guide.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 6753751,
+          status: "indexed",
+          pageCount: 80,
+          tags: ["FujiFilm", "Dry Laser Imager", "DRYPIX 6000", "Thermal Development", "Error Codes", "DICOM", "Maintenance"],
           uploadedById: uploaderId,
         });
 

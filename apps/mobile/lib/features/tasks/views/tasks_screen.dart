@@ -91,7 +91,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
               decoration: InputDecoration(
                 hintText: 'Enter replacement part IDs, torque/pressure values, or remarks...',
                 hintStyle: AppTypography.bodyMdRegular.copyWith(
-                  color: AppColors.onSurfaceVariant.withOpacity(0.6),
+                  color: AppColors.onSurfaceVariant.withValues(alpha: 0.6),
                   fontSize: 12,
                 ),
                 filled: true,
@@ -147,25 +147,25 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
 
     switch (priority.toLowerCase()) {
       case 'critical':
-        bg = AppColors.error.withOpacity(0.15);
+        bg = AppColors.error.withValues(alpha: 0.15);
         fg = AppColors.error;
         label = 'CRITICAL';
         icon = Icons.warning_amber_rounded;
         break;
       case 'high':
-        bg = AppColors.warning.withOpacity(0.15);
+        bg = AppColors.warning.withValues(alpha: 0.15);
         fg = AppColors.warning;
         label = 'HIGH';
         icon = Icons.priority_high;
         break;
       case 'low':
-        bg = AppColors.onSurfaceVariant.withOpacity(0.15);
+        bg = AppColors.onSurfaceVariant.withValues(alpha: 0.15);
         fg = AppColors.onSurfaceVariant;
         label = 'LOW';
         icon = Icons.arrow_downward;
         break;
       default:
-        bg = AppColors.primary.withOpacity(0.15);
+        bg = AppColors.primary.withValues(alpha: 0.15);
         fg = AppColors.primaryHover;
         label = 'MEDIUM';
         icon = Icons.bolt;
@@ -176,7 +176,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: fg.withOpacity(0.4)),
+        border: Border.all(color: fg.withValues(alpha: 0.4)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -222,10 +222,10 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: task.isCompleted
-                      ? AppColors.success.withOpacity(0.15)
+                      ? AppColors.success.withValues(alpha: 0.15)
                       : task.isInProgress
-                          ? AppColors.primary.withOpacity(0.15)
-                          : AppColors.warning.withOpacity(0.15),
+                          ? AppColors.primary.withValues(alpha: 0.15)
+                          : AppColors.warning.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
@@ -279,9 +279,9 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: AppColors.primarySubtle.withOpacity(0.5),
+                    color: AppColors.primarySubtle.withValues(alpha: 0.5),
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: AppColors.primaryMuted.withOpacity(0.5)),
+                    border: Border.all(color: AppColors.primaryMuted.withValues(alpha: 0.5)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -328,9 +328,9 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: AppColors.success.withOpacity(0.08),
+                color: AppColors.success.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: AppColors.success.withOpacity(0.2)),
+                border: Border.all(color: AppColors.success.withValues(alpha: 0.2)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -427,7 +427,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                 Expanded(
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.success.withOpacity(0.2),
+                      backgroundColor: AppColors.success.withValues(alpha: 0.2),
                       foregroundColor: AppColors.success,
                       side: const BorderSide(color: AppColors.success),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
@@ -604,7 +604,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                                 Icon(
                                   Icons.assignment_turned_in_outlined,
                                   size: 48,
-                                  color: AppColors.onSurfaceVariant.withOpacity(0.5),
+                                  color: AppColors.onSurfaceVariant.withValues(alpha: 0.5),
                                 ),
                                 const SizedBox(height: 16),
                                 Text(
@@ -619,7 +619,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                                   'All assigned shift directives have been addressed.',
                                   style: AppTypography.bodyMdRegular.copyWith(
                                     fontSize: 12,
-                                    color: AppColors.onSurfaceVariant.withOpacity(0.7),
+                                    color: AppColors.onSurfaceVariant.withValues(alpha: 0.7),
                                   ),
                                 ),
                               ],
@@ -648,7 +648,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
                                 Icon(
                                   Icons.checklist,
                                   size: 48,
-                                  color: AppColors.onSurfaceVariant.withOpacity(0.5),
+                                  color: AppColors.onSurfaceVariant.withValues(alpha: 0.5),
                                 ),
                                 const SizedBox(height: 16),
                                 Text(
