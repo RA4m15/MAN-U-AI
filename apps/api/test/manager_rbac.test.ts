@@ -440,7 +440,7 @@ describe("Manager / Operator Role RBAC & Access Boundaries", () => {
     expect(res.body.error.code).toBe("ROLE_UNAUTHORIZED");
   });
 
-  it("enforces permitted viewer role when public registrant supplies manager role field", async () => {
+  it("enforces permitted operator role when public registrant supplies manager role field", async () => {
     const email = `hack-manager-${runId}@plant.io`;
     const res = await request(app)
       .post("/api/v1/auth/register")
@@ -454,16 +454,16 @@ describe("Manager / Operator Role RBAC & Access Boundaries", () => {
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     // The server enforces the permitted role (viewer) regardless of client-supplied role
-    expect(res.body.data.user.role).toBe("viewer");
+    expect(res.body.data.user.role).toBe("operator");
     if (res.body.data.user.id) {
       createdUserIds.push(res.body.data.user.id);
     }
 
     const createdUser = await User.findOne({ email });
-    expect(createdUser?.role).toBe("viewer");
+    expect(createdUser?.role).toBe("operator");
   });
 
-  it("registers public user as viewer when no privileged role is requested", async () => {
+  it("registers public user as operator when no privileged role is requested", async () => {
     const email = `public-user-${runId}@plant.io`;
     const res = await request(app)
       .post("/api/v1/auth/register")
@@ -475,12 +475,12 @@ describe("Manager / Operator Role RBAC & Access Boundaries", () => {
 
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
-    expect(res.body.data.user.role).toBe("viewer");
+    expect(res.body.data.user.role).toBe("operator");
     if (res.body.data.user.id) {
       createdUserIds.push(res.body.data.user.id);
     }
 
     const createdUser = await User.findOne({ email });
-    expect(createdUser?.role).toBe("viewer");
+    expect(createdUser?.role).toBe("operator");
   });
 });

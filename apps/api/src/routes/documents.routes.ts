@@ -10,6 +10,7 @@ import { pdfService, isValidPdfSignature } from "../services/pdf.service";
 import { geminiService } from "../services/gemini.service";
 import { vectorService } from "../services/vector.service";
 import { visualService } from "../services/visual.service";
+import { offlineService } from "../services/offline.service";
 import { isConnectedToMongo } from "../config/database";
 import { requireAuth, requireRole, AuthenticatedRequest } from "../middlewares/auth";
 import { uploadLimiter } from "../middlewares/rateLimiters";
@@ -27,7 +28,15 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
   fileFilter: (req, file, cb) => {
-    cb(null, true);
+    const isPdfMime = file.mimetype === "application/pdf" || file.mimetype === "application/x-pdf";
+    const hasPdfExt = file.originalname.toLowerCase().endsWith(".pdf");
+    if (isPdfMime || hasPdfExt) {
+      cb(null, true);
+    } else {
+      const err = new Error("Only PDF documents are supported for ingestion. Unsupported file type provided.");
+      (err as any).code = "UNSUPPORTED_FILE_TYPE";
+      cb(err);
+    }
   },
 });
 
@@ -359,7 +368,7 @@ documentsRouter.get("/:id/chunks", requireAuth, async (req: AuthenticatedRequest
       if (areaPack && areaPack.chunks) {
         return res.json({
           success: true,
-          data: areaPack.chunks.map((c) => ({
+          data: areaPack.chunks.map((c: any) => ({
             id: c.id,
             page: c.page,
             section: c.section,
@@ -601,7 +610,7 @@ documentsRouter.post(
   "/upload",
   uploadLimiter,
   requireAuth,
-  requireRole(["admin", "engineer", "manager", "operator", "technician", "viewer"]),
+  requireRole(["admin", "engineer", "manager"]),
   uploadMiddleware,
   async (req: AuthenticatedRequest, res: Response) => {
     if (!req.file) {
@@ -611,10 +620,23 @@ documentsRouter.post(
       });
     }
 
-    // Accept all document formats; validate PDF signature only if PDF
-    const isPdf = req.file.originalname.toLowerCase().endsWith(".pdf");
-    if (isPdf && !isValidPdfSignature(req.file.buffer)) {
-      console.warn("[Upload Notice] Non-standard PDF header detected, accepting for document processing.");
+    const isPdfMime = req.file.mimetype === "application/pdf" || req.file.mimetype === "application/x-pdf";
+    const hasPdfExt = req.file.originalname.toLowerCase().endsWith(".pdf");
+    if (!isPdfMime && !hasPdfExt) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: "UNSUPPORTED_FILE_TYPE",
+          message: "Only PDF documents are supported for ingestion. Unsupported file type provided.",
+        },
+      });
+    }
+
+    if (!isValidPdfSignature(req.file.buffer)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: "INVALID_FILE_SIGNATURE", message: "File does not match a valid PDF file signature (%PDF-)" },
+      });
     }
 
     if (!isConnectedToMongo) {
@@ -832,7 +854,7 @@ documentsRouter.post(
 documentsRouter.delete(
   "/:id",
   requireAuth,
-  requireRole(["admin", "engineer", "manager", "operator", "technician", "viewer"]),
+  requireRole(["admin", "engineer", "manager"]),
   async (req: AuthenticatedRequest, res: Response) => {
     const id = String(req.params.id);
     if (isConnectedToMongo) {

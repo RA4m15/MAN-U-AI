@@ -112,13 +112,13 @@ export function KnowledgeLibraryPage() {
   const { data: documents = [], isLoading } = useQuery({
     queryKey: ["documents"],
     queryFn: async () => {
+      let userDocs: any[] = [];
+      try {
+        userDocs = JSON.parse(localStorage.getItem("manuai_user_uploaded_docs") || "[]");
+      } catch (_) {}
       try {
         const res = await documentsApi.list();
         const rawList = res.data?.data;
-        let userDocs: any[] = [];
-        try {
-          userDocs = JSON.parse(localStorage.getItem("manuai_user_uploaded_docs") || "[]");
-        } catch (_) {}
 
         if (Array.isArray(rawList) && rawList.length > 0) {
           let list = rawList.map((doc: any) => ({
