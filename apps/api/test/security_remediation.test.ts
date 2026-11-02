@@ -237,7 +237,7 @@ describe("Security Remediation & Authorization Regression Suite (Task 9)", () =>
       }
     });
 
-    it("defaults missing or invalid role claims to least-privileged 'viewer' in offline fallback path", async () => {
+    it("defaults missing or invalid role claims to least-privileged 'operator' in offline fallback path", async () => {
       const originalConnected = isConnectedToMongo;
       const originalOfflineFlag = process.env.ALLOW_OFFLINE_AUTH;
 
@@ -257,7 +257,7 @@ describe("Security Remediation & Authorization Regression Suite (Task 9)", () =>
           .set("Authorization", `Bearer ${invalidRoleToken}`);
 
         expect(res1.status).toBe(200);
-        expect(res1.body.data.role).toBe("viewer");
+        expect(res1.body.data.role).toBe("operator");
 
         // Token with missing role claim
         const missingRoleToken = jwt.sign(
@@ -271,7 +271,7 @@ describe("Security Remediation & Authorization Regression Suite (Task 9)", () =>
           .set("Authorization", `Bearer ${missingRoleToken}`);
 
         expect(res2.status).toBe(200);
-        expect(res2.body.data.role).toBe("viewer");
+        expect(res2.body.data.role).toBe("operator");
       } finally {
         setIsConnectedToMongo(originalConnected);
         process.env.ALLOW_OFFLINE_AUTH = originalOfflineFlag;
@@ -321,7 +321,7 @@ describe("Security Remediation & Authorization Regression Suite (Task 9)", () =>
           name: "Short Pass User",
           email: "shortpass@plant.io",
           password: "short",
-          role: "viewer",
+          role: "operator",
         });
 
       expect(resShort.status).toBe(400);

@@ -94,7 +94,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
     expect((result as any).passwordHash).toBeUndefined();
   });
 
-  it("provisions accounts with allowed roles (engineer, viewer)", async () => {
+  it("provisions accounts with allowed roles (engineer, operator)", async () => {
     const engResult = await provisionUser({
       email: "test.engineer@plant.io",
       role: "engineer",
@@ -103,13 +103,13 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
     });
     expect(engResult.role).toBe("engineer");
 
-    const viewerResult = await provisionUser({
-      email: "test.viewer@plant.io",
-      role: "viewer",
-      password: "ViewerPassword123!",
+    const operatorResult = await provisionUser({
+      email: "test.operator@plant.io",
+      role: "operator",
+      password: "OperatorPassword123!",
       confirm: true,
     });
-    expect(viewerResult.role).toBe("viewer");
+    expect(operatorResult.role).toBe("operator");
   });
 
   it("rejects invalid roles with a descriptive error", async () => {
@@ -120,7 +120,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
         password: "ValidPassword123!",
         confirm: true,
       })
-    ).rejects.toThrow(/Invalid role\. Allowed roles are: admin, engineer, viewer/);
+    ).rejects.toThrow(/Invalid role\. Allowed roles are: admin, engineer, operator, manager/);
   });
 
   it("rejects provisioning when confirmation flag is false or omitted", async () => {
@@ -481,7 +481,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
             PROVISION_PASSWORD: "SecurePassword123!",
           },
         })
-      ).rejects.toThrow(/Error: --role=<role> is required\. Allowed roles are: admin, engineer, viewer/);
+      ).rejects.toThrow(/Error: --role=<role> is required\. Allowed roles are: admin, engineer, operator, manager/);
     });
 
     it("provisionUserCli rejects invalid --role values", async () => {
@@ -499,7 +499,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
             PROVISION_PASSWORD: "SecurePassword123!",
           },
         })
-      ).rejects.toThrow(/Error: Invalid role "superadmin"\. Allowed roles are: admin, engineer, viewer/);
+      ).rejects.toThrow(/Error: Invalid role "superadmin"\. Allowed roles are: admin, engineer, operator, manager/);
     });
 
     it("provisionUserCli rejects plaintext --password command-line argument", async () => {
@@ -702,7 +702,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
         args: {
           email: "cli.recovered@plant.io",
           name: "Recovered Operator",
-          role: "viewer",
+          role: "operator",
           "allow-local": true,
           "target-db": "manuai_test",
           confirm: true,
@@ -902,7 +902,7 @@ describe("Stage 5.2 — Operator Account Provisioning & Auth Security", () => {
         // 4. In non-interactive mode without runtime URI, CLI fails closed
         await expect(
           provisionUserCli({
-            args: { email: "cli@plant.io", role: "viewer" },
+            args: { email: "cli@plant.io", role: "operator" },
             envVars: {},
           })
         ).rejects.toThrow("Target database URI is required");

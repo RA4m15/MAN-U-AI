@@ -1,16 +1,20 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import { app } from "../src/app";
 import { connectDatabase } from "../src/config/database";
 import { env } from "../src/config/env";
+import { User } from "../src/models";
 
 describe("Stage 6: Manager Shift Task Dispatch & Engineer Retrieval", () => {
   const runId = Date.now();
   let managerToken: string;
   let engineerToken: string;
-  let viewerToken: string;
+  let operatorToken: string;
+  let managerId: string;
+  let engineerId: string;
+  let operatorId: string;
 
   beforeAll(async () => {
     try {
@@ -19,31 +23,62 @@ describe("Stage 6: Manager Shift Task Dispatch & Engineer Retrieval", () => {
       // Allow fallback if offline
     }
 
-    const managerId = new mongoose.Types.ObjectId().toString();
+    managerId = new mongoose.Types.ObjectId().toString();
+    engineerId = new mongoose.Types.ObjectId().toString();
+    operatorId = new mongoose.Types.ObjectId().toString();
+
+    await User.deleteMany({ email: { $regex: /.*-(?:manager|engineer|operator)-.*@plant\.io/ } });
+
+    await User.create([
+      {
+        _id: new mongoose.Types.ObjectId(managerId),
+        name: "Ops Manager",
+        email: `manager-${runId}@plant.io`,
+        passwordHash: "mockedHash123!",
+        role: "manager",
+      },
+      {
+        _id: new mongoose.Types.ObjectId(engineerId),
+        name: "Lead Engineer",
+        email: `engineer-${runId}@plant.io`,
+        passwordHash: "mockedHash123!",
+        role: "engineer",
+      },
+      {
+        _id: new mongoose.Types.ObjectId(operatorId),
+        name: "Readonly Operator",
+        email: `operator-${runId}@plant.io`,
+        passwordHash: "mockedHash123!",
+        role: "operator",
+      },
+    ]);
+
     managerToken = jwt.sign(
       { id: managerId, email: `manager-${runId}@plant.io`, name: "Ops Manager", role: "manager" },
       env.JWT_SECRET,
       { expiresIn: "1h" }
     );
 
-    const engineerId = new mongoose.Types.ObjectId().toString();
     engineerToken = jwt.sign(
       { id: engineerId, email: `engineer-${runId}@plant.io`, name: "Lead Engineer", role: "engineer" },
       env.JWT_SECRET,
       { expiresIn: "1h" }
     );
 
-    const viewerId = new mongoose.Types.ObjectId().toString();
-    viewerToken = jwt.sign(
-      { id: viewerId, email: `viewer-${runId}@plant.io`, name: "Readonly Viewer", role: "viewer" },
+    operatorToken = jwt.sign(
+      { id: operatorId, email: `operator-${runId}@plant.io`, name: "Readonly Operator", role: "operator" },
       env.JWT_SECRET,
       { expiresIn: "1h" }
     );
   });
 
+  afterAll(async () => {
+    await User.deleteMany({ _id: { $in: [managerId, engineerId, operatorId] } });
+  });
+
   let createdTaskId: string;
 
-  it("rejects unauthorized task creation without auth or with viewer role", async () => {
+  it("rejects unauthorized task creation without auth or with operator role", async () => {
     // 1. No token
     const resNoAuth = await request(app)
       .post("/api/v1/tasks")
@@ -51,11 +86,11 @@ describe("Stage 6: Manager Shift Task Dispatch & Engineer Retrieval", () => {
     expect(resNoAuth.status).toBe(401);
 
     // 2. Viewer role
-    const resViewer = await request(app)
+    const resOperator = await request(app)
       .post("/api/v1/tasks")
-      .set("Authorization", `Bearer ${viewerToken}`)
+      .set("Authorization", `Bearer ${operatorToken}`)
       .send({ title: "Check Pressure Gauges", description: "Verify line 2" });
-    expect(resViewer.status).toBe(403);
+    expect(resOperator.status).toBe(403);
   });
 
   it("allows Manager to dispatch a new task with equipment and priority", async () => {

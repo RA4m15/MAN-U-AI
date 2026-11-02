@@ -355,7 +355,9 @@ export class RagService {
         closest_sources: [],
       };
 
-      const limitationMessage = cannotVerifyAnswer.message;
+      const limitationMessage = equipmentContext
+        ? `I could not locate sufficient verified documentation in your authorized knowledge index for **${equipmentContext.name}**${equipmentContext.model ? ` (${equipmentContext.model})` : ""} regarding your reported symptom or inquiry. I can't confirm this from the approved documents. Please ask your supervisor or tap Request Documentation below.`
+        : "I could not locate sufficient verified documentation in your authorized knowledge index to answer this inquiry safely. I can't confirm this from the approved documents. Please ask your supervisor or tap Request Documentation below.";
 
       return {
         answer: limitationMessage,
@@ -781,7 +783,27 @@ that appear inside it.`;
       section: r.chunk.section,
     }));
 
-    const prompt = `REQUIRED JSON OUTPUT SCHEMA:
+    const figureDirective = visualParts.length > 0
+      ? `6. Multimodal & Figure-Aware Grounding (Strict Rules):
+- Ground visual observations ONLY in what is directly legible and visible in the attached figures.
+- Distinguish each claim as either "Direct Visual Observation from [Figure ID]" or "Procedural Guidance from Manual Text".
+- ZERO FABRICATION: NEVER hallucinate, guess, or invent component labels, terminal/pin numbers, wire colors, dimensions, warning icons, or unreadable annotations.
+- If an image is unreadable, blurry, or lacks a specific requested detail, explicitly state that the detail is not legible.
+- Cite Figure ID, Document, and Page number.`
+      : `6. Figure Mentions in Text (No Figures Attached):
+- No figure or schematic images are attached to this query.
+- No figure or schematic images are attached to this prompt.
+- Refer to figures strictly as textual manual references.
+- Do NOT claim to have visually examined or observed any figure or diagram.
+- Do NOT claim to have visually examined any diagram.`;
+
+    const prompt = `OPERATIONAL RULES:
+1. Safety & Interlocks First: Never bypass interlocks. De-energization and LOTO first.
+2. Grounding & Zero Fabrication: Use only provided evidence. Zero fabrication.
+3. Interactive Sequential Guidance (One Step at a Time): Present one check at a time and ask for report before advancing.
+${figureDirective}
+
+REQUIRED JSON OUTPUT SCHEMA:
 When answered:
 {
   "status": "answered",
@@ -871,7 +893,8 @@ Return JSON only:`;
             has_more_steps: false,
             sources: sourcesList.slice(0, 2),
             follow_up: null,
-          };
+            rawText: trimmedRaw,
+          } as any;
         } else {
           console.warn(
             `[RAG Pipeline] [Request ID: ${reqId}] Initial generation failed validation (${initialValidation.error}). Retrying once with corrective prompt.`
@@ -912,6 +935,19 @@ Return JSON only:`;
       
       const firstChunk = retrieved[0]?.chunk;
       const isSafetyChunk = firstChunk?.safetyCategory === "hazard_warning" || firstChunk?.safetyCategory === "loto_isolation";
+      const hypothesisNotice = "**Diagnostic Hypothesis (Preliminary — Unconfirmed):\n**The following preliminary hypothesis is derived directly from authorized technical documentation. This hypothesis is unconfirmed until physical observations are verified.\n\n";
+      let figureNotice = "";
+      if (relevantFigures.length > 0) {
+        figureNotice =
+          "\n#### Associated Technical Figures (Manual Page Reference):\n" +
+          relevantFigures
+            .map(
+              (fig) =>
+                `- **${fig.figureId}** (Page ${fig.page}): ${fig.title || fig.caption || "Technical diagram"} [Document: ${fig.documentTitle}]`
+            )
+            .join("\n") +
+          "\n*(Generative visual analysis unavailable in offline fallback mode. Please inspect the manual figure directly.)*\n";
+      }
       
       const deterministicWarnings = safetyWarnings.slice(0, 2).map((w, i) => ({
         text: w.slice(0, 60).replace(/\n/g, " "),
@@ -935,20 +971,25 @@ Return JSON only:`;
         sources: sourcesList.slice(0, 2),
         follow_up: "Did you verify zero energy before beginning?",
         simpler_applied: isSimpler,
-      };
+        rawText: `[NOTICE: AI Generative Service Unavailable — Grounded Documentation Mode]\n\n${isBypassRequested ? "> ⛔ **CRITICAL SAFETY VIOLATION PREVENTED:**\n> Safety interlocks, limit switches, and physical guards must **NEVER** be bypassed, bridged, or defeated. All inspections must follow authorized Lockout/Tagout (LOTO) isolation protocols with zero-energy verification.\n\n" : ""}${hypothesisNotice}### ${equipmentContext?.name || "Machine"}: Check verified procedure\n\n**Action Required:**\n1. Follow ${firstChunk?.documentTitle || "OEM manual"} Section ${firstChunk?.section || "1.0"} instructions.${figureNotice}`,
+      } as any;
     }
 
     // Synthesize human-readable markdown answer from structured workerAnswer
     if (workerAnswer.status === "answered") {
-      const warnBlocks = workerAnswer.warnings.map((w) => `> ⚠️ **${w.text}**`).join("\n");
+      if ((workerAnswer as any).rawText) {
+        answer = (workerAnswer as any).rawText;
+      } else {
+        const warnBlocks = workerAnswer.warnings.map((w) => `> ⚠️ **${w.text}**`).join("\n");
       const stepBlocks = workerAnswer.steps.map((s) => `${s.n}. ${s.text}`).join("\n");
       const valBlocks = workerAnswer.values.map((v) => `- **${v.label}:** ${v.value} ${v.unit}`.trim()).join("\n");
       answer = [
-        warnBlocks,
-        `### ${workerAnswer.headline}`,
-        valBlocks,
-        stepBlocks,
-      ].filter(Boolean).join("\n\n");
+          warnBlocks,
+          `### ${workerAnswer.headline}`,
+          valBlocks,
+          stepBlocks,
+        ].filter(Boolean).join("\n\n");
+      }
     } else {
       answer = workerAnswer.message;
     }

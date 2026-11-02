@@ -114,9 +114,7 @@ export function EquipmentPage() {
       }))
     : [];
 
-  const equipmentList: EquipmentItem[] = parsedList.some((e) => e.id === "equip-drypix-6000" || e.name.includes("DRYPIX"))
-    ? parsedList
-    : [drypixFallback, ...parsedList];
+  const equipmentList: EquipmentItem[] = parsedList;
 
   const createMutation = useMutation({
     mutationFn: (data: {

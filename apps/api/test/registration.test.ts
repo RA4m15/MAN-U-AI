@@ -33,7 +33,7 @@ describe("Stage 5.5 — User Registration & Privilege Escalation Defense", () =>
     expect(res.body.data.user).toBeDefined();
     expect(res.body.data.user.name).toBe("Test Operator");
     expect(res.body.data.user.email).toBe(testEmail.toLowerCase());
-    expect(res.body.data.user.role).toBe("viewer");
+    expect(res.body.data.user.role).toBe("operator");
     expect(res.body.data.user.passwordHash).toBeUndefined();
     expect(res.body.data.user.password).toBeUndefined();
 
@@ -133,11 +133,11 @@ describe("Stage 5.5 — User Registration & Privilege Escalation Defense", () =>
       });
 
     expect(res.status).toBe(201);
-    // Public self-registration assigns the least-privileged viewer role
-    expect(res.body.data.user.role).toBe("viewer");
+    // Public self-registration assigns the least-privileged operator role
+    expect(res.body.data.user.role).toBe("operator");
 
     const dbUser = await User.findOne({ email: testEmail });
-    expect(dbUser!.role).toBe("viewer");
+    expect(dbUser!.role).toBe("operator");
   });
 
   it("6. Allows the newly registered user to authenticate via /api/v1/auth/login", async () => {
@@ -161,7 +161,7 @@ describe("Stage 5.5 — User Registration & Privilege Escalation Defense", () =>
     expect(loginRes.status).toBe(200);
     expect(loginRes.body.success).toBe(true);
     expect(loginRes.body.data.token).toBeDefined();
-    expect(loginRes.body.data.user.role).toBe("viewer");
+    expect(loginRes.body.data.user.role).toBe("operator");
   });
 
   it("7. In production mode with ENABLE_PUBLIC_REGISTRATION disabled, blocks registration with 403 REGISTRATION_RESTRICTED", async () => {
@@ -207,7 +207,7 @@ describe("Stage 5.5 — User Registration & Privilege Escalation Defense", () =>
 
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.user.role).toBe("viewer");
+      expect(res.body.data.user.role).toBe("operator");
       expect(res.body.data.token).toBeDefined();
     } finally {
       process.env.NODE_ENV = originalNodeEnv;

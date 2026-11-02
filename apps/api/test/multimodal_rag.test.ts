@@ -34,7 +34,7 @@ describe("Task 4: Production-Ready Multimodal RAG and Figure-Aware Answers Suite
   const viewerUser = {
     id: "6ad8e4020000000000000002",
     email: "contractor.viewer@plant.io",
-    role: "viewer",
+    role: "operator",
   };
 
   let authorizedDocId: mongoose.Types.ObjectId;

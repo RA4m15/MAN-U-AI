@@ -89,11 +89,7 @@ export function SummariesPage() {
       }))
     : [];
 
-  const summaries: SummaryItem[] = parsedSummaries.length > 0
-    ? (parsedSummaries.some((s) => s.id === "summary-drypix-6000" || s.title.includes("DRYPIX"))
-        ? parsedSummaries
-        : [DEFAULT_OPERATIONAL_SUMMARIES[0], ...parsedSummaries])
-    : DEFAULT_OPERATIONAL_SUMMARIES;
+  const summaries: SummaryItem[] = parsedSummaries;
 
   const activeSelected =
     summaries.find((s) => s.id === selectedSummaryId) || (summaries.length > 0 ? summaries[0] : null);

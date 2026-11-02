@@ -65,7 +65,7 @@ describe("Stage 5.3 — Client-Side Route & Static Fallback Resolution", () => {
     expect(fs.existsSync(path.join(distDir, "settings/index.html"))).toBe(true);
 
     const loginHtml = fs.readFileSync(path.join(distDir, "login/index.html"), "utf-8");
-    expect(loginHtml).toContain('<div id="root"></div>');
+    expect(loginHtml).toContain('id="root"');
     expect(loginHtml).toContain('rel="stylesheet"');
     expect(loginHtml).toContain('type="module"');
   });

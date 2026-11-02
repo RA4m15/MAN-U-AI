@@ -44,7 +44,7 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
       { expiresIn: "1h" }
     );
     viewerToken = jwt.sign(
-      { id: viewerUserId, email: "viewer@plant.io", name: "Shopfloor Operator", role: "viewer" },
+      { id: viewerUserId, email: "viewer@plant.io", name: "Shopfloor Operator", role: "operator" },
       env.JWT_SECRET,
       { expiresIn: "1h" }
     );
@@ -54,7 +54,7 @@ describe("Stage 3.1: Authoritative Settings, Model Allowlist, Integration RBAC &
       await User.create([
         { _id: adminUserId, name: "Plant Admin", email: "admin@plant.io", passwordHash: "mock", role: "admin" },
         { _id: engineerUserId, name: "Plant Engineer", email: "eng@plant.io", passwordHash: "mock", role: "engineer" },
-        { _id: viewerUserId, name: "Shopfloor Operator", email: "viewer@plant.io", passwordHash: "mock", role: "viewer" },
+        { _id: viewerUserId, name: "Shopfloor Operator", email: "viewer@plant.io", passwordHash: "mock", role: "operator" },
       ]);
       await FacilitySettings.deleteMany({});
       settingsService.clearCache();

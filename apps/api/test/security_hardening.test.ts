@@ -35,7 +35,7 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
     );
 
     userBToken = jwt.sign(
-      { id: userBId, email: "userb@plant.io", name: "User B", role: "viewer" },
+      { id: userBId, email: "userb@plant.io", name: "User B", role: "operator" },
       env.JWT_SECRET,
       { expiresIn: "1h" }
     );
@@ -375,7 +375,7 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
       const res = await request(app)
         .patch(`/api/v1/users/${tempAdmin._id.toString()}/role`)
         .set("Authorization", `Bearer ${tempToken}`)
-        .send({ role: "viewer" });
+        .send({ role: "operator" });
 
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
@@ -429,7 +429,7 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
         name: "Case Test User",
         email: mixedCaseEmail,
         password: "ValidPassword123!",
-        role: "viewer",
+        role: "operator",
       });
 
     expect(res1.status).toBe(201);
@@ -445,8 +445,8 @@ describe("Production Hardening & Security Audit Suite (P0 & P1 Requirements)", (
           name: "Duplicate User",
           email: lowerCaseEmail,
           password: "ValidPassword123!",
-          role: "viewer",
-        });
+          role: "operator",
+      });
 
       expect(res2.status).toBe(409);
       expect(res2.body.success).toBe(false);
