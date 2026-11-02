@@ -80,7 +80,7 @@ class TaskRepository {
     try {
       final response = await dio.patch('/tasks/$id', data: {
         'status': status,
-        if (completionNotes != null) 'completionNotes': completionNotes,
+        'completionNotes': ?completionNotes,
       });
 
       final data = response.data;

@@ -16,13 +16,17 @@ import 'package:manuai_mobile/features/chat/views/chat_screen.dart';
 import 'package:manuai_mobile/features/equipment/controllers/equipment_controller.dart';
 import 'package:manuai_mobile/features/equipment/models/equipment_model.dart';
 import 'package:manuai_mobile/features/equipment/repositories/equipment_repository.dart';
+import 'package:manuai_mobile/features/tasks/repositories/task_repository.dart';
+import 'package:manuai_mobile/features/tasks/controllers/task_controller.dart';
 
 class MockChatRepository extends Mock implements ChatRepository {}
 class MockEquipmentRepository extends Mock implements EquipmentRepository {}
+class MockTaskRepository extends Mock implements TaskRepository {}
 
 void main() {
   late MockChatRepository mockChatRepository;
   late MockEquipmentRepository mockEquipmentRepository;
+  late MockTaskRepository mockTaskRepository;
 
   const testUser = UserModel(
     id: 'u-1',
@@ -51,6 +55,8 @@ void main() {
   setUp(() {
     mockChatRepository = MockChatRepository();
     mockEquipmentRepository = MockEquipmentRepository();
+    mockTaskRepository = MockTaskRepository();
+    when(() => mockTaskRepository.getTasks()).thenAnswer((_) async => []);
 
     when(() => mockChatRepository.getConversations())
         .thenAnswer((_) async => [testConv]);
@@ -73,6 +79,7 @@ void main() {
       overrides: [
         chatRepositoryProvider.overrideWithValue(mockChatRepository),
         equipmentRepositoryProvider.overrideWithValue(mockEquipmentRepository),
+        taskRepositoryProvider.overrideWithValue(mockTaskRepository),
         authControllerProvider.overrideWith(
           () => _TestAuthController(const Authenticated(user: testUser, token: 'fake-token')),
         ),

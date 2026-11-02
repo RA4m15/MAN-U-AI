@@ -369,6 +369,9 @@ class _InteractiveDiagramViewerScreenState
         _activeFigureId.toUpperCase().contains('COMPRESSOR') ||
         _activeFigureId.toUpperCase().contains('B01');
 
+    final isDrypix = _activeFigureId.toUpperCase().contains('DRYPIX') ||
+        _activeFigureId.toUpperCase().contains('6000');
+
     return Scaffold(
       backgroundColor: AppColors.surface,
       appBar: AppBar(

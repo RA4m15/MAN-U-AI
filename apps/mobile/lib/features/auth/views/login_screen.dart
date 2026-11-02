@@ -302,7 +302,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         child: Image.asset(
                           'assets/images/logo.png',
                           fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => const Center(
+                          errorBuilder: (context, error, stackTrace) => const Center(
                             child: Icon(
                               Icons.precision_manufacturing_rounded,
                               color: AppColors.primary,

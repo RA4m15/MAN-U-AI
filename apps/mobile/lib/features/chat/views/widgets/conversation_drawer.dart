@@ -84,7 +84,7 @@ class ConversationDrawer extends ConsumerWidget {
                         child: Image.asset(
                           'assets/images/logo.png',
                           fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => const Center(
+                          errorBuilder: (context, error, stackTrace) => const Center(
                             child: Icon(
                               Icons.bolt_rounded,
                               color: AppColors.primary,
@@ -151,7 +151,7 @@ class ConversationDrawer extends ConsumerWidget {
                           Container(
                             padding: const EdgeInsets.all(6.0),
                             decoration: BoxDecoration(
-                              color: AppColors.primary.withOpacity(0.15),
+                              color: AppColors.primary.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(6.0),
                             ),
                             child: const Icon(Icons.assignment_outlined, color: AppColors.primaryHover, size: 18.0),
