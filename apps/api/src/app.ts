@@ -145,6 +145,59 @@ app.use("/api/", limiter);
 // Root Health check
 app.use("/health", healthRouter);
 
+// Root Gateway Handler & Auto-Navigation
+app.get("/", (req: Request, res: Response) => {
+  const isHtml = req.accepts(["html", "json"]) === "html";
+  if (isHtml) {
+    return res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MAN-U-AI Operational Gateway</title>
+  <meta http-equiv="refresh" content="1;url=http://localhost:5173/">
+  <style>
+    body { background: #0f1011; color: #f4f4f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+    .card { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 32px; max-width: 520px; width: 100%; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    .badge { display: inline-block; background: #0057ff22; color: #0057ff; font-weight: 700; font-size: 11px; padding: 4px 10px; border-radius: 999px; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 12px; border: 1px solid #0057ff44; }
+    h1 { font-size: 22px; font-weight: 700; margin: 0 0 8px; color: #ffffff; }
+    p { color: #a1a1aa; font-size: 14px; line-height: 1.5; margin: 0 0 24px; }
+    .btn { display: block; margin: 10px 0; padding: 14px 20px; background: #0057ff; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; transition: background 0.15s; }
+    .btn:hover { background: #0046cc; }
+    .btn-secondary { background: #27272a; color: #ffffff; border: 1px solid #3f3f46; }
+    .btn-secondary:hover { background: #3f3f46; }
+    .hint { font-size: 12px; color: #71717a; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">MAN-U-AI Core Gateway</div>
+    <h1>Industrial Copilot Active</h1>
+    <p>You have reached the backend API service (Port 4000). Redirecting you to the Web Interface...</p>
+    <a href="http://localhost:5173/" class="btn">Open Web Operations Console (Port 5173)</a>
+    <a href="http://localhost:8080/" class="btn btn-secondary">Open Shop-Floor Mobile Web App (Port 8080)</a>
+    <a href="http://localhost:5173/manager/login" class="btn btn-secondary">Open Plant Manager Portal</a>
+    <div class="hint">Auto-redirecting in 1 second... If redirect does not occur, click above.</div>
+  </div>
+</body>
+</html>`);
+  }
+  return res.json({
+    success: true,
+    data: {
+      name: "MAN-U-AI Industrial Backend API",
+      status: "operational",
+      version: "1.0.0",
+      endpoints: {
+        health: "/health",
+        apiV1: "/api/v1",
+        webConsole: "http://localhost:5173",
+        mobilePanel: "http://localhost:8080",
+      },
+    },
+  });
+});
+
 // Versioned API v1 Router
 const apiV1 = express.Router();
 apiV1.use("/health", healthRouter);
