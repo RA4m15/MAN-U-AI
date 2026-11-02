@@ -24,16 +24,28 @@ export function getRoleLanding(role: UserRole | undefined): string {
   return "/unsupported-access";
 }
 
+function LoadingIndicator() {
+  return (
+    <div className="min-h-screen bg-canvas flex flex-col items-center justify-center p-4">
+      <img src="/logo.png" alt="MAN-U-AI" className="w-12 h-12 mb-3 object-contain" />
+      <div className="flex items-center gap-2 text-xs text-primary font-mono tracking-widest uppercase">
+        <span className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <span>Authorizing clearance...</span>
+      </div>
+    </div>
+  );
+}
+
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, isLoading } = useAuth();
-  if (isLoading) return null;
+  if (isLoading) return <LoadingIndicator />;
   if (isAuthenticated) return <Navigate to={getRoleLanding(user?.role)} replace />;
   return <>{children}</>;
 }
 
 function RoleHomeRedirect() {
   const { user, isAuthenticated, isLoading } = useAuth();
-  if (isLoading) return null;
+  if (isLoading) return <LoadingIndicator />;
 
   const hostnameType = getHostnameType();
 
@@ -106,7 +118,7 @@ function LegacyRouteRedirect() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
 
-  if (isLoading) return null;
+  if (isLoading) return <LoadingIndicator />;
   const hostnameType = getHostnameType();
 
   if (!isAuthenticated || !user) {
@@ -146,14 +158,14 @@ function UnsupportedAccessPage() {
 
 function AuthenticatedOnlyRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
-  if (isLoading) return null;
+  if (isLoading) return <LoadingIndicator />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
 function EngineerOnlyRoute({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, isLoading } = useAuth();
-  if (isLoading) return null;
+  if (isLoading) return <LoadingIndicator />;
   if (!isAuthenticated || !user) return <Navigate to="/login" replace />;
   if (user.role !== "engineer") return <Navigate to={getRoleLanding(user.role)} replace />;
   return <>{children}</>;

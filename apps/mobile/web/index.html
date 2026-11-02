@@ -1,46 +1,112 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="$FLUTTER_BASE_HREF">
-
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="MAN-U-AI Shop-Floor Mobile Companion">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="manuai_mobile">
+  <meta name="apple-mobile-web-app-title" content="MAN-U-AI">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
-  <title>manuai_mobile</title>
+  <title>MAN-U-AI | Mobile Companion</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    body {
+      margin: 0;
+      background-color: #070B14;
+      overflow: hidden;
+    }
+    #flutter-splash {
+      position: fixed;
+      inset: 0;
+      background: #070B14;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 999999;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      transition: opacity 0.4s ease-out;
+    }
+    .splash-logo {
+      width: 52px;
+      height: 52px;
+      margin-bottom: 16px;
+      object-fit: contain;
+    }
+    .splash-title {
+      color: #0057ff;
+      font-family: monospace;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .splash-subtitle {
+      color: #71717a;
+      font-size: 12px;
+      margin-bottom: 20px;
+    }
+    .splash-bar {
+      width: 140px;
+      height: 3px;
+      background: #1e293b;
+      border-radius: 2px;
+      overflow: hidden;
+      position: relative;
+    }
+    .splash-bar-inner {
+      width: 50px;
+      height: 100%;
+      background: #0057ff;
+      position: absolute;
+      animation: splashPulse 1.2s infinite ease-in-out;
+    }
+    @keyframes splashPulse {
+      0% { left: -40%; width: 30%; }
+      50% { left: 40%; width: 50%; }
+      100% { left: 100%; width: 30%; }
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+  <div id="flutter-splash">
+    <img src="favicon.png" alt="MAN-U-AI" class="splash-logo" />
+    <div class="splash-title">MAN-U-AI INDUSTRIAL COMPANION</div>
+    <div class="splash-subtitle">Loading shop-floor operational models...</div>
+    <div class="splash-bar">
+      <div class="splash-bar-inner"></div>
+    </div>
+  </div>
 
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <script>
+    function removeSplash() {
+      const splash = document.getElementById('flutter-splash');
+      if (splash) {
+        splash.style.opacity = '0';
+        setTimeout(() => splash.remove(), 400);
+      }
+    }
+    window.addEventListener('flutter-first-frame', removeSplash);
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('flt-glass-pane') || document.querySelector('flutter-view')) {
+        setTimeout(removeSplash, 400);
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    setTimeout(removeSplash, 6000);
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

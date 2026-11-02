@@ -30,18 +30,26 @@ export function RightPanel({ panel = "manager" }: { panel?: PanelType }) {
   const basePath = `/${panel}`;
   const [liveProgress, setLiveProgress] = useState<{ docId: string; progress: number; stage: string } | null>(null);
 
-  const { data: documents = [] } = useQuery({
-    queryKey: ["documents"],
+  const { data: rawDocuments = [] } = useQuery({
+    queryKey: ["right-panel-documents"],
     queryFn: async () => {
       try {
         const res = await documentsApi.list(1, 20);
-        return res.data?.data || [];
+        return Array.isArray(res.data?.data) ? res.data.data : [];
       } catch {
         return [];
       }
     },
     refetchInterval: 10_000,
   });
+
+  const docList: any[] = Array.isArray(rawDocuments)
+    ? rawDocuments
+    : (Array.isArray((rawDocuments as any)?.data?.data)
+      ? (rawDocuments as any).data.data
+      : (Array.isArray((rawDocuments as any)?.data)
+        ? (rawDocuments as any).data
+        : []));
 
   useEffect(() => {
     const socket = getSocket();
@@ -54,6 +62,7 @@ export function RightPanel({ panel = "manager" }: { panel?: PanelType }) {
     };
 
     const onStatus = () => {
+      queryClient.invalidateQueries({ queryKey: ["right-panel-documents"] });
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["analytics"] });
     };
@@ -67,8 +76,8 @@ export function RightPanel({ panel = "manager" }: { panel?: PanelType }) {
     };
   }, [queryClient]);
 
-  const activeProcessingDocs = documents.filter((d: any) => d.status === "processing");
-  const indexedDocs = documents.filter((d: any) => d.status === "indexed");
+  const activeProcessingDocs = docList.filter((d: any) => d && d.status === "processing");
+  const indexedDocs = docList.filter((d: any) => d && d.status === "indexed");
 
   return (
     <div className="flex flex-col h-full overflow-y-auto scrollbar-none p-4 space-y-5">
@@ -97,7 +106,7 @@ export function RightPanel({ panel = "manager" }: { panel?: PanelType }) {
         )}
 
         <div className="space-y-1.5">
-          {documents.slice(0, 4).map((doc: any) => (
+          {docList.slice(0, 4).map((doc: any) => (
             <Link
               key={doc.id}
               to={`${basePath}/knowledge/manuals/${doc.id}`}
@@ -113,7 +122,7 @@ export function RightPanel({ panel = "manager" }: { panel?: PanelType }) {
             </Link>
           ))}
 
-          {documents.length === 0 && (
+          {docList.length === 0 && (
             <p className="text-2xs text-ink-tertiary p-3 text-center border border-dashed border-hairline rounded-lg">
               No documents in processing queue
             </p>
@@ -158,7 +167,7 @@ export function RightPanel({ panel = "manager" }: { panel?: PanelType }) {
 
           {indexedDocs.length === 0 && (
             <p className="text-2xs text-ink-tertiary p-3 text-center border border-dashed border-hairline rounded-lg">
-              No indexed manuals. Upload a document from the Knowledge Library to begin.
+              No indexed manuals currently linked
             </p>
           )}
         </div>
@@ -168,24 +177,28 @@ export function RightPanel({ panel = "manager" }: { panel?: PanelType }) {
 
       <section>
         <h3 className="text-xs font-semibold text-ink-subtle uppercase tracking-wide mb-2 flex items-center gap-1.5">
-          <Sparkles size={12} className="text-primary" />
-          Recommended Grounded Inquiries
+          <Sparkles size={13} className="text-primary" />
+          Active Intelligence Guardrails
         </h3>
-        <div className="space-y-1.5 text-xs">
-          {[
-            "What are the torque specifications for pump flange bolts?",
-            "Show me the lockout/tagout procedure for compressor C-101",
-            "Verify mechanical seal gland stud torque on Slurry Pump P-102",
-          ].map((prompt, i) => (
-            <Link
-              key={i}
-              to={`${basePath}/assistant?query=${encodeURIComponent(prompt)}`}
-              state={{ from: location.pathname }}
-              className="block text-left p-2 rounded-md bg-surface-2 border border-hairline text-2xs text-ink-subtle hover:text-ink hover:border-hairline-strong transition-colors"
-            >
-              "{prompt}"
-            </Link>
-          ))}
+        <div className="space-y-2 text-2xs">
+          <div className="p-2.5 rounded-lg bg-surface-2 border border-hairline space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-ink">Zero Hallucination</span>
+              <span className="text-success font-mono font-bold">STRICT</span>
+            </div>
+            <p className="text-ink-tertiary">All copilot answers require direct citations from verified plant SOPs.</p>
+          </div>
+          <div className="p-2.5 rounded-lg bg-surface-2 border border-hairline space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-ink">Role Separation</span>
+              <span className="text-primary font-mono font-bold">{panel.toUpperCase()}</span>
+            </div>
+            <p className="text-ink-tertiary">
+              {panel === "admin"
+                ? "Full administrative controls and telemetry."
+                : "Shift operations and plant floor execution."}
+            </p>
+          </div>
         </div>
       </section>
     </div>
