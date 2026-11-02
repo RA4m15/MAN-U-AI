@@ -623,7 +623,6 @@ export function initCadBridge(options: CadViewerBridgeOptions): CadViewerBridge 
             if (cmd.viewerInstanceId) {
                 activeViewerInstanceId = cmd.viewerInstanceId;
             }
-            const instanceId = cmd.viewerInstanceId || activeViewerInstanceId;
 
             if (cmd.version !== undefined && cmd.version !== 1) {
                 const errResp: CadBridgeResponseMessage = {

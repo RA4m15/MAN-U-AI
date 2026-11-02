@@ -54,6 +54,28 @@ describe("Stage 8 — Machine Catalog & CAD Lifecycle Management Suite", () => {
       expect(res.body.success).toBe(false);
       expect(res.body.error.code).toBe("CAD_MODEL_PENDING");
     });
+
+    it("verifies GET /api/v1/equipment/equip-p102/cad streams genuine STEP file", async () => {
+      const res = await request(app)
+        .get("/api/v1/equipment/equip-p102/cad")
+        .set("Authorization", `Bearer ${engineerToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("application/octet-stream");
+      expect(res.headers["content-disposition"]).toContain("slurry_pump_p102.step");
+      expect(res.body.length).toBeGreaterThan(0);
+    });
+
+    it("verifies GET /api/v1/equipment/equip-cb-a61/cad streams genuine STEP file", async () => {
+      const res = await request(app)
+        .get("/api/v1/equipment/equip-cb-a61/cad")
+        .set("Authorization", `Bearer ${engineerToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("application/octet-stream");
+      expect(res.headers["content-disposition"]).toContain("conveyor_belt_a61.step");
+      expect(res.body.length).toBeGreaterThan(0);
+    });
   });
 
   describe("Part 2: CAD File Upload RBAC & Validation", () => {
@@ -82,6 +104,21 @@ describe("Stage 8 — Machine Catalog & CAD Lifecycle Management Suite", () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe("INVALID_CAD_FORMAT");
+    });
+
+    it("rejects CAD models that exceed the 90 MB WebAssembly limit", async () => {
+      // Create a virtual oversized buffer that exceeds 90 MB
+      const oversizedBuffer = Buffer.alloc(91 * 1024 * 1024);
+      oversizedBuffer.write("ISO-10303-21;\nHEADER;");
+
+      const res = await request(app)
+        .post("/api/v1/equipment/machine_001/cad")
+        .set("Authorization", `Bearer ${adminToken}`)
+        .attach("file", oversizedBuffer, "oversized_assembly.step");
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("CAD_FILE_TOO_LARGE");
+      expect(res.body.error.message).toContain("90 MB");
     });
 
     it("allows manager to upload a valid STEP CAD model", async () => {
@@ -134,8 +171,11 @@ describe("Stage 8 — Machine Catalog & CAD Lifecycle Management Suite", () => {
     it("correctly identifies exploded-view intents while rejecting maintenance spec questions", () => {
       // Must match
       expect(isExplodedViewIntent("Show me the exploded view")).toBe(true);
+      expect(isExplodedViewIntent("Show me the exploded view of this machine.")).toBe(true);
       expect(isExplodedViewIntent("Open the 3D model")).toBe(true);
+      expect(isExplodedViewIntent("Open the 3D assembly")).toBe(true);
       expect(isExplodedViewIntent("Show the internal structure")).toBe(true);
+      expect(isExplodedViewIntent("Show internal components")).toBe(true);
       expect(isExplodedViewIntent("Let me inspect this machine")).toBe(true);
       expect(isExplodedViewIntent("Show machine components")).toBe(true);
       expect(isExplodedViewIntent("Open machine assembly")).toBe(true);
@@ -143,6 +183,8 @@ describe("Stage 8 — Machine Catalog & CAD Lifecycle Management Suite", () => {
       expect(isExplodedViewIntent("Load 3D CAD viewer for this pump")).toBe(true);
 
       // Must NOT match ordinary maintenance queries
+      expect(isExplodedViewIntent("Explain selected bearing")).toBe(false);
+      expect(isExplodedViewIntent("What is the maintenance procedure for the mechanical seal?")).toBe(false);
       expect(isExplodedViewIntent("What is the bearing lubrication spec?")).toBe(false);
       expect(isExplodedViewIntent("What is the bearing clearance?")).toBe(false);
       expect(isExplodedViewIntent("What torque is required for the casing bolts?")).toBe(false);

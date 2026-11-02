@@ -35,9 +35,8 @@ export function isExplodedViewIntent(text: string): boolean {
     /\b(exploded[\s-]view|explode\b.*(assembly|machine|model|view)|show\b.*explosion)\b/i,
     /\b(open|show|display|load|launch|inspect|view)\b.*\b(3d\s*(model|cad|viewer|assembly|mesh)|cad\s*(model|viewer|assembly))\b/i,
     /\b(3d\s*(model|cad|viewer|assembly))\b/i,
-    /\b(show|view|inspect|display|open)\b.*\b(internal\s*structure|machine\s*assembly|assembly\s*view|assembly\s*hierarchy)\b/i,
+    /\b(show|view|inspect|display|open)\b.*\b(internal\s*(structure|components)|machine\s*components|components\s*in\s*3d|machine\s*assembly|assembly\s*view|assembly\s*hierarchy)\b/i,
     /\b(let\s+me\s+inspect\s+(this|the)\s+machine|open\s+(this|the)\s+machine\s+model|inspect\s+(this|the)\s+machine)\b/i,
-    /\b(show|open|display|inspect)\b.*\b(machine\s*components|components\s*in\s*3d)\b/i,
     /^(show|open|view|launch)\s+(exploded\s+view|3d\s+model|cad\s+model)$/i,
   ];
 

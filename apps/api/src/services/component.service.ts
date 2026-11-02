@@ -274,6 +274,13 @@ const DEFAULT_VERIFIED_MANIFESTS: Record<string, MachineManifestEntry> = {
   "equip-cb-a61": {
     name: "Conveyor Belt A61",
     model: "A61-SIMREADY-01",
+    category: "Modular Belt Conveyor",
+    cadModel: {
+      available: true,
+      format: "STEP",
+      storageReference: "/cad/models/conveyor_belt_a61.step",
+      version: "1.0",
+    },
     documentIds: ["doc-cb-a61", "doc-conveyor-a61"],
     components: [
       {
@@ -321,6 +328,13 @@ const DEFAULT_VERIFIED_MANIFESTS: Record<string, MachineManifestEntry> = {
   "equip-p102": {
     name: "Centrifugal Slurry Pump P-102",
     model: "SP-400 Heavy Duty",
+    category: "Centrifugal Pump",
+    cadModel: {
+      available: true,
+      format: "STEP",
+      storageReference: "/cad/models/slurry_pump_p102.step",
+      version: "1.0",
+    },
     documentIds: ["doc-01", "doc-slurry-pump"],
     components: [
       {

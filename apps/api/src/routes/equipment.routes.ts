@@ -87,6 +87,12 @@ equipmentRouter.get("/", requireAuth, async (req: Request, res: Response) => {
           manufacturer: "SimReady Systems",
           serialNumber: "SR-CB-A61-2024",
           location: "Packaging & Sortation Line 1",
+          cadModel: {
+            available: true,
+            format: "step",
+            storageReference: "conveyor_belt_a61.step",
+            version: "v1.0",
+          },
           documentIds: ["doc-conveyor-a61"],
           status: "operational",
           telemetryConfig: {
@@ -107,6 +113,12 @@ equipmentRouter.get("/", requireAuth, async (req: Request, res: Response) => {
           manufacturer: "Flowserve",
           serialNumber: "FS-2023-9981",
           location: "Line 1 - Slurry Preparation",
+          cadModel: {
+            available: true,
+            format: "step",
+            storageReference: "slurry_pump_p102.step",
+            version: "v1.0",
+          },
           documentIds: ["doc-slurry-pump"],
           status: "operational",
           telemetryConfig: {
@@ -383,9 +395,43 @@ equipmentRouter.delete(
 // ─── CAD Model Storage & Upload Endpoints (Part 5) ──────────────────────────
 
 const ALLOWED_CAD_EXTENSIONS = new Set([".step", ".stp", ".iges", ".igs", ".brep"]);
-const MAX_CAD_FILE_SIZE = 100 * 1024 * 1024; // 100 MB max
+const MAX_CAD_FILE_SIZE = 90 * 1024 * 1024; // 90 MB max (aligned with frontend WebAssembly / Emscripten heap threshold)
 
-const inMemoryCadStorage = new Map<string, any>();
+const inMemoryCadStorage = new Map<string, any>([
+  [
+    "equip-p102",
+    {
+      available: true,
+      format: "step",
+      storageReference: "slurry_pump_p102.step",
+      version: "v1.0",
+      fileSizeBytes: 252719,
+      uploadedAt: new Date("2026-10-25T00:00:00.000Z").toISOString(),
+    },
+  ],
+  [
+    "machine_001",
+    {
+      available: true,
+      format: "step",
+      storageReference: "slurry_pump_p102.step",
+      version: "v1.0",
+      fileSizeBytes: 252719,
+      uploadedAt: new Date("2026-10-25T00:00:00.000Z").toISOString(),
+    },
+  ],
+  [
+    "equip-cb-a61",
+    {
+      available: true,
+      format: "step",
+      storageReference: "conveyor_belt_a61.step",
+      version: "v1.0",
+      fileSizeBytes: 244702,
+      uploadedAt: new Date("2026-10-25T00:00:00.000Z").toISOString(),
+    },
+  ],
+]);
 
 const cadUpload = multer({
   storage: multer.memoryStorage(),
@@ -408,6 +454,15 @@ equipmentRouter.post(
   (req, res, next) => {
     cadUpload.single("file")(req, res, (err: any) => {
       if (err) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: "CAD_FILE_TOO_LARGE",
+              message: "CAD model exceeds maximum supported size of 90 MB (aligned with WebAssembly memory limits).",
+            },
+          });
+        }
         if (err.message && err.message.includes("Unsupported CAD format")) {
           return res.status(400).json({
             success: false,
