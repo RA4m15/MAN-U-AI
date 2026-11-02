@@ -106,7 +106,7 @@ export function MermaidFlowchartViewer({
     // Enhance SVG styling for industrial display
     svgEl.style.width = "100%";
     svgEl.style.height = "auto";
-    svgEl.style.maxHeight = "650px";
+    svgEl.style.minHeight = "400px";
     svgEl.style.display = "block";
     svgEl.style.margin = "0 auto";
 
@@ -264,7 +264,7 @@ export function MermaidFlowchartViewer({
         {!isRendering && !renderError && svgContent && (
           <div
             ref={containerRef}
-            className="w-full transition-transform duration-200 origin-center"
+            className="w-full transition-transform duration-200 origin-top"
             style={{ transform: `scale(${zoomLevel})` }}
             dangerouslySetInnerHTML={{ __html: svgContent }}
           />
@@ -292,3 +292,4 @@ export function MermaidFlowchartViewer({
     </div>
   );
 }
+

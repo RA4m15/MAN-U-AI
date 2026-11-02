@@ -162,7 +162,7 @@ export function SopFlowchartPage() {
     activeFlowchart?.nodes.find((n) => n.id === selectedNodeId) || null;
 
   return (
-    <div className="space-y-6 pb-12 animate-fade-in print:p-0 print:m-0 print:space-y-4">
+    <div className="flex flex-col h-full bg-canvas overflow-y-auto p-4 md:p-8 space-y-6 pb-24 animate-fade-in print:p-0 print:m-0 print:space-y-4 print:overflow-visible">
       {/* Page Header (Hidden during wall print) */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
         <div>
@@ -338,7 +338,7 @@ export function SopFlowchartPage() {
             </div>
 
             {/* Side Inspector Panel */}
-            <div className="w-full lg:w-96 flex-shrink-0">
+            <div className="w-full lg:w-96 flex-shrink-0 lg:sticky lg:top-4">
               <FlowchartNodeInspector
                 node={selectedNode}
                 edges={activeFlowchart.edges}
