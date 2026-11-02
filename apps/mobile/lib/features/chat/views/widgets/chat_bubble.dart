@@ -10,6 +10,7 @@ import '../../../tickets/repositories/ticket_repository.dart';
 import '../../../diagram/views/interactive_diagram_viewer_screen.dart';
 import 'citation_card.dart';
 import 'step_to_source_modal.dart';
+import 'sop_flowchart_modal.dart';
 import 'safety_preconditions_card.dart';
 
 /// Terminal Cobalt Mobile Chat Bubble
@@ -660,6 +661,66 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
                           ),
                           const SizedBox(width: 4.0),
                           const Icon(Icons.chevron_right_rounded, color: AppColors.primary, size: 18.0),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // SOP Auto-Flowchart Diagram Button
+                  const SizedBox(height: 8.0),
+                  InkWell(
+                    key: const Key('sop_auto_flowchart_button'),
+                    onTap: () {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => SopFlowchartModal(
+                          workerAnswer: widget.message.workerAnswer,
+                          citations: citations,
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(6.0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
+                      decoration: BoxDecoration(
+                        color: AppColors.accentCategorical5.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(6.0),
+                        border: Border.all(color: AppColors.accentCategorical5.withValues(alpha: 0.35), width: 1.0),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.account_tree_rounded, color: AppColors.accentCategorical5, size: 16.0),
+                          const SizedBox(width: 8.0),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'SOP AUTO-FLOWCHART DIAGRAM',
+                                  style: AppTypography.labelMd.copyWith(
+                                    color: Colors.white,
+                                    fontSize: 11.0,
+                                    letterSpacing: 0.6,
+                                  ),
+                                ),
+                                Text(
+                                  'Start, decisions & red warnings · Tap node for OEM citation',
+                                  style: AppTypography.caption.copyWith(
+                                    color: AppColors.onSurfaceVariant,
+                                    fontSize: 9.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const BadgePill(
+                            label: 'APPROVED',
+                            color: AppColors.success,
+                          ),
+                          const SizedBox(width: 4.0),
+                          const Icon(Icons.chevron_right_rounded, color: AppColors.accentCategorical5, size: 18.0),
                         ],
                       ),
                     ),

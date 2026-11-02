@@ -19,6 +19,7 @@ import {
   LogOut,
   Zap,
   LayoutDashboard,
+  Workflow,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { conversationsApi } from "@/lib/api";
@@ -47,6 +48,7 @@ const ADMIN_NAV_SECTIONS: NavSection[] = [
     items: [
       { label: "Knowledge Library", path: "knowledge", icon: <Library size={15} /> },
       { label: "SOPs & Manuals", path: "knowledge?tab=sops", icon: <BookOpen size={15} /> },
+      { label: "SOP Flowcharts", path: "flowcharts", icon: <Workflow size={15} /> },
       { label: "Equipment Registry", path: "equipment", icon: <Cpu size={15} /> },
       { label: "Summaries", path: "summaries", icon: <FileText size={15} /> },
       { label: "Shift Tasks Dispatch", path: "tasks", icon: <ClipboardList size={15} /> },

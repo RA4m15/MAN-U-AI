@@ -20,6 +20,7 @@ import { glossaryRouter } from "./routes/glossary.routes";
 import { ticketRouter } from "./routes/tickets.routes";
 import { diagramRouter } from "./routes/diagrams.routes";
 import { taskRouter } from "./routes/tasks.routes";
+import { flowchartsRouter } from "./routes/flowcharts.routes";
 
 export const app = express();
 
@@ -215,6 +216,7 @@ apiV1.use("/glossary", glossaryRouter);
 apiV1.use("/tickets", ticketRouter);
 apiV1.use("/diagrams", diagramRouter);
 apiV1.use("/tasks", taskRouter);
+apiV1.use("/flowcharts", flowchartsRouter);
 
 app.use("/api/v1", apiV1);
 app.use("/api", apiV1);

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { StepToSourceViewer } from "./StepToSourceViewer";
 import { Link } from "react-router-dom";
 import {
@@ -13,6 +14,7 @@ import {
   ThumbsDown,
   CheckCircle,
   GitCommit,
+  Workflow,
 } from "lucide-react";
 import type { WorkerResponseDTO, CitationDTO } from "@man-u-ai/shared";
 
@@ -29,6 +31,7 @@ export function WorkerAnswerCard({
   onAskSimpler,
   onFeedback,
 }: WorkerAnswerCardProps) {
+  const { user } = useAuth();
   const [showAllSteps, setShowAllSteps] = useState(false);
   const [showManualText, setShowManualText] = useState(false);
   const [showStepToSource, setShowStepToSource] = useState(true);
@@ -284,6 +287,22 @@ export function WorkerAnswerCard({
               <span>Simpler</span>
             </button>
           )}
+
+          {/* SOP to Auto-Flowchart Shortcut */}
+          <Link
+            to={user?.role === "manager" ? "/manager/flowcharts" : "/admin/flowcharts"}
+            state={{
+              initialTitle: answer.headline ? `${answer.headline} Flowchart` : "SOP Flowchart",
+              initialProcedure: answer.steps && answer.steps.length > 0
+                ? answer.steps.map((s, idx) => `Step ${idx + 1}: ${s.text}`).join("\n\n")
+                : citations.map((c) => c.excerpt).join("\n\n"),
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-2 border border-hairline text-xs font-semibold text-ink hover:bg-surface-3 transition-colors"
+            title="Convert this procedure into an interactive Auto-Flowchart diagram"
+          >
+            <Workflow size={14} className="text-cyan-400" />
+            <span>Auto-Flowchart</span>
+          </Link>
         </div>
 
         {/* Feedback Buttons: Easy to understand? 👍 👎 */}

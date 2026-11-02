@@ -12,6 +12,7 @@ import { KnowledgeLibraryPage } from "@/pages/KnowledgeLibraryPage";
 import { ManualViewerPage } from "@/pages/ManualViewerPage";
 import { EquipmentPage } from "@/pages/EquipmentPage";
 import { SummariesPage } from "@/pages/SummariesPage";
+import { SopFlowchartPage } from "@/pages/SopFlowchartPage";
 
 function ProtectedManagerRoute({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -75,6 +76,7 @@ export function ManagerRoutes() {
         <Route path="knowledge/manuals/:documentId" element={<ManualViewerPage />} />
         <Route path="equipment" element={<EquipmentPage />} />
         <Route path="summaries" element={<SummariesPage />} />
+        <Route path="flowcharts" element={<SopFlowchartPage />} />
         <Route path="operations" element={<ManagerOperationsPage />} />
         <Route path="maintenance" element={<ManagerMaintenancePage />} />
         <Route path="tasks" element={<ManagerTasksPage />} />
