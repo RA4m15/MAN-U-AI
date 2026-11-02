@@ -7,6 +7,7 @@ import '../../features/auth/views/login_screen.dart';
 import '../../features/auth/views/register_screen.dart';
 import '../../features/chat/views/chat_screen.dart';
 import '../../features/media/views/media_capture_screen.dart';
+import '../../features/settings/views/settings_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authNotifier = _AuthStateNotifier(ref);
@@ -48,6 +49,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/camera',
         builder: (context, state) => const MediaCaptureScreen(),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const SettingsScreen(),
       ),
     ],
   );

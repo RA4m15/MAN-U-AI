@@ -626,7 +626,7 @@ class _MediaUploadModalState extends ConsumerState<MediaUploadModal> {
                 key: const Key('media_title_input'),
                 controller: _titleController,
                 enabled: !_isUploading,
-                style: AppTypography.bodyMd.copyWith(color: Colors.white, fontSize: 13.0),
+                style: AppTypography.bodyMd.copyWith(color: AppColors.onSurface, fontSize: 13.0),
                 decoration: InputDecoration(
                   hintText: 'e.g. Slurry Pump Seal Leakage Inspection',
                   hintStyle: AppTypography.caption,
@@ -660,7 +660,7 @@ class _MediaUploadModalState extends ConsumerState<MediaUploadModal> {
                 controller: _descriptionController,
                 enabled: !_isUploading,
                 maxLines: 2,
-                style: AppTypography.bodyMd.copyWith(color: Colors.white, fontSize: 13.0),
+                style: AppTypography.bodyMd.copyWith(color: AppColors.onSurface, fontSize: 13.0),
                 decoration: InputDecoration(
                   hintText: 'Note vibration, overheating, acoustic anomalies, or part wear...',
                   hintStyle: AppTypography.caption,

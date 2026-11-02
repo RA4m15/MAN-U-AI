@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/theme/widgets/terminal_components.dart';
@@ -422,6 +423,18 @@ class ConversationDrawer extends ConsumerWidget {
                       ],
                     ),
                   ),
+                  ButtonIconTile(
+                    key: const Key('drawer_settings_button'),
+                    icon: Icons.settings_outlined,
+                    size: 38.0,
+                    iconColor: AppColors.onSurfaceVariant,
+                    tooltip: 'Settings',
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      context.push('/settings');
+                    },
+                  ),
+                  const SizedBox(width: 8.0),
                   ButtonIconTile(
                     key: const Key('drawer_logout_button'),
                     icon: Icons.logout_rounded,
